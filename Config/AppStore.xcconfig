@@ -1,5 +1,5 @@
 #include "Release.xcconfig"
 
 // Capability profile retained for a possible reduced Mac App Store edition.
-CODE_SIGN_ENTITLEMENTS = Config/Notch-AppStore.entitlements
+CODE_SIGN_ENTITLEMENTS = Config/Notchium-AppStore.entitlements
 SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) NOTCH_APP_STORE

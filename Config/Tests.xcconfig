@@ -7,8 +7,8 @@
 // ==========================================
 // Test Target Settings (Customizable by scaffold tool)
 // ==========================================
-PRODUCT_BUNDLE_IDENTIFIER = com.marcusyu.notch
-TEST_TARGET_NAME = Notch
+PRODUCT_BUNDLE_IDENTIFIER = com.marcusyu.notchium
+TEST_TARGET_NAME = Notchium
 
 // Fix duplicate module name issue
 PRODUCT_MODULE_NAME = $(PRODUCT_NAME)UITests

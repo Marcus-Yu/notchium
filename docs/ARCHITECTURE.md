@@ -17,41 +17,41 @@ Stage 1 creates boundaries and executable shell infrastructure only. It does not
 The workspace separates the macOS executable from reusable application code:
 
 ```text
-Notch.xcworkspace
-├── Notch.xcodeproj
-│   ├── Notch/                 minimal app lifecycle and scenes
-│   └── NotchUITests/          XCUITest target
-└── NotchPackage/
+Notchium.xcworkspace
+├── Notchium.xcodeproj
+│   ├── Notchium/                 minimal app lifecycle and scenes
+│   └── NotchiumUITests/          XCUITest target
+└── NotchiumPackage/
     ├── Sources/
-    │   ├── NotchCore/
-    │   ├── NotchDiagnostics/
-    │   ├── NotchServices/
-    │   ├── NotchPersistence/
-    │   ├── NotchDesignSystem/
-    │   ├── NotchDynamicIsland/
-    │   ├── Notch*Feature/     one target per product feature
-    │   ├── NotchDebug/
-    │   ├── NotchFeature/      composition-facing library
-    │   └── NotchTestFixtures/
-    └── Tests/NotchFeatureTests/
+    │   ├── NotchiumCore/
+    │   ├── NotchiumDiagnostics/
+    │   ├── NotchiumServices/
+    │   ├── NotchiumPersistence/
+    │   ├── NotchiumDesignSystem/
+    │   ├── NotchiumDynamicIsland/
+    │   ├── Notchium*Feature/     one target per product feature
+    │   ├── NotchiumDebug/
+    │   ├── NotchiumFeature/      composition-facing library
+    │   └── NotchiumTestFixtures/
+    └── Tests/NotchiumFeatureTests/
 ```
 
-The Xcode application target knows only the `NotchFeature` package product. Feature targets do not know about the app lifecycle, the developer panel, or each other. This keeps changes local and prevents a single application model from accumulating unrelated behavior.
+The Xcode application target knows only the `NotchiumFeature` package product. Feature targets do not know about the app lifecycle, the developer panel, or each other. This keeps changes local and prevents a single application model from accumulating unrelated behavior.
 
 ## Module responsibilities
 
 | Module | Responsibility | Must not own |
 |---|---|---|
-| `NotchCore` | Feature IDs, capability and permission states, distribution profile, feature flags, service errors, and clock contracts. | AppKit, feature I/O, persistence, or presentation. |
-| `NotchDiagnostics` | Privacy-redacted event identifiers and unified/mock loggers. | User content or arbitrary diagnostic strings. |
-| `NotchServices` | Platform-facing protocols, value models, Stage 1 real adapters, mocks, and the immutable service registry. | SwiftUI presentation or hidden dependency construction. |
-| `NotchPersistence` | Retention contracts and real/mock persistence boundaries. | Feature-specific UI or cloud synchronization. |
-| `NotchDesignSystem` | Shared system-native measurements and surface treatment. | Feature state or system services. |
-| `NotchDynamicIsland` | Built-in-notch detection, panel lifecycle, panel geometry, and the three-level interaction model. | Product-feature state or private display APIs. |
-| `Notch*Feature` | A separately compiled declaration of one product feature and its requirements. | Other features' state or direct platform API construction. |
-| `NotchDebug` | Debug-only provider modes, simulated permissions, synthetic activities, capability inspection, and cleanup controls. | Production feature flags or sensitive logs. |
-| `NotchFeature` | Root composition, lifecycle coordination, feature catalog, menu fallback, and architecture-only settings. | Feature business logic or an all-purpose app view model. |
-| `NotchTestFixtures` | Deterministic dates, mock snapshots, registries, clocks, loggers, and stores. | Production code paths. |
+| `NotchiumCore` | Feature IDs, capability and permission states, distribution profile, feature flags, service errors, and clock contracts. | AppKit, feature I/O, persistence, or presentation. |
+| `NotchiumDiagnostics` | Privacy-redacted event identifiers and unified/mock loggers. | User content or arbitrary diagnostic strings. |
+| `NotchiumServices` | Platform-facing protocols, value models, Stage 1 real adapters, mocks, and the immutable service registry. | SwiftUI presentation or hidden dependency construction. |
+| `NotchiumPersistence` | Retention contracts and real/mock persistence boundaries. | Feature-specific UI or cloud synchronization. |
+| `NotchiumDesignSystem` | Shared system-native measurements and surface treatment. | Feature state or system services. |
+| `NotchiumDynamicIsland` | Built-in-notch detection, panel lifecycle, panel geometry, and the three-level interaction model. | Product-feature state or private display APIs. |
+| `Notchium*Feature` | A separately compiled declaration of one product feature and its requirements. | Other features' state or direct platform API construction. |
+| `NotchiumDebug` | Debug-only provider modes, simulated permissions, synthetic activities, capability inspection, and cleanup controls. | Production feature flags or sensitive logs. |
+| `NotchiumFeature` | Root composition, lifecycle coordination, feature catalog, menu fallback, and architecture-only settings. | Feature business logic or an all-purpose app view model. |
+| `NotchiumTestFixtures` | Deterministic dates, mock snapshots, registries, clocks, loggers, and stores. | Production code paths. |
 
 ## Dependency direction
 
@@ -60,10 +60,10 @@ Dependencies point inward toward contracts:
 ```text
 macOS app target
     ↓
-NotchFeature composition
-    ├── NotchDynamicIsland ──→ NotchCore + NotchDesignSystem
-    ├── feature modules ─────→ NotchCore + NotchServices
-    ├── NotchDebug ──────────→ contracts and mocks only
+NotchiumFeature composition
+    ├── NotchiumDynamicIsland ──→ NotchiumCore + NotchiumDesignSystem
+    ├── feature modules ─────→ NotchiumCore + NotchiumServices
+    ├── NotchiumDebug ──────────→ contracts and mocks only
     └── AppEnvironment ──────→ services + persistence + diagnostics + clock
 
 platform adapters and mocks ─→ protocol/value contracts
@@ -71,7 +71,7 @@ platform adapters and mocks ─→ protocol/value contracts
 
 There is no global mutable event bus. Views do not construct services. The `AppEnvironment` value is assembled once at the composition root and carries immutable protocol existentials for services, permission authorization, persistence, clock/scheduler, UUID generation, filesystem access, logging, feature flags, and distribution profile.
 
-`NotchApplicationController` is a narrow lifecycle coordinator. It owns app-running state and delegates notch-panel behavior to `NotchPanelCoordinator`; it does not own media, calendar, shelf, clipboard, focus, or monitoring state.
+`NotchiumApplicationController` is a narrow lifecycle coordinator. It owns app-running state and delegates notch-panel behavior to `NotchiumPanelCoordinator`; it does not own media, calendar, shelf, clipboard, focus, or monitoring state.
 
 ## Service boundaries
 
@@ -126,11 +126,11 @@ The package and Xcode targets use Swift 6.0 language mode and complete strict-co
 - `NOTCH_DEVELOPER_ID` is the canonical direct-distribution profile.
 - `NOTCH_APP_STORE` represents the reduced sandboxed profile.
 
-`Config/Notch.entitlements` is the direct-distribution entitlement file. `Config/Notch-AppStore.entitlements` and `Config/AppStore.xcconfig` retain the sandbox profile for later release engineering. Adding an App Store build configuration to the Xcode project is deliberately deferred until that edition has an approved capability set.
+`Config/Notchium.entitlements` is the direct-distribution entitlement file. `Config/Notchium-AppStore.entitlements` and `Config/AppStore.xcconfig` retain the sandbox profile for later release engineering. Adding an App Store build configuration to the Xcode project is deliberately deferred until that edition has an approved capability set.
 
 ## Native shell
 
-The shell uses SwiftUI until macOS window behavior requires AppKit. `NotchPanelController` is that bridge and owns one borderless, nonactivating `NSPanel`.
+The shell uses SwiftUI until macOS window behavior requires AppKit. `NotchiumPanelController` is that bridge and owns one borderless, nonactivating `NSPanel`.
 
 The panel is shown only when a screen passes both public capability checks:
 
@@ -151,7 +151,7 @@ The logger cannot accept clipboard payloads, event titles, meeting URLs, OAuth t
 
 ## Developer panel
 
-`NotchDebug` compiles its model and view only under `#if DEBUG`. It provides architecture for:
+`NotchiumDebug` compiles its model and view only under `#if DEBUG`. It provides architecture for:
 
 - selecting a provider scenario per service;
 - simulating every permission state;
@@ -164,7 +164,7 @@ The current mode selection is session-local architecture state. Applying provide
 
 ## Tests
 
-The `NotchFeatureTests` unit-test target covers:
+The `NotchiumFeatureTests` unit-test target covers:
 
 - Stage 1 feature-flag defaults;
 - fail-closed real providers;
@@ -176,7 +176,7 @@ The `NotchFeatureTests` unit-test target covers:
 - root dependency replacement;
 - collapsed, hovered, and opened interaction transitions.
 
-`NotchUITests` launches the actual application target and verifies that the process remains running without showing permission alerts. `Notch.xctestplan` includes both the package unit-test target and UI-test target.
+`NotchiumUITests` launches the actual application target and verifies that the process remains running without showing permission alerts. `Notchium.xctestplan` includes both the package unit-test target and UI-test target.
 
 Hardware and permission-revocation suites will be added beside each real provider in later stages. They cannot be substituted with mocks for release acceptance.
 

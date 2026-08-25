@@ -6,9 +6,9 @@
 // ==========================================
 // Project Identity
 // ==========================================
-PRODUCT_NAME = Notch
-PRODUCT_DISPLAY_NAME = Notch
-PRODUCT_BUNDLE_IDENTIFIER = com.marcusyu.notch
+PRODUCT_NAME = Notchium
+PRODUCT_DISPLAY_NAME = Notchium
+PRODUCT_BUNDLE_IDENTIFIER = com.marcusyu.notchium
 MARKETING_VERSION = 0.1.0
 CURRENT_PROJECT_VERSION = 1
 
@@ -28,5 +28,5 @@ INFOPLIST_KEY_LSUIElement = YES
 // ==========================================
 // Entitlements
 // ==========================================
-// AI agents can modify Config/Notch.entitlements to add capabilities
-CODE_SIGN_ENTITLEMENTS = Config/Notch.entitlements
+// AI agents can modify Config/Notchium.entitlements to add capabilities
+CODE_SIGN_ENTITLEMENTS = Config/Notchium.entitlements

@@ -10,7 +10,7 @@
 
 ## 1. Product definition
 
-Notch is a native macOS utility that uses the unobscured menu-bar space around the built-in MacBook display notch as a compact surface for productivity controls and short-lived system context. It is not a replacement for macOS system UI and does not claim ownership of the physical notch.
+Notchium is a native macOS utility that uses the unobscured menu-bar space around the built-in MacBook display notch as a compact surface for productivity controls and short-lived system context. It is not a replacement for macOS system UI and does not claim ownership of the physical notch.
 
 The product follows three interaction levels:
 
@@ -78,7 +78,7 @@ The feasibility basis and distribution consequences for each row are defined in 
 
 ## 5. Functional requirements and acceptance criteria
 
-### 5.1 Notch shell and application lifecycle
+### 5.1 Notchium shell and application lifecycle
 
 - The shell anchors only to a built-in screen whose public `NSScreen` geometry reports a top obstruction and usable auxiliary top areas.
 - The app maintains exactly one notch surface, even with multiple displays attached.
@@ -179,7 +179,7 @@ The feasibility basis and distribution consequences for each row are defined in 
 - Payloads are encrypted locally using an app-owned key stored in Keychain. Search metadata is minimized and must not contain full sensitive payloads in plaintext.
 - Unpinned history expires after 30 days and is capped at 500 items. Pins and favorites are exempt until manually removed.
 - Clear History deletes database records, payload files, thumbnails, and derived indexes.
-- V1 acknowledges that macOS 26 includes Apple-provided clipboard history. Notch differentiates through notch access, pins/favorites, explicit privacy exclusions, and integration with shelf/OCR—not by claiming unique OS-level capture.
+- V1 acknowledges that macOS 26 includes Apple-provided clipboard history. Notchium differentiates through notch access, pins/favorites, explicit privacy exclusions, and integration with shelf/OCR—not by claiming unique OS-level capture.
 
 ### 5.11 System Monitor
 
