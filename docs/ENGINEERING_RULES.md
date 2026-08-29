@@ -1,4 +1,4 @@
-# Engineering Rules — Stage 0
+# Engineering Rules — Stage 2 Reconciliation
 
 **Status:** Mandatory engineering contract
 
@@ -6,7 +6,7 @@
 
 **Canonical distribution:** Developer ID, hardened runtime, notarized direct download
 
-**Last reviewed:** 2026-08-24
+**Last reviewed:** 2026-08-28
 
 ## 1. Scope and normative language
 
@@ -49,6 +49,8 @@ At minimum, future source organization must retain independent modules or equiva
 - Activities
 - Pages
 - Focus
+- Ambient Edge presentation
+- Window Management / Snap Zones when that experimental feature enters implementation
 
 Browser-domain tracking may be a Focus submodule, but its extension/native-messaging targets and `BrowserActivityProvider` contract remain independently testable. Permission UI may be shared, but each feature owns its denial semantics.
 
@@ -102,6 +104,11 @@ These names describe contracts, not Stage 0 implementations. Concrete method nam
 | `ClipboardProvider` | Privacy-gated pasteboard observations and explicit user-initiated saves | Policy decisions about retention, UI search, or plaintext logging |
 | `SystemMetricsProvider` | Timestamped supported total/process snapshots with coverage/staleness metadata | Shell commands, GPU fabrication, per-process network fabrication |
 | `ActivityEventSource` | Typed, redacted candidate events from one source | Global priority, presentation, persistence, or content expansion |
+| `ActivityCoordinator` | Priority, coalescing, expiry, privacy redaction, and conversion from eligible activity events to immutable presentation state | Feature business logic, provider access, direct window control |
+| `AudioProcessProvider` | Capability-probed public per-process audio observations or supported controls | Universal mixer claims, hidden capture, or UI |
+| `PowerSourceProvider` | Public battery, charging, condition, and adapter snapshots | Charge limiting, SMC access, or private battery keys |
+| `WindowManagementProvider` | Explicitly authorized public Accessibility window queries/actions for Snap Zones | Overlay rendering, private WindowServer access, unrelated app-content scraping |
+| `LyricsProvider` | Licensed/provider-authorized lyric availability and synchronized lines if a future contract permits them | Scraping, MusicKit assumptions, or presentation timing |
 | `FocusTracker` | Timer/session state, app-duration aggregation, neutral statistics | Browser extension transport, judgmental scoring, cloud sync |
 | `BrowserActivityProvider` | Verified non-private normalized-domain intervals from an installed extension | Full URL/title/path/query collection, incognito/private collection, general browsing history |
 | `PermissionAuthorizer` | Current state, contextual request, settings deep-link when documented, revocation observation | Automatically prompting at launch; feature-specific marketing copy |
@@ -130,6 +137,9 @@ Additional adapters such as `NotificationProvider`, `WorkspaceProvider`, `Bright
 - Every event includes only fields the receiver needs. Sensitive payloads do not travel through the general activity router.
 - Activity events have a stable type, source, priority class, creation instant, expiry, coalescing identity, and redacted presentation summary.
 - High-frequency sources are sampled/coalesced before reaching SwiftUI. A waveform, metric source, or file watcher must not invalidate the entire shell on every raw callback.
+- Feature and provider modules publish typed domain/activity events only. They never choose a display, open an overlay, or address Ambient Edge directly.
+- `ActivityCoordinator` is the sole owner of activity priority, coalescing, expiry, privacy redaction, and presentation eligibility. It emits immutable state suitable for the notch, Ambient Edge, menu bar, or notifications.
+- Presentation consumers are independent. Disabling or failing Ambient Edge must not mutate feature state, suppress the notch, or change activity ordering.
 
 ## 6. SwiftUI and AppKit presentation rules
 
@@ -142,6 +152,11 @@ Additional adapters such as `NotificationProvider`, `WorkspaceProvider`, `Bright
 - AppKit owns the panel, activation, Spaces, menu-bar, responder-chain, and other macOS window mechanics. SwiftUI does not emulate window levels or focus with web-style layering assumptions.
 - Liquid Glass follows the public macOS 26 API and [PRODUCT_SPEC.md](PRODUCT_SPEC.md). Custom blur stacks that conflict with system glass are prohibited.
 - Animation may never delay permission explanations, file safety, destructive confirmations, or emergency keyboard unlock.
+- The notch panel and every Ambient Edge overlay are separate AppKit windows with separate lifecycle owners. Stretching one window between these roles is prohibited.
+- Each display-scoped surface is owned by a display coordinator keyed through a platform-defined display identity. Feature code must not retain `NSScreen`, assume `NSScreen.main`, or hard-code one display.
+- Ambient Edge is click-through and nonactivating in normal operation. Interactive controls belong to the notch, menu-bar fallback, Settings, or another deliberate surface.
+- The Stage 2 virtual pill is a display-selection policy owned by `NotchiumDisplayCoordinator`, not a boolean branch inside feature views. It shares the shell panel lifecycle while retaining geometry distinct from the physical-notch bridge.
+- Ambient Edge and Snap Zone feedback remain separate future windows and lifecycle owners. They must not stretch, repurpose, or add modes to the Stage 2 notch panel.
 
 A pull request that introduces a large view must show that it still has one coherent responsibility, one state owner, bounded invalidation, accessible focus order, and isolated test scenarios. “It is one screen” is not sufficient justification.
 
@@ -235,7 +250,7 @@ Integration tests cover real adapter boundaries where automation is safe: local 
 
 ### 11.3 UI tests
 
-UI tests cover collapsed → hovered → deliberately opened transitions; menu-bar fallback; keyboard navigation; VoiceOver labels/actions; permission education/denial/retry; reduced motion/transparency; Dynamic Type/large text where supported; provider unavailable states; and emergency unlock UI state. Protected system prompts are not clicked by brittle coordinate automation; tests use controlled authorization states or an approved harness.
+UI tests cover collapsed → hovered → deliberately expanded transitions; menu-bar fallback; keyboard navigation; VoiceOver labels/actions; permission education/denial/retry; reduced motion/transparency; Dynamic Type/large text where supported; provider unavailable states; and emergency unlock UI state. Protected system prompts are not clicked by brittle coordinate automation; tests use controlled authorization states or an approved harness.
 
 ### 11.4 Hardware and manual test matrix
 
@@ -249,6 +264,8 @@ Before release, record results for:
 - Event-tap creation, timeout, system disablement, Secure Input, trust revocation, app crash/termination, and emergency unlock.
 - Clipboard alert/allow/deny behavior on macOS 26, sensitive exclusions, source ambiguity, and clear-history verification.
 - Each browser adapter, multiple profiles, private/incognito rejection, extension disabled/revoked, and native-host mismatch.
+- Ambient Edge Off/Static/Slow/Ambient/Beat Reactive states; one/two/mixed-refresh displays; hot-plug; clamshell; Spaces; Stage Manager; full-screen apps; manual Pause; excluded apps; sleep/wake; session lock; and screen-sharing uncertainty.
+- Ambient Edge under Low Power Mode, Reduce Motion, Reduce Transparency, Increase Contrast, different color profiles/HDR modes, and denied/revoked System Audio Recording.
 
 ### 11.5 Permission tests
 
@@ -288,6 +305,11 @@ Release is blocked unless:
 - System text sizing, localization expansion, right-to-left layout where applicable, and truncation have documented behavior.
 - Emergency keyboard unlock and privacy/capture indicators are immediate and independent of animation.
 - Energy profiling shows idle features stop polling/capture and hidden panels do not drive continuous rendering.
+- Static display-edge presentation runs without a persistent frame loop. Animated presentation has a measured frame-rate/energy policy and suspends when no eligible state exists, displays sleep, the session locks, or the feature is paused.
+- Low Power Mode disables Beat Reactive and downgrades continuous Ambient animation to Static or Off according to explicit user policy.
+- Audio-reactive presentation reuses one authorized `AudioMeterProvider` stream. Creating a second process tap or retaining PCM for a visual consumer is prohibited.
+- Every persistent animation or sampling loop requires an Instruments record covering CPU, GPU/frame pacing, wakeups, and energy on representative hardware. “Looks smooth” is not performance evidence.
+- Metal requires an ADR backed by profiling evidence, a non-Metal fallback, lifecycle tests, and an energy comparison.
 
 ## 14. Definition of done for a future feature
 
@@ -300,6 +322,7 @@ A feature is not done until it has:
 - Direct and Store-profile behavior documented, including compile-time exclusions.
 - No private API, shell utility, silent capture, cloud sync, or universal unsupported claim.
 - Updated documentation and an ADR for any contract change.
+- Persistent visual work has a documented idle state, low-power behavior, cancellation owner, frame/energy budget, and measured release evidence.
 
 ## 15. Unresolved technical risks
 
@@ -313,4 +336,5 @@ A feature is not done until it has:
 - Folder-watcher inference cannot provide universal screenshot/download completion semantics.
 - Window placement and activation behavior across Spaces, full-screen applications, display changes, sleep/wake, and menu-bar configurations.
 - Mac App Store viability of the reduced capability profile, particularly keyboard suppression and broad observation features.
-- Stage 1 requires full Xcode 26; this machine currently exposes the macOS 26.5 SDK through Command Line Tools but no full Xcode installation.
+- Ambient Edge multiplies window lifecycle and render-scheduling risk across displays and must remain isolated from feature correctness.
+- Best-effort full-screen/presentation/screen-sharing suppression cannot become a hidden dependency of privacy or correctness.

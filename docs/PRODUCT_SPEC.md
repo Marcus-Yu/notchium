@@ -1,4 +1,4 @@
-# Product Specification — Stage 0
+# Product Specification — Stage 2 Reconciliation
 
 **Status:** Engineering contract
 
@@ -6,7 +6,7 @@
 
 **Canonical distribution:** Developer ID, hardened runtime, notarized direct download
 
-**Last reviewed:** 2026-08-24
+**Last reviewed:** 2026-08-28
 
 ## 1. Product definition
 
@@ -18,7 +18,7 @@ The product follows three interaction levels:
 2. **Hovered:** reveal a small amount of additional context without taking application focus.
 3. **Deliberately opened:** a click or explicit keyboard action opens controls, history, or details. This state may become key when keyboard input is required.
 
-Only the built-in notched display receives the island surface. External displays, clamshell use, and Macs without a physical notch use a persistent menu-bar item as the complete fallback. V1 does not create a synthetic island on external displays.
+The shell prefers the built-in notched display whenever one is eligible. External-only, clamshell, notchless, and otherwise noneligible configurations receive one centered virtual pill on the primary available display. The persistent menu-bar item remains available in every configuration and becomes the only surface when no display is available. Stage 2 explicitly supersedes the earlier virtual-pill deferral; it does not authorize Ambient Edge or Snap Zone overlays.
 
 ## 2. Product principles
 
@@ -32,6 +32,15 @@ Only the built-in notched display receives the island surface. External displays
 - No unnecessary backend and no behavioral advertising or analytics SDK in V1.
 - The app never suppresses, replaces, or hides Apple system privacy indicators or HUDs.
 - The app never describes inferred or unsupported data as exact.
+
+### Product pillars
+
+1. **Dynamic Mac Island:** a quiet, prioritized activity surface around the physical notch.
+2. **Media and audio:** provider-correct media controls, honest audio capabilities, and optional analysis only with explicit consent.
+3. **Productivity:** calendar, shelf, clipboard, focus, and deliberate automation through App Intents where public contracts permit it.
+4. **System context:** enhanced but subordinate HUD activities, battery information, audio devices, and truthful system metrics.
+5. **Window management:** optional direct-distribution Snap Zones with clear Accessibility boundaries.
+6. **Presentation and appearance:** native materials, accessible motion, and the optional Ambient Edge display-edge layer.
 
 ## 3. Intended users and core use cases
 
@@ -73,6 +82,14 @@ Only the built-in notched display receives the island surface. External displays
 | 12. Dynamic Mac Island activities | **Reduced V1** | App-owned, event-driven notch presentations. Apple system HUDs and privacy indicators remain visible. Unsupported sensors are omitted. |
 | 13. Customizable notch pages | **Full V1** | Local page order, enablement, and capability-aware composition with a deterministic fallback page. |
 | 14. Focus/Pomodoro | **Reduced V1** | Timers, breaks, notifications, app tracking, neutral statistics, and opt-in browser-domain tracking through extensions. |
+| 15. Per-application audio | **Experimental, direct distribution** | Public Core Audio process/device capabilities only; no private mixer or claim that every application can be controlled. |
+| 16. Enhanced volume/HUD context | **Reduced V1** | Parallel Notchium activity using supported Core Audio properties. Apple's HUD remains authoritative and visible. |
+| 17. Battery management | **Reduced V1** | Public battery, charging, condition, and adapter information. Charge limiting is deferred without a verified public API. |
+| 18. Snap Zones | **Experimental, direct distribution** | User-invoked window placement through public Accessibility APIs, with fail-safe behavior and no private window-server access. |
+| 19. Important notification banners | **Reduced V1** | Typed events produced by Notchium features and approved integrations only; no reading of arbitrary Notification Center history. |
+| 20. Synchronized lyrics | **Deferred pending provider contract** | Architecture may accept a licensed lyrics provider later; MusicKit metadata does not by itself promise synchronized lyric text. |
+| 21. Ambient Edge | **Experimental, post-activity stage** | Optional per-display edge presentation for selected activity state. Static and metadata-derived modes precede any consent-gated audio-reactive mode. |
+| 22. Shortcuts and App Intents | **V1.x** | Deliberate, parameterized actions through public App Intents. No hidden background access or broader permission than the equivalent in-app action. |
 
 The feasibility basis and distribution consequences for each row are defined in [FEASIBILITY.md](FEASIBILITY.md). Permission behavior is normative in [PERMISSIONS.md](PERMISSIONS.md).
 
@@ -219,6 +236,32 @@ The feasibility basis and distribution consequences for each row are defined in 
 - Daily and weekly views use the same neutral local aggregates and make untracked intervals explicit.
 - Focus Quality, if offered, is disabled by default, explains its inputs, and uses neutral language. The product never labels time, a person, or an application as bad, wasted, or unproductive.
 
+### 5.15 Approved pre-Stage 2 additions
+
+- Per-application audio, enhanced HUD context, battery information, Snap Zones, important banners, synchronized lyrics, and App Intents remain independent capability-gated features. Approval in the roadmap does not convert an experimental or deferred capability into a V1 promise.
+- A shared activity pipeline owns prioritization, coalescing, expiry, privacy redaction, and presentation eligibility. Feature modules publish typed domain events; they do not open presentation windows.
+- Important banners represent Notchium-owned events and explicitly approved provider events. The app does not inspect arbitrary notifications generated by other applications.
+- App Intents expose only actions that are safe and available in the app, and inherit the same permission, denial, and distribution checks.
+
+### 5.16 Ambient Edge
+
+Ambient Edge is an optional appearance capability, not an RGB-lighting utility and not a second activity system. Its flow is:
+
+`feature or provider event → ActivityCoordinator → Dynamic Mac Island → optional Ambient Edge presentation state`
+
+Acceptance criteria:
+
+- Ambient Edge is disabled by default. Enabling it offers Off, Static, Slow, Ambient, and Beat Reactive modes; Beat Reactive remains unavailable until its capture, provider-policy, energy, and review gates pass.
+- Media lighting may derive a bounded local palette from already-authorized album artwork. The collapsed media layout and provider behavior remain unchanged.
+- Users may choose colors or gradients and adjust intensity, thickness, and response strength within accessibility and safety bounds.
+- Important-notification pulses and Snap Zone feedback consume presentation state from the same coordinator. They do not query notification, media, or window-management services directly.
+- Each connected display can be enabled independently. The built-in display may own a physical-notch panel and an independent edge overlay; selected external displays may own an edge overlay without receiving a physical-notch island.
+- Normal mode is click-through, nonactivating, and never blocks application controls, the menu bar, Dock, system alerts, or screen corners.
+- Automatic suppression is best effort for user-selected applications, full-screen contexts, display sleep, presentation contexts, and known screen-sharing conditions. Because no universal public screen-sharing or full-screen-video detector is promised, manual Pause and per-application exclusions are mandatory fallbacks.
+- Static mode performs no persistent frame loop. Animated modes stop when hidden or idle, degrade under Low Power Mode, and reuse one authorized audio-meter pipeline rather than starting a second capture.
+- Reduce Motion changes reactive or traveling effects to static color or restrained fades. Reduce Transparency and Increase Contrast produce an opaque/high-contrast equivalent. Color is never the sole signal.
+- Release requires measured CPU, GPU, frame pacing, and energy results across single- and multi-display configurations. Metal is not introduced unless profiling demonstrates a concrete need.
+
 ## 6. Onboarding and permissions
 
 Initial launch explains the app without triggering system permission dialogs. The onboarding bundle offers Clipboard History, application tracking, recent screenshots, and download observation together for discoverability, but each option is independently deselectable.
@@ -241,6 +284,8 @@ The exact permission ledger and denial behavior are defined in [PERMISSIONS.md](
 | Calendar cache | Minimum fields needed for upcoming display | Short-lived; refreshed from EventKit | Prohibited |
 | Spotify credentials | Keychain | Until disconnect/revocation | Provider only |
 | Diagnostics | Redacted local logs | Bounded, user-exported only | No automatic upload |
+| Ambient Edge settings | Local preferences | Until reset | Prohibited |
+| Derived artwork palette and audio amplitudes | Memory-only presentation state by default | Activity lifetime | Prohibited |
 
 Deleting a feature’s data is independent of revoking its permission. Disconnecting a provider deletes its tokens and provider cache. Disabling automatic observation stops new collection immediately.
 
@@ -253,6 +298,7 @@ Deleting a feature’s data is independent of revoking its permission. Disconnec
 - Reduce Motion and Reduce Transparency are tested as first-class configurations.
 - Emergency keyboard unlock is not dependent on animation, VoiceOver focus, network, or a provider.
 - Energy use is bounded: passive polling backs off, event sources are preferred, and inactive features stop work.
+- Ambient Edge remains understandable when disabled and must respect Reduce Motion, Reduce Transparency, Increase Contrast, color-differentiation, display sleep, and Low Power Mode.
 
 ## 9. Explicit non-goals
 
@@ -270,11 +316,16 @@ V1 does not include:
 - AppleScript or Accessibility scraping of browser URLs.
 - A Network Extension used solely for productivity tracking or statistics.
 - Cloud synchronization of clipboard, focus, browsing, shelf, or activity data.
-- A synthetic notch on external or non-notched displays.
+- A fake hardware notch or claim that the virtual pill owns display hardware. The documented virtual pill is an app window and remains visually distinct from the physical-notch bridge.
+- A general RGB/peripheral-lighting utility or a guarantee of pixel-perfect edge effects on every display arrangement.
+- Reading arbitrary Notification Center content or mirroring every third-party notification.
+- Guaranteed detection of full-screen video, presentations, games, or another application's screen-sharing state.
+- Silent or automatic system-audio capture for appearance effects.
+- Spotify-derived waveform, beat, or audio-reactive lighting without written policy clearance.
 
 ## 10. Stage boundary
 
-This specification completes Stage 0 product scope only. Stage 1 must not begin until the feasibility, engineering, permission, and unresolved-risk contracts are accepted. No UI implementation, app target, or scaffolding is authorized by this document.
+Stages 0, 1, and 2 are complete. Stage 2 implements only the prioritized physical-notch/virtual-pill shell, deterministic display geometry, interaction state, native Liquid Glass treatment, accessibility fallbacks, debug fixtures, and menu-bar fallback. It does not implement Ambient Edge, Snap Zones, feature UI, audio capture, permissions, providers, pages, or the later activity coordinator. The sequencing contract is defined in [ROADMAP.md](ROADMAP.md), and the shell contract is defined in [NOTCH_SHELL.md](NOTCH_SHELL.md).
 
 ## 11. Unresolved technical risks
 
@@ -288,4 +339,7 @@ This specification completes Stage 0 product scope only. Stage 1 must not begin 
 - Folder-watcher inference cannot provide universal screenshot/download completion semantics.
 - Window placement and activation behavior across Spaces, full-screen applications, display changes, sleep/wake, and menu-bar configurations.
 - Mac App Store viability of the reduced capability profile, particularly keyboard suppression and broad observation features.
-- Stage 1 requires full Xcode 26; this machine currently exposes the macOS 26.5 SDK through Command Line Tools but no full Xcode installation.
+- Ambient Edge frame pacing, GPU composition, energy use, and window ordering across multiple displays, Spaces, full-screen applications, sleep/wake, and Stage Manager.
+- No universal documented signal has been verified for full-screen video, games, presentations, or another application's screen-sharing state; automatic suppression is necessarily best effort.
+- Album-art palette extraction must remain visually stable, accessible, and inexpensive across rapidly changing tracks.
+- Audio-reactive Ambient Edge inherits the Core Audio capture, provider targeting, permission, review, and Spotify-policy risks of waveform visualization.

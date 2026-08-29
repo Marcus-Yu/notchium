@@ -1,6 +1,6 @@
-# Stage 1 Architecture
+# Architecture — Stage 2 Notch Shell
 
-**Status:** Stage 1 production architecture
+**Status:** Stage 2 shell implemented on the Stage 1 production architecture
 
 **Minimum OS:** macOS 26
 
@@ -8,9 +8,9 @@
 
 **Canonical distribution:** notarized Developer ID direct distribution
 
-This document explains the architecture created in Stage 1. It is subordinate to [PRODUCT_SPEC.md](PRODUCT_SPEC.md), [FEASIBILITY.md](FEASIBILITY.md), [ENGINEERING_RULES.md](ENGINEERING_RULES.md), and [PERMISSIONS.md](PERMISSIONS.md). Those documents remain the product, platform, engineering, and privacy contract.
+This document explains the Stage 1 production architecture and the Stage 2 shell implementation built on it. It is subordinate to [PRODUCT_SPEC.md](PRODUCT_SPEC.md), [FEASIBILITY.md](FEASIBILITY.md), [ENGINEERING_RULES.md](ENGINEERING_RULES.md), and [PERMISSIONS.md](PERMISSIONS.md). The detailed shell contract is in [NOTCH_SHELL.md](NOTCH_SHELL.md).
 
-Stage 1 creates boundaries and executable shell infrastructure only. It does not implement product features, request protected permissions, persist feature payloads, replace system UI, or use private APIs.
+Stage 2 hardens the executable shell only. It does not implement product features, request protected permissions, persist feature payloads, replace system UI, or use private APIs.
 
 ## Shape of the repository
 
@@ -47,7 +47,7 @@ The Xcode application target knows only the `NotchiumFeature` package product. F
 | `NotchiumServices` | Platform-facing protocols, value models, Stage 1 real adapters, mocks, and the immutable service registry. | SwiftUI presentation or hidden dependency construction. |
 | `NotchiumPersistence` | Retention contracts and real/mock persistence boundaries. | Feature-specific UI or cloud synchronization. |
 | `NotchiumDesignSystem` | Shared system-native measurements and surface treatment. | Feature state or system services. |
-| `NotchiumDynamicIsland` | Built-in-notch detection, panel lifecycle, panel geometry, and the three-level interaction model. | Product-feature state or private display APIs. |
+| `NotchiumDynamicIsland` | Public display projection and selection, physical/virtual shell geometry, one-panel lifecycle, three-level interaction state, Liquid Glass shell views, and DEBUG fixtures. | Product-feature state, Ambient Edge/Snap overlays, or private display APIs. |
 | `Notchium*Feature` | A separately compiled declaration of one product feature and its requirements. | Other features' state or direct platform API construction. |
 | `NotchiumDebug` | Debug-only provider modes, simulated permissions, synthetic activities, capability inspection, and cleanup controls. | Production feature flags or sensitive logs. |
 | `NotchiumFeature` | Root composition, lifecycle coordination, feature catalog, menu fallback, and architecture-only settings. | Feature business logic or an all-purpose app view model. |
@@ -71,7 +71,52 @@ platform adapters and mocks ─→ protocol/value contracts
 
 There is no global mutable event bus. Views do not construct services. The `AppEnvironment` value is assembled once at the composition root and carries immutable protocol existentials for services, permission authorization, persistence, clock/scheduler, UUID generation, filesystem access, logging, feature flags, and distribution profile.
 
-`NotchiumApplicationController` is a narrow lifecycle coordinator. It owns app-running state and delegates notch-panel behavior to `NotchiumPanelCoordinator`; it does not own media, calendar, shelf, clipboard, focus, or monitoring state.
+`NotchiumApplicationController` is a narrow lifecycle coordinator. It owns app-running state and delegates shell behavior to `NotchiumDisplayCoordinator`; it does not own media, calendar, shelf, clipboard, focus, or monitoring state.
+
+## Stage 2 display and presentation ownership
+
+`NotchiumDisplayCoordinator` now owns display selection and one active `NotchiumPanelController`. It receives pure `NotchiumDisplaySnapshot` values from the AppKit adapter, prefers an eligible built-in notch, and otherwise selects a primary-display virtual pill. Domain and feature code never retain `NSScreen` or select `NSScreen.main`.
+
+The required flow is:
+
+```text
+feature/provider
+    ↓ typed, redacted candidate event
+ActivityCoordinator
+    ↓ prioritized, coalesced, expiring presentation state
+PresentationRouter
+    ├── built-in physical-notch island
+    ├── optional Ambient Edge per selected display
+    ├── menu-bar fallback
+    └── owned system notification when separately authorized
+```
+
+Ambient Edge receives presentation state only. It cannot import feature modules, call providers, infer priority, retain raw media/audio/notification payloads, or alter domain state. This keeps presentation optional: turning it off removes a consumer, not a source or coordinator decision.
+
+The future ownership model is conceptually:
+
+```text
+NotchiumDisplayCoordinator
+    └── NotchiumPanelController?     // one physical-notch or virtual-pill shell
+
+FuturePresentationCoordinator
+    ├── AmbientEdgeOverlay?          // separate later-stage window
+    └── SnapFeedbackOverlay?         // separate later-stage window
+```
+
+`DisplayID` is a stable value projected at the AppKit/Core Graphics boundary. Domain and feature layers do not retain `NSScreen`. The coordinator owns shell screen lifecycle, geometry, sleep/wake behavior, window ordering, and cancellation. Future notch, edge, and Snap windows remain separate because their hit testing, geometry, activation, animation, suppression, and lifecycle rules differ.
+
+Stage 2 preserves this seam with pure display identity, placement, and layout values plus deterministic fixtures. It adds no Ambient Edge window, Snap overlay, feature event routing, audio capture, or general-purpose window manager.
+
+Hard-coding any of the following in Stage 2 is prohibited because it would obstruct later multi-surface work:
+
+- treating `NSScreen.main` as the selected display;
+- storing raw `NSScreen` or window objects in feature/domain state;
+- assuming one connected display or conflating all future presentation surfaces into the shell window;
+- stretching the physical-notch panel to screen edges;
+- letting features call panel/overlay controllers;
+- coupling shell correctness to full-screen or screen-sharing heuristics;
+- putting renderer lifecycle, audio analysis, and activity policy into one coordinator.
 
 ## Service boundaries
 
@@ -94,9 +139,9 @@ Every requested service has a `Sendable` protocol, a real adapter type, a mock t
 | Meetings | `MeetingsService` | `RealMeetingsService` | `MockMeetingsService` |
 | Focus | `FocusService` / `FocusTracker` | `RealFocusService` | `MockFocusService` |
 
-The Stage 0 cross-cutting contracts are also present: `AudioMeterProvider`, `ActivityEventSource`, `BrowserActivityProvider`, `PermissionAuthorizer`, and `AppClock`, each with real and mock provider types where applicable.
+The Stage 0 cross-cutting contracts are also present: `AudioMeterProvider`, `ActivityEventSource`, `BrowserActivityProvider`, `PermissionAuthorizer`, and `AppClock`, each with real and mock provider types where applicable. Future approved seams include `ActivityCoordinator`, `AudioProcessProvider`, `PowerSourceProvider`, `WindowManagementProvider`, and `LyricsProvider`; this amendment records responsibilities only and adds no Stage 1 implementation.
 
-“Real” in Stage 1 means the production injection point, not implemented feature behavior. Every real adapter currently reports `FeatureAvailability.unavailable(.stageTwoRequired)`. Commands throw a typed `ServiceFailure`, streams terminate safely, and `RealPermissionAuthorizer.request` refuses to prompt. Stage 2 must replace one adapter at a time behind the existing protocol after its permission and denial behavior is designed and tested.
+“Real” in the architecture skeleton means the production injection point, not implemented feature behavior. Every real product adapter still reports the historical `FeatureAvailability.unavailable(.stageTwoRequired)` reason. Commands throw a typed `ServiceFailure`, streams terminate safely, and `RealPermissionAuthorizer.request` refuses to prompt. A later feature stage replaces one adapter at a time behind the existing protocol only after its permission and denial behavior is designed and tested.
 
 Mock providers return deterministic snapshots without touching macOS services. The debug panel models real, mock, denied, unavailable, and failure provider modes so each presentation model can eventually be exercised in every mandatory state. Production behavior cannot be enabled from this panel.
 
@@ -119,7 +164,7 @@ The package and Xcode targets use Swift 6.0 language mode and complete strict-co
 
 ## Feature flags and distribution
 
-`FeatureFlags.stageOne` enables only the notch shell. Every product feature and the Spotify audio-derived waveform flag is off. Runtime debug controls cannot override these production values.
+`FeatureFlags.stageTwoShell` enables only the Stage 2 notch shell and retains `stageOne` for historical fixtures. Every product feature and the Spotify audio-derived waveform flag is off. Runtime debug controls cannot override these production values.
 
 `DistributionProfile.current` is selected at compile time:
 
@@ -132,16 +177,13 @@ The package and Xcode targets use Swift 6.0 language mode and complete strict-co
 
 The shell uses SwiftUI until macOS window behavior requires AppKit. `NotchiumPanelController` is that bridge and owns one borderless, nonactivating `NSPanel`.
 
-The panel is shown only when a screen passes both public capability checks:
+`NotchiumDisplayCoordinator` prefers a built-in screen whose public safe-area projection reports a top obstruction. If none is eligible, it selects the primary available display for a virtual pill; with zero displays it hides the panel. `NSScreen.auxiliaryTopLeftArea` and `auxiliaryTopRightArea` refine the physical gap when available. The panel uses documented Spaces and full-screen collection behavior. It does not hide the system HUD, claim ownership of hardware, or use private display metadata.
 
-1. Core Graphics identifies it as built in.
-2. `NSScreen.safeAreaInsets.top` indicates a top obstruction.
+`DynamicIslandPresentationModel` owns `collapsed`, `hovered`, and `expanded` stable states plus explicit transition phases. Injected `AppClock` tasks implement delayed hover entry/exit and reject stale completion by generation. The panel becomes key only for deliberate expansion and collapses on focus loss, Escape, its close/toggle action, display moves, and Space changes. No feature page is implemented.
 
-`NSScreen.auxiliaryTopLeftArea` and `auxiliaryTopRightArea` refine the public notch-gap geometry when available. The window uses documented Spaces and full-screen collection behavior. It does not hide the system HUD, claim ownership of the hardware notch, run on external displays, or use private display metadata.
+Ambient Edge must not be added to `DynamicIslandPresentationModel` as decorative booleans. In its later stage it receives a separate immutable presentation model from the activity coordinator, and its AppKit overlay lifecycle remains independent of `NotchiumPanelController`.
 
-`DynamicIslandPresentationModel` contains only the collapsed, hovered, and deliberately opened interaction state. The Stage 1 shell visual exists solely to prove that window placement and state ownership are connected; no feature page is implemented.
-
-The app also exposes a `MenuBarExtra`. It is the functional fallback when no eligible built-in notch is present and provides access to architecture status, settings, the debug panel in debug builds, and Quit.
+The app also exposes a `MenuBarExtra` in every configuration. It provides architecture status, settings, the debug panel in debug builds, and Quit, and remains the only app surface when no display snapshot is available.
 
 ## Logging and privacy
 
@@ -160,7 +202,7 @@ The logger cannot accept clipboard payloads, event titles, meeting URLs, OAuth t
 - running retention cleanup through the injected store;
 - observing only redacted state counts.
 
-The current mode selection is session-local architecture state. Applying provider replacement to a feature presentation model belongs to that feature's implementation stage. Release builds contain no developer-panel scene or public wrapper.
+The current provider-mode selection is session-local architecture state. Stage 2 adds a feature-composed Shell tab backed by the live `NotchShellDebugModel`, so `NotchiumDebug` does not depend on the concrete shell module. Applying provider replacement to a feature presentation model belongs to that feature's implementation stage. Release builds contain no developer-panel scene or public wrapper.
 
 ## Tests
 
@@ -174,15 +216,18 @@ The `NotchiumFeatureTests` unit-test target covers:
 - unique feature-module registration;
 - keyboard-lock failsafe policy;
 - root dependency replacement;
-- collapsed, hovered, and opened interaction transitions.
+- delayed/cancelled collapsed, hovered, expanded, and transitioning behavior;
+- display selection, hot-plug fallback, and zero-display behavior;
+- physical and virtual geometry, clamping, and accessibility configuration;
+- panel reconciliation, focus-loss, Escape, and deterministic UI fixtures.
 
 `NotchiumUITests` launches the actual application target and verifies that the process remains running without showing permission alerts. `Notchium.xctestplan` includes both the package unit-test target and UI-test target.
 
 Hardware and permission-revocation suites will be added beside each real provider in later stages. They cannot be substituted with mocks for release acceptance.
 
-## Stage 2 boundary
+## Stage 2 completion and Stage 3 boundary
 
-Stage 2 may implement individual providers and presentation models, but it must not collapse these module boundaries. For each provider it must first define:
+Stage 2 is complete as a shell-only stage. Stage 3 and every later provider must preserve these module boundaries. Before implementing a provider it must define:
 
 1. capability probing;
 2. every permission state and denial fallback;
@@ -194,9 +239,11 @@ Stage 2 may implement individual providers and presentation models, but it must 
 
 Private APIs, shell-command metrics, silent capture, universal hardware claims, global media fallbacks, system HUD replacement, and cloud storage remain prohibited unless the Stage 0 contract is explicitly amended.
 
-## Current verification constraint
+Ambient Edge is not a Stage 2 deliverable. Stage 2 must not create its overlay, animation renderer, media palette extractor, audio-reactive pipeline, Settings UI, or activity coordinator. It only avoids architectural decisions that would make those later components impossible to isolate.
 
-The Swift package production target compiles through XcodeBuildMCP with the installed Command Line Tools. This host does not have `/Applications/Xcode.app`; therefore the native Xcode app target, XCTest framework, XCUITest runner, signing, and app launch cannot execute here. Full Xcode 26 remains a Stage 1 acceptance prerequisite, exactly as identified in Stage 0.
+## Stage 2 verification
+
+Stage 2 is verified with the installed Xcode 26.6 toolchain using isolated DerivedData under `/private/tmp`. Package tests, app Debug/Release builds, XCUITests, launch/relaunch, screenshot fixtures, source/documentation audits, and an app-scoped Instruments run form the completion evidence. Hardware-specific behavior remains a release qualification item rather than something mocks can prove.
 
 ## Architectural risks
 
@@ -205,5 +252,6 @@ The Swift package production target compiles through XcodeBuildMCP with the inst
 - Long-lived `AsyncStream` providers will require explicit buffering and cancellation policies per event source; the one-shot Stage 1 streams do not validate sustained event pressure.
 - The debug panel models provider modes but does not hot-swap a running feature graph, because no feature presentation graph exists yet.
 - The reduced Mac App Store profile is documented but not yet a wired Xcode build configuration; its viability remains subject to capability and review testing.
-- Full app build, complete unit/UI test execution, signing, launch, and hardware proof remain blocked until full Xcode 26 is installed and selected.
+- Ambient Edge multiplies display/window lifecycle, renderer scheduling, color-space, and energy risk; its failure must never affect feature or notch correctness.
+- Best-effort suppression cannot guarantee full-screen video, presentation, game, or third-party screen-sharing detection and must retain manual controls.
 - The unresolved API, policy, hardware, browser-extension, clipboard-attribution, download-inference, and review risks listed in the Stage 0 documents remain open.

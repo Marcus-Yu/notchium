@@ -1,4 +1,4 @@
-# Technical Feasibility — Stage 0
+# Technical Feasibility — Stage 2 Reconciliation
 
 **Status:** Engineering contract
 
@@ -6,9 +6,9 @@
 
 **Canonical distribution:** Developer ID, hardened runtime, notarized direct download
 
-**Assessment date:** 2026-08-24
+**Assessment date:** 2026-08-28
 
-**SDK checked:** installed macOS 26.5 Command Line Tools SDK headers
+**SDK checked:** Xcode 26.6 (17F113) macOS SDK headers, supplemented by current official documentation
 
 ## 1. Evidence and interpretation rules
 
@@ -30,18 +30,60 @@ Verdicts mean:
 - **Experimental:** public implementation is plausible but reliability or review risk requires a separately gated release decision.
 - **Deferred:** no suitable documented public contract has been verified.
 
-## 2. Product feature matrix
+## 2. Ambient Edge feasibility matrix
 
-### 2.1 Shell, media, calendar, shelf, and camera
+This matrix is the decision record for the future Ambient Edge presentation layer. “Store risk” is a review/distribution assessment, not a prediction of approval. The exact absence of a universal detector is important: documented window and workspace signals can inform heuristics, but they do not establish whether an arbitrary application is playing full-screen video, presenting, or sharing its screen.
+
+| Capability | Likely API / framework | Permission | Store risk | Performance risk | Decision |
+|---|---|---|---|---|---|
+| Click-through overlay rendering | AppKit `NSPanel`/`NSWindow`, borderless nonactivating style, `ignoresMouseEvents`, documented `NSWindow.CollectionBehavior`; SwiftUI or Core Animation content | None | Low if subordinate, nondeceptive, and user-controlled | Low in static mode; moderate with continuous animation | **Approved for a later stage.** Use a separate transparent window per selected display. Click-through is the normal state; the edge never becomes the feature's input surface. |
+| Album-art color extraction | Core Image reduction filters such as `CIAreaAverage`/`CIAreaHistogram`, bounded first-party palette selection, color-space conversion | No new permission when artwork already comes from an authorized media provider | Low | Low when computed once per artwork identity and cached only for the activity lifetime | **Approved.** Derive an accessible palette locally from provider-authorized artwork; fall back to the user's static theme. |
+| Audio-reactive animation | Existing `AudioMeterProvider` presentation samples; Accelerate/vDSP for bounded RMS/FFT/beat estimates; native animation/rendering | No new permission only when reusing an already-authorized meter; otherwise System Audio Recording | Medium to high | High: capture, analysis, frame scheduling, and multi-display composition | **Experimental.** Reuse one consented meter pipeline, never create an Ambient Edge tap. Disable on denial, Low Power Mode, provider-policy conflict, or failed energy budget. |
+| System-audio analysis | Public Core Audio process taps and aggregate-device APIs | System Audio Recording; `NSAudioCaptureUsageDescription`; persistent visible capture state | High, especially for appearance-only recording | High | **Direct-distribution experiment only until review and policy gates pass.** Never start silently or at app launch; no samples are persisted. Spotify remains disabled pending written clearance. |
+| Multi-display support | `NSScreen`, stable display identity derived at the platform boundary, screen-parameter/color-space notifications, and separately owned windows | None | Low to medium | Moderate; cost scales with animated surfaces and display refresh rate | **Stage 2 shell implemented; Ambient Edge remains later.** `NotchiumDisplayCoordinator` selects one physical-notch or virtual-pill shell and tears it down on display loss/sleep. Future edge overlays remain independent windows. |
+| Full-screen and screen-sharing suppression | `NSWorkspace.frontmostApplication`, application/Space/display lifecycle notifications, public window geometry where adequate, user-maintained application exclusions | None for best-effort signals; do not request Screen Recording or Accessibility solely for detection | Medium if behavior is described as exact | Low for event-driven heuristics | **Reduced / best effort.** No universal documented detector was verified. Ship manual Pause and per-application exclusions; default to suppression when confidence is low in privacy-sensitive contexts. |
+| Snap Zone integration | AppKit edge presentation fed by typed Snap presentation state; Accessibility APIs remain isolated in the future window-management provider | Accessibility only when Snap manipulates another app's windows; none for edge rendering | High for Store profile; direct profile is canonical | Moderate during drag feedback, then zero | **Experimental, direct distribution.** Ambient Edge displays coordinator-approved feedback only and never calls Accessibility APIs. |
+| Notification pulse behavior | Internal typed activity events and `ActivityCoordinator`; UserNotifications only for notifications owned by Notchium | No new permission for in-app presentation; Notifications only when Notchium posts a system notification | Low | Low when finite, coalesced, and nonpersistent | **Approved for owned events.** No arbitrary Notification Center reader exists in this contract; unknown third-party notifications cannot pulse the edge. |
+
+### 2.1 Window and display contract
+
+[`NSWindow.ignoresMouseEvents`](https://developer.apple.com/documentation/appkit/nswindow/ignoresmouseevents) publicly makes a window transparent to mouse input. Documented collection behaviors govern Spaces and full-screen participation; for example, [`fullScreenAuxiliary`](https://developer.apple.com/documentation/appkit/nswindow/collectionbehavior-swift.struct/fullscreenauxiliary) places a window on the same Space as a full-screen window. These APIs permit an overlay, but do not grant ownership of screen edges or prove that appearing over every full-screen context is desirable. Shipping policy therefore suppresses by default in excluded or uncertain contexts and always provides a manual pause.
+
+The future Ambient Edge overlay is not an enlarged notch panel. Stage 2 owns one shell panel: it prefers an eligible built-in physical notch and otherwise presents a centered virtual pill on the primary available display. Each future selected-display edge gets an independent, lifecycle-bound window. Stage 2 virtual-pill approval does not approve an edge overlay.
+
+### 2.2 Color, audio, and rendering contract
+
+Core Image publicly exposes area-reduction filters including [`CIAreaAverage`](https://developer.apple.com/documentation/coreimage/ciareaaverage). Palette extraction is a one-shot operation keyed by artwork identity, not a frame-by-frame effect. Static mode has no display link or persistent animation loop.
+
+Real beat response requires real audio samples; artwork and playback metadata are not substitutes. It inherits the documented [Core Audio tap](https://developer.apple.com/documentation/coreaudio/capturing-system-audio-with-core-audio-taps) consent and visible-capture requirements. Decorative “Slow” or “Ambient” movement may be timer-driven without recording but must never be labeled beat-synchronized. Under [`ProcessInfo.isLowPowerModeEnabled`](https://developer.apple.com/documentation/foundation/processinfo/islowpowermodeenabled), animated modes downgrade to Static or Off according to user policy.
+
+SwiftUI/Core Animation are the initial rendering path. Metal is deferred unless Instruments demonstrates that it materially improves measured frame pacing or energy use. Release gates include Time Profiler, Core Animation, Energy Log, and multi-display tests; Metal System Trace is added only if Metal is introduced.
+
+## 3. Approved pre-Stage 2 additions
+
+| Addition | Public contract and limitation | Permission / distribution | Decision |
+|---|---|---|---|
+| Per-application audio | Public Core Audio process/device APIs may expose bounded per-process capture or supported controls; there is no universal application mixer contract | System Audio Recording when samples are captured; direct profile first | **Experimental**; capability-probe and never imply universal control |
+| Enhanced HUD context | Observe/modify supported Core Audio or display properties and emit a parallel app activity | Usually none beyond the underlying feature | **Reduced**; Apple's HUD remains visible and authoritative |
+| Battery management | Public IOKit power-source notifications and properties expose battery/charging/adapter information | None | **Reduced**; information approved, charge limiting deferred |
+| Charge limiting | No verified documented public API for setting a battery charge ceiling | N/A | **Deferred**; never use SMC/private helpers |
+| Snap Zones | Public Accessibility window attributes/actions plus AppKit feedback overlay | Accessibility; direct distribution canonical | **Experimental**; fail safely and never use private WindowServer APIs |
+| Important banners | Typed Notchium events and owned UserNotifications | Notifications only when posting a system notification | **Reduced**; no arbitrary Notification Center inspection |
+| Synchronized lyrics | MusicKit can report metadata such as lyric availability, but no verified public contract supplies synchronized lyric text for this product | Provider/network authorization may be needed later | **Deferred** pending licensed provider/API and terms review |
+| App Intents / Shortcuts | Public App Intents actions on macOS; each action inherits underlying permission/capability checks | No blanket permission; distribution-neutral in principle | **V1.x**; explicit user invocation only |
+
+## 4. Product feature matrix
+
+### 4.1 Shell, media, calendar, shelf, and camera
 
 | Feature / area | Likely Apple frameworks and APIs | Required permissions | Entitlements / capabilities | Public / documented status | Mac App Store implications | Direct-distribution implications | Known limitations | Recommended implementation | Safe fallback | V1 verdict |
 |---|---|---|---|---|---|---|---|---|---|---|
-| Notchium shell and multi-display placement | AppKit `NSPanel`, `NSScreen.safeAreaInsets`, `auxiliaryTopLeftArea`, `auxiliaryTopRightArea`; documented `NSWindow.CollectionBehavior` for Spaces/full-screen; SwiftUI hosted inside AppKit | None | App Sandbox for Store profile; no special direct entitlement | Public. The app can place a window around reported safe areas; it cannot own or replace the hardware notch | Floating utility behavior must remain within sandbox and review expectations; `canJoinAllApplications` should be used only if its documented overlay semantics fit the shipping design | Canonical path; hardened runtime and notarization | Geometry and activation vary with display mode, menu-bar settings, Spaces, full-screen apps, Stage Manager, sleep/wake, and clamshell mode | Select only the built-in display with a nonzero top safe-area obstruction; maintain one nonactivating panel and recompute on screen/workspace changes | Menu-bar item exposes all features when no eligible built-in notch exists | **Full V1 shell**, with hardware detection tests |
+| Notchium shell and multi-display placement | AppKit `NSPanel`, `NSScreen.safeAreaInsets`, `auxiliaryTopLeftArea`, `auxiliaryTopRightArea`; documented `NSWindow.CollectionBehavior` for Spaces/full-screen; SwiftUI hosted inside AppKit | None | App Sandbox for Store profile; no special direct entitlement | Public. The app can place a window around reported safe areas; it cannot own or replace the hardware notch | Floating utility behavior must remain subordinate and truthful; sandbox/review hardware validation remains required | Canonical path; hardened runtime and notarization | Geometry and activation vary with display mode, menu-bar settings, Spaces, full-screen apps, Stage Manager, sleep/wake, and clamshell mode | Prefer a built-in display with a nonzero top safe-area obstruction; otherwise center one virtual pill on the primary display. Keep one panel, reset to collapsed on moves/Space changes, and retain the menu item | Menu-bar item remains available everywhere and is the only surface with zero displays | **Stage 2 implemented; hardware qualification remains** |
 | Apple Music now playing and controls | MusicKit `SystemMusicPlayer`, `MusicAuthorization`, player state and queue APIs; Keychain only if app-owned state needs protection | Apple Music authorization; network as MusicKit requires | MusicKit app service/capability; `NSAppleMusicUsageDescription`; sandbox network client for Store profile | Public. `SystemMusicPlayer` controls the Music app | Subject to MusicKit capability, sandbox network access, Store review, and Apple Music terms | Supported with Developer ID and the same MusicKit authorization/capability | Subscription, region, account, catalog availability, and authorization affect behavior | One `MediaProvider` adapter; surface only controls supported by current state | Show disconnected/unavailable state and Open Music | **Reduced V1** |
 | Apple Music Up Next | MusicKit `SystemMusicPlayer.queue` / `MusicPlayer.Queue` | Same as Apple Music | Same as Apple Music | Public, but the installed SDK exposes `currentEntry` on the base queue; enumerable `entries` is on `ApplicationMusicPlayer.Queue`, not the system-player queue | Do not imply unavailable queue inspection in metadata or screenshots | Same limitation | Complete Music app Up Next enumeration is not a stable public contract | Show current item and only documented queue mutations that work for `SystemMusicPlayer`; capability-gate any future queue data | Omit the queue list and open Music | **Reduced V1** |
 | Spotify now playing, queue, and controls | Spotify Web API over `URLSession`; Authorization Code with PKCE; Keychain token storage | Spotify account authorization; outgoing network | Sandbox `com.apple.security.network.client`; Keychain access group only if sharing tokens across targets | Spotify-documented API, not an Apple API. Desktop clients should use PKCE | Network and OAuth are compatible in principle; Spotify policy, account mode, metadata use, and review remain independent obligations | Canonical path; tokens remain in Keychain; no embedded client secret | Playback changes generally require Premium and appropriate scopes; no active device, restricted/private sessions, rate limits, market, and development-mode limits can reduce functionality | Request least scopes (`user-read-playback-state`, `user-modify-playback-state`, and queue/history scopes only when used); report provider capabilities and errors | Open Spotify; never use Apple Events, Accessibility scraping, or private MediaRemote | **Reduced V1** |
 | Generic media from arbitrary apps | `MPNowPlayingInfoCenter` is for publishing the current app's playback; no public cross-application reader/controller was verified | N/A | N/A | No documented public generic contract | A private fallback would violate review rules | Private fallback is still prohibited | Unsupported providers cannot be read or controlled generically | Provider adapters only for Apple Music and Spotify | Open the selected player | **Deferred outside named providers** |
-| Real audio waveform | Core Audio process taps: `AudioHardwareCreateProcessTap`, `CATapDescription`, aggregate-device APIs; Accelerate/vDSP for RMS/FFT | System Audio Recording; explicit in-app capture indicator | `NSAudioCaptureUsageDescription`; no microphone entitlement because microphone input is not used; Store signing must be validated in Stage 1 | Public since macOS 14.2; declarations verified in macOS 26.5 SDK | High review/privacy/power scrutiny under Guideline 2.5.14; no silent/background capture | Available in principle with TCC, hardened runtime, notarization, and clear disclosure | Process targeting, protected audio, provider changes, tap teardown, latency, power, and permission UX need hardware testing | User explicitly enables; capture only the selected eligible process; compute bounded in-memory RMS/FFT windows; never persist PCM or derived history; stop immediately when hidden/disabled | Use a deterministic decorative playback animation labeled as non-audio-derived, or no waveform | **Experimental**; disabled for Spotify pending written policy clearance |
+| Real audio waveform | Core Audio process taps: `AudioHardwareCreateProcessTap`, `CATapDescription`, aggregate-device APIs; Accelerate/vDSP for RMS/FFT | System Audio Recording; explicit in-app capture indicator | `NSAudioCaptureUsageDescription`; no microphone entitlement because microphone input is not used; Store signing remains a later release-validation gate | Public since macOS 14.2; declarations verified in macOS 26.5 SDK | High review/privacy/power scrutiny under Guideline 2.5.14; no silent/background capture | Available in principle with TCC, hardened runtime, notarization, and clear disclosure | Process targeting, protected audio, provider changes, tap teardown, latency, power, and permission UX need hardware testing | User explicitly enables; capture only the selected eligible process; compute bounded in-memory RMS/FFT windows; never persist PCM or derived history; stop immediately when hidden/disabled | Use a deterministic decorative playback animation labeled as non-audio-derived, or no waveform | **Experimental**; disabled for Spotify pending written policy clearance |
 | Spotify-derived waveform policy | Same Core Audio path, governed by Spotify Developer Policy | Same as waveform plus Spotify authorization | Same as Spotify and waveform | Apple APIs are public, but policy suitability is unresolved. Spotify policy restricts commercial streaming apps and synchronization of recordings with visual media | Policy ambiguity is a Store and product risk regardless of Apple review | Same contractual risk | Technical feasibility does not establish license/policy permission | Obtain written Spotify clearance before enabling for Spotify content | Never capture Spotify audio; show artwork/playback progress only | **Deferred pending written clearance** |
 | Calendar events | EventKit `EKEventStore`, `requestFullAccessToEvents`, predicates and change notifications | Full Calendar access | `NSCalendarsFullAccessUsageDescription`; Store profile `com.apple.security.personal-information.calendars` | Public. EventKit does not provide a read-only events tier on macOS | Compatible in principle with purpose string and calendar sandbox entitlement | Supported with TCC and purpose string | Recurring events, account sync delays, deleted events, time-zone changes, and hidden calendar details | Cache the minimum upcoming fields; refresh on EventKit changes and lifecycle events | Manual Open Calendar action and permission explanation | **Reduced V1** |
 | Meeting links and Join | EventKit fields; `URLComponents`; `NSWorkspace.open`; provider-specific HTTPS host recognition | Calendar access for automatic discovery; none for manually supplied URL | Calendar entitlement only in Store profile | Public. Official Zoom/Meet/Teams developer APIs do not create a generic contract for controlling their installed clients | Opening HTTPS links is review-friendly; embedded Zoom Meeting SDK is out of V1 and is documented as incompatible with App Sandbox | URL opening works; no Automation entitlement needed | Links may be hidden, malformed, rewritten, or provider-custom. No generic mute, camera, participant, or end-call control | Parse allowlisted HTTPS hosts from event URL/location/notes; display destination; open on explicit Join | Copy link or open provider app/site | **Reduced V1** |
@@ -52,7 +94,7 @@ Verdicts mean:
 | Download observation | Explicit Downloads folder or user-selected folder; security-scoped bookmark; FSEvents/Dispatch source; file metadata | Downloads folder access | Store: `com.apple.security.files.downloads.read-only` or user-selected read-only; `NSDownloadsFolderUsageDescription` where required by protected-folder access | Public folder observation; download completion/source is inferred, not reported universally by macOS | Broad observation may receive privacy/review scrutiny; Chromium extension download events are optional provider-specific signals, not universal truth | Canonical best-effort watcher after opt-in | Browsers and downloaders use different temporary names, sparse files, atomic moves, quarantine flows, and locations | Watch only opted-in folders; coalesce events; infer completion from stable metadata and temporary-extension transitions; label source unknown unless extension reports it | Manual import / open Downloads | **Reduced V1, best effort** |
 | Camera mirror | AVFoundation `AVCaptureDevice`, `AVCaptureSession`, `AVCaptureVideoPreviewLayer` | Camera | `NSCameraUsageDescription`; Store sandbox `com.apple.security.device.camera` | Public | Compatible with contextual consent and visible system privacy indicator | Supported with hardened runtime/TCC | Availability, Continuity Camera, device disconnects, exclusive use, and formats vary | Preview-only session; no file output and no audio input by default | Open Camera settings or show no-camera state | **Full V1** |
 
-### 2.2 Audio hardware, utility, privacy, monitoring, pages, and focus
+### 4.2 Audio hardware, utility, privacy, monitoring, pages, and focus
 
 | Feature / area | Likely Apple frameworks and APIs | Required permissions | Entitlements / capabilities | Public / documented status | Mac App Store implications | Direct-distribution implications | Known limitations | Recommended implementation | Safe fallback | V1 verdict |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -73,7 +115,7 @@ Verdicts mean:
 | Frontmost-application tracking | `NSWorkspace.frontmostApplication`, `didActivateApplicationNotification` | Separate in-app explicit consent; not currently a TCC prompt | None | Public; logging user activity invokes disclosure/indicator expectations under review policy | Broad observation is a review/privacy risk even without TCC; must be optional, local, and visibly active | Canonical opt-in | Activation notifications miss context during app downtime and do not justify collecting window titles | Record bundle identifier and duration only; no titles/documents; visible tracking state; 90-day retention | Timer-only focus statistics | **Reduced V1, opt-in** |
 | Browser-domain tracking | Safari Web Extension; native messaging/App Group; Chromium WebExtensions host permissions and native messaging for Chrome, Edge, and Arc | Per-extension install/enable; per-site host access; native messaging; separate in-app consent | Safari extension/app-group capabilities; Store sandbox network/file rules; Chromium native-host packaging differs by browser | Public extension APIs. Private/incognito exclusion must be proven per browser/profile | Four-browser packaging/review is substantial; Chromium native-host installation may not fit a single Store bundle, so Store profile may omit it | Canonical but maintenance-heavy | Permissions differ; registrable-domain normalization needs Public Suffix data; browsers change packaging; extension access to private contexts must never be treated as permission to collect | Extension emits only normalized registrable domain plus begin/end timing; never URL/path/query/title; reject private/incognito contexts; disable a browser adapter unless exclusion is verified | App-only tracking; browser time attributed to browser bundle, not domain | **Reduced V1, separately opt-in** |
 
-## 3. Dynamic Mac Island activity matrix
+## 5. Dynamic Mac Island activity matrix
 
 These are app-owned transient presentations, not replacements for macOS HUDs or ActivityKit Live Activities.
 
@@ -94,7 +136,7 @@ These are app-owned transient presentations, not replacements for macOS HUDs or 
 | OCR | Vision `VNRecognizeTextRequest` on user-provided clipboard/shelf/screenshot images; ScreenCaptureKit only for separately initiated capture | None for existing files; Screen & System Audio Recording for direct screen capture | User-selected file entitlement for files; no persistent-content-capture entitlement (that is for approved VNC apps) | Vision and ScreenCaptureKit are public | Contextual screen-capture consent and system picker are preferred; no background surveillance | Same | OCR accuracy, language, orientation, cost, and private content; direct capture has TCC/UI constraints | Local on-device OCR; transient result unless explicitly saved; separately opt-in capture through system selection UI | OCR imported image only | **Full V1 for provided images; reduced for direct capture** |
 | System HUD replacement | None under the public contract | N/A | N/A | Suppressing/replacing Apple's HUD is not a documented supported behavior | Unacceptable promise and review risk | Still prohibited | Apple retains system UI ownership | Keep Apple HUD and show a parallel, subordinate app activity only | Apple's HUD | **Deferred / prohibited** |
 
-## 4. Prominent prohibited or deferred techniques
+## 6. Prominent prohibited or deferred techniques
 
 | Technique or claim | Contract | Reason | Approved public alternative |
 |---|---|---|---|
@@ -111,42 +153,52 @@ These are app-owned transient presentations, not replacements for macOS HUDs or 
 | Exact universal download or screenshot completion | **Prohibited claim** | Folder events and naming/stabilization are inference only | Best-effort opt-in folder watcher; manual import |
 | Generic Zoom/Meet/Teams mute, camera, participant, or end-call control | **Deferred** | Official integrations do not provide a universal controller for existing desktop-client calls | Calendar-derived Join/open action |
 | Native Mac-originated ActivityKit Live Activities | **Deferred** | No verified native macOS originating API; Apple's described Mac experience mirrors phone-originated activities | App-owned notch activity and local notifications |
+| Stretching the notch panel into a display-edge overlay | **Prohibited** | Couples unrelated lifecycle, focus, geometry, and accessibility behavior into one window | Independent display-owned notch and edge windows |
+| Feature modules opening or controlling Ambient Edge directly | **Prohibited** | Bypasses priority, privacy redaction, coalescing, and testable presentation policy | Typed event → `ActivityCoordinator` → presentation state |
+| Screen Recording or Accessibility requested solely to infer full-screen/video/screen sharing | **Prohibited** | Overbroad permission with no universal correctness guarantee | Public lifecycle heuristics, exclusions, and manual Pause |
+| Silent or autonomous audio capture for visual effects | **Prohibited** | Violates contextual consent and visible-recording contract | Explicit Beat Reactive opt-in using the shared meter pipeline |
+| Spotify waveform or audio-reactive Ambient Edge without written policy clearance | **Prohibited pending clearance** | Technical capture does not establish Spotify policy rights | Metadata/artwork-derived Static/Slow modes only |
+| Unbounded persistent display animation | **Prohibited** | Unacceptable CPU/GPU/energy behavior for a background utility | Event-bounded effects, static idle state, sleep/low-power suspension |
 
-## 5. High-risk findings
+## 7. High-risk findings
 
-### 5.1 Spotify policy is a product gate
+### 7.1 Spotify policy is a product gate
 
 Spotify's [Authorization Code with PKCE](https://developer.spotify.com/documentation/web-api/tutorials/code-pkce-flow), [scopes](https://developer.spotify.com/documentation/web-api/concepts/scopes), [playback state](https://developer.spotify.com/documentation/web-api/reference/get-information-about-the-users-current-playback), and [queue](https://developer.spotify.com/documentation/web-api/reference/get-queue) support the reduced provider. Playback mutation is account/device/scope dependent and is generally a Premium function. The [Spotify Developer Policy](https://developer.spotify.com/policy) creates unresolved commercial-use and audio/visual synchronization questions. Technical access does not grant policy clearance; Spotify audio capture remains disabled until written approval exists.
 
-### 5.2 Apple Music queue access is narrower than the desired UI
+### 7.2 Apple Music queue access is narrower than the desired UI
 
 [`SystemMusicPlayer`](https://developer.apple.com/documentation/musickit/systemmusicplayer) controls Music app state. The installed SDK's base `MusicPlayer.Queue` provides a current entry and mutations but not the enumerable `entries` available to `ApplicationMusicPlayer.Queue`. Therefore V1 cannot contractually promise a complete Music app Up Next list.
 
-### 5.3 System audio capture must be unmistakable and ephemeral
+### 7.3 System audio capture must be unmistakable and ephemeral
 
 Apple's [Core Audio tap guide](https://developer.apple.com/documentation/coreaudio/capturing-system-audio-with-core-audio-taps) requires `NSAudioCaptureUsageDescription` and triggers System Audio Recording consent. A tap starts only from a deliberate waveform action, has an always-visible indicator, uses bounded in-memory RMS/FFT, stores no samples, and tears down on hide, denial, revocation, provider change, error, or inactivity.
 
-### 5.4 Hardware controls are capabilities, not assumptions
+### 7.4 Hardware controls are capabilities, not assumptions
 
 The macOS 26.5 SDK publicly declares [`IODisplaySetFloatParameter`](https://developer.apple.com/documentation/iokit/1574926-iodisplaysetfloatparameter) and the brightness parameter. That does not mean every display implements it. Core Audio likewise requires per-device property and writability checks. AirPods battery/listening modes and built-in keyboard-backlight control have no verified product-grade public contract and remain absent.
 
-### 5.5 Input suppression is fail-open
+### 7.5 Input suppression is fail-open
 
 [`CGEvent.tapCreate`](https://developer.apple.com/documentation/coregraphics/cgevent/tapcreate(tap:place:options:eventsofinterest:callback:userinfo:)) is public, but only a session-level active filter is permitted. Root/HID interception is excluded. Any failed trust check, tap creation, timeout, system disablement, Secure Input condition, watchdog signal, or callback fault releases suppression immediately. Mac App Store viability is unresolved.
 
-### 5.6 Metrics must remain truthful
+### 7.6 Metrics must remain truthful
 
 Mach, libproc, and interface counters support CPU/RAM and aggregate network. Metal's [counter sample buffers](https://developer.apple.com/documentation/metal/sampling-gpu-data-into-counter-sample-buffers) measure the app's encoded GPU work, not universal system utilization. [Network Extension content filters](https://developer.apple.com/documentation/networkextension/content-filter-providers) are not an entitlement workaround for per-process statistics. GPU and per-process network are deferred.
 
-### 5.7 Browser and folder signals are bounded
+### 7.7 Browser and folder signals are bounded
 
 Safari [Web Extensions](https://developer.apple.com/documentation/safariservices/safari-web-extensions), [permission management](https://developer.apple.com/documentation/safariservices/managing-safari-web-extension-permissions), and [native messaging](https://developer.apple.com/documentation/safariservices/messaging-between-the-app-and-javascript-in-a-safari-web-extension) provide a documented path. Chromium has official [permission](https://developer.chrome.com/docs/extensions/develop/concepts/declare-permissions) and [native messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging) contracts. Each adapter must prove that private/incognito contexts are rejected before release; otherwise that adapter is disabled. Folder watchers only observe filesystem transitions and must expose confidence, not exact browser/source truth.
 
-### 5.8 Meeting controls stop at Join
+### 7.8 Meeting controls stop at Join
 
 The official [Zoom macOS Meeting SDK](https://developers.zoom.us/docs/meeting-sdk/macos/get-started/) is an embedded meeting SDK and is documented as incompatible with App Sandbox; it is not a generic controller for an installed Zoom client. The [Google Meet REST overview](https://developers.google.com/workspace/meet/api/guides/overview) exposes meeting resources, and [Microsoft Teams deep links](https://learn.microsoft.com/en-us/microsoftteams/platform/concepts/build-and-test/deep-links) open supported destinations. None establishes universal mute/end-call control for existing external clients. V1 recognizes and opens links only.
 
-## 6. Primary Apple source ledger
+### 7.9 Ambient Edge suppression and energy remain empirical gates
+
+No single documented public API was verified that truthfully classifies every full-screen video, game, presentation, or third-party screen-sharing session. Suppression therefore combines public lifecycle signals with explicit user exclusions and manual Pause, and is described as best effort. Rendering approval requires measured CPU, GPU, frame pacing, and energy data; static mode must remain event-driven with no persistent frame loop.
+
+## 8. Primary Apple source ledger
 
 - Shell and display: [`NSScreen`](https://developer.apple.com/documentation/appkit/nsscreen), [`auxiliaryTopLeftArea`](https://developer.apple.com/documentation/appkit/nsscreen/auxiliarytopleftarea-uglc), and [`NSWindow.CollectionBehavior`](https://developer.apple.com/documentation/appkit/nswindow/collectionbehavior-swift.struct/canjoinallspaces).
 - Music: [MusicKit](https://developer.apple.com/documentation/musickit), [`SystemMusicPlayer`](https://developer.apple.com/documentation/musickit/systemmusicplayer), and [`NSAppleMusicUsageDescription`](https://developer.apple.com/documentation/bundleresources/information-property-list/nsapplemusicusagedescription).
@@ -158,7 +210,7 @@ The official [Zoom macOS Meeting SDK](https://developers.zoom.us/docs/meeting-sd
 - Focus and lifecycle: [`NSWorkspace.frontmostApplication`](https://developer.apple.com/documentation/appkit/nsworkspace/frontmostapplication), [`didActivateApplicationNotification`](https://developer.apple.com/documentation/appkit/nsworkspace/didactivateapplicationnotification), [notifications authorization](https://developer.apple.com/documentation/usernotifications/asking-permission-to-use-notifications), and [`SMAppService.mainApp`](https://developer.apple.com/documentation/servicemanagement/smappservice/mainapp).
 - Secret storage: [Keychain Services](https://developer.apple.com/documentation/security/keychain-services) and [storing keys in Keychain](https://developer.apple.com/documentation/security/storing-keys-in-the-keychain).
 
-### 6.1 Installed SDK header verification record
+### 8.1 Installed SDK header verification record
 
 The following uncertain or hardware-sensitive declarations were also checked directly in the installed macOS 26.5 SDK. Header presence establishes public compile-time availability, not hardware support or App Review acceptance.
 
@@ -174,7 +226,7 @@ The following uncertain or hardware-sensitive declarations were also checked dir
 
 Additional authoritative sources for these rows are [`host_statistics64`](https://developer.apple.com/documentation/kernel/1502863-host_statistics64), [`getifaddrs`](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/getifaddrs.3.html), [IOKit power-source notifications](https://developer.apple.com/documentation/iokit/1557127-iopsnotificationcreate), [Liquid Glass containers](https://developer.apple.com/documentation/swiftui/glasseffectcontainer), and Apple's [Live Activities guidance](https://developer.apple.com/design/human-interface-guidelines/live-activities).
 
-## 7. Unresolved technical risks
+## 9. Unresolved technical risks
 
 - Spotify policy clearance for audio-derived waveform visualization and commercial product use.
 - Apple Music system-player queue visibility and behavior changes across MusicKit releases.
@@ -186,4 +238,8 @@ Additional authoritative sources for these rows are [`host_statistics64`](https:
 - Folder-watcher inference cannot provide universal screenshot/download completion semantics.
 - Window placement and activation behavior across Spaces, full-screen applications, display changes, sleep/wake, and menu-bar configurations.
 - Mac App Store viability of the reduced capability profile, particularly keyboard suppression and broad observation features.
-- Stage 1 requires full Xcode 26; this machine currently exposes the macOS 26.5 SDK through Command Line Tools but no full Xcode installation.
+- Ambient Edge window ordering and suppression behavior across displays, Spaces, Stage Manager, full-screen applications, sleep/wake, and system alerts.
+- No universal public full-screen-video, presentation, game, or third-party screen-sharing detector has been verified.
+- Animated multi-display frame pacing and energy cost are unproven until a later implementation is profiled on representative hardware.
+- Palette stability and contrast across album artwork require product and accessibility testing.
+- Audio-reactive Ambient Edge compounds Core Audio process-tap, provider targeting, review, and Spotify-policy risk.

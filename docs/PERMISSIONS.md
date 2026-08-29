@@ -1,4 +1,4 @@
-# Permissions Ledger — Stage 0
+# Permissions Ledger — Stage 2 Reconciliation
 
 **Status:** Mandatory privacy and authorization contract
 
@@ -6,7 +6,7 @@
 
 **Canonical distribution:** Developer ID, hardened runtime, notarized direct download
 
-**Last reviewed:** 2026-08-24
+**Last reviewed:** 2026-08-28
 
 ## 1. Permission principles
 
@@ -44,7 +44,24 @@ Permission behavior uses the shared `PermissionState` vocabulary from [ENGINEERI
 | Clipboard programmatic access | User independently enables automatic Clipboard History and the observer reaches a new candidate | `NSPasteboard` macOS 26 access behavior/detection APIs; no usage-description key identified; app must follow system pasteboard alert/settings behavior | macOS pasteboard privacy decision plus explicit in-app consent | Programmatic reads may prompt or be denied under macOS 26; user-originated paste remains the safe explicit path | Same, with Store review scrutiny for background access and retention | Explicit Save Clipboard/Paste action, pins already stored, shelf, and native macOS clipboard history | Use the pasteboard access pane surfaced by macOS for the app; do not hard-code an unverified settings URL; offer an explicit user-initiated save path | Stop observation/reads, clear pending candidate buffers, retain previously accepted encrypted items until retention/user deletion | Default/ask/always allow/always deny behaviors; user-originated paste exemption; deny/revoke; unknown source; Secure Input; denylisted app; secret patterns; unsupported type; clear-history deletion |
 | Frontmost-application tracking consent | User separately enables Application Tracking for Focus | No TCC key or entitlement; `NSWorkspace.didActivateApplicationNotification`; explicit in-app consent and visible active state are still required | Product consent / public workspace observation | Allowed technically; activity logging must meet consent/indicator/privacy contract | Review risk under Guideline 2.5.14; Store profile may omit if review guidance requires | Focus timer, breaks, notifications, and manual categorization remain | In-app Focus Privacy setting; no system pane. User can pause/disable and clear data immediately | End current interval, stop observation, aggregate/discard according to policy, never continue invisibly | Off by default; enable/disable; sleep/wake; fast app switches; terminated apps; unknown bundle ID; app relaunch; 90-day cleanup; verify no window title/document capture |
 
-## 3. Trigger and retry state machine
+## 3. Presentation permission decisions
+
+Ambient Edge does not receive a blanket permission. Each input retains the permission contract of its owning feature, and the presentation layer receives only redacted presentation state.
+
+| Ambient Edge behavior | Permission decision | Denial / revocation behavior |
+|---|---|---|
+| Click-through overlay, custom color/gradient, thickness, intensity, Static/Slow/Ambient decorative modes | No TCC permission or entitlement beyond the app's normal signing/distribution profile | Feature remains available. If the platform cannot create a safe subordinate overlay, Ambient Edge is unavailable and the notch/menu-bar presentation continues. |
+| Album-art-derived palette | No new permission. Artwork must already be available through an authorized media provider and its existing account/capability contract | Fall back immediately to the user's static theme; do not request media authorization merely for decoration. |
+| Beat Reactive using an already-running authorized meter | No second prompt. It consumes bounded amplitude state from the existing `AudioMeterProvider` only | Stop reactivity immediately when the shared stream ends, is revoked, or changes provider; downgrade to Static or Off. |
+| Beat Reactive that would require starting system-audio analysis | Existing System Audio Recording contract: `NSAudioCaptureUsageDescription`, contextual education, explicit user action, TCC authorization, and visible capture indication | Never start automatically. Denial, restriction, revocation, provider-policy disablement, or uncertain attribution leaves all nonreactive modes functional. |
+| Snap Zone feedback | No permission for rendering. The separate Snap feature requires Accessibility only when it queries or moves another application's windows | Edge feedback disappears; Ambient Edge must not request, inspect, or retain Accessibility state itself. |
+| Important-notification pulse | No permission for an in-app pulse from a typed Notchium event. UserNotifications authorization applies only when Notchium also posts a system notification | In-app activity may continue when Notifications are denied; arbitrary third-party Notification Center content remains inaccessible by design. |
+| Full-screen/presentation/screen-sharing suppression | No new permission. Screen Recording and Accessibility must not be requested solely to improve detection | Use public best-effort lifecycle signals, per-application exclusions, conservative suppression, and manual Pause. Never imply exact detection. |
+| Multi-display presentation | No permission | An unsupported/disconnected display loses only its overlay; all other surfaces continue. |
+
+Related approved additions follow the same least-authority rule: battery information needs no TCC grant; charge limiting remains unavailable; enhanced HUD context adds no permission beyond its source; per-application audio requires System Audio Recording only when samples are actually captured; App Intents inherit the equivalent in-app action's capability and permission; synchronized lyrics must use a future authorized provider rather than scraping.
+
+## 4. Trigger and retry state machine
 
 Every permission-dependent feature follows this sequence:
 
@@ -60,7 +77,7 @@ Every permission-dependent feature follows this sequence:
 
 “Try Again” rechecks status. It does not call a one-shot TCC request repeatedly after denial. Settings links use documented APIs/URLs only; otherwise the app gives a textual path.
 
-## 4. Permission-denial behavior by feature group
+## 5. Permission-denial behavior by feature group
 
 | Feature | Denied or unavailable behavior |
 |---|---|
@@ -75,8 +92,10 @@ Every permission-dependent feature follows this sequence:
 | Monitoring | Unsupported samples are unavailable/stale, not zero. No permission escalation or shell fallback. |
 | Activities | The source activity disappears; the core shell and unrelated activities continue. |
 | Focus | Notification denial keeps in-app completion. App/browser tracking denial keeps timer-only sessions. |
+| Ambient Edge | Basic visual modes require no prompt. Any denied/revoked source removes only that source's effect; the user theme, notch, menu bar, and unrelated activities continue. Audio denial always downgrades to Static or Off and tears down capture first. |
+| Snap Zones | Accessibility denial prevents querying/moving other apps' windows. It does not affect Ambient Edge, the notch shell, or native window controls. |
 
-## 5. Onboarding contract
+## 6. Onboarding contract
 
 The initial explanation may show the value and privacy posture of all features, but it must not invoke protected APIs merely to determine whether a prompt would appear.
 
@@ -91,7 +110,9 @@ Each defaults to off unless the user affirmatively selects it. Selecting an opti
 
 System Audio Recording, Camera, Calendar, direct Screen Capture, Notifications, Keyboard Lock trust, Apple Music, Spotify, Safari extension access, and each Chromium browser adapter are introduced and requested separately at point of use.
 
-## 6. Privacy-safe purpose-string requirements
+Enabling Ambient Edge itself never triggers a system prompt. Selecting Beat Reactive may lead to the existing System Audio Recording education only when the user deliberately starts that mode and no authorized shared meter is active. A mode preview uses synthetic fixture data until authorization succeeds. Ambient Edge never prompts for Screen Recording or Accessibility to improve suppression.
+
+## 7. Privacy-safe purpose-string requirements
 
 Localized usage descriptions must:
 
@@ -103,7 +124,7 @@ Localized usage descriptions must:
 
 Stage 1 must add exact localized strings and review them against the final behavior. Examples may be drafted then, but signing must fail CI if a protected API is linked/used without its required nonempty localized purpose string.
 
-## 7. Distribution checklist
+## 8. Distribution checklist
 
 ### Direct profile
 
@@ -120,7 +141,7 @@ Stage 1 must add exact localized strings and review them against the final behav
 - No private API, Automation entitlement, Network Extension, persistent content capture, broad all-files access, or temporary exception entitlement is allowed.
 - Store metadata must describe reduced capabilities accurately and must not show deferred controls.
 
-## 8. Unresolved technical risks
+## 9. Unresolved technical risks
 
 - Spotify policy clearance for audio-derived waveform visualization and commercial product use.
 - Apple Music system-player queue visibility and behavior changes across MusicKit releases.
@@ -132,4 +153,5 @@ Stage 1 must add exact localized strings and review them against the final behav
 - Folder-watcher inference cannot provide universal screenshot/download completion semantics.
 - Window placement and activation behavior across Spaces, full-screen applications, display changes, sleep/wake, and menu-bar configurations.
 - Mac App Store viability of the reduced capability profile, particularly keyboard suppression and broad observation features.
-- Stage 1 requires full Xcode 26; this machine currently exposes the macOS 26.5 SDK through Command Line Tools but no full Xcode installation.
+- Audio-reactive Ambient Edge may be disproportionate to appearance-only value under TCC and App Review expectations.
+- Public APIs do not guarantee exact full-screen-video, presentation, game, or third-party screen-sharing detection, so suppression must remain best effort and user-controllable.
