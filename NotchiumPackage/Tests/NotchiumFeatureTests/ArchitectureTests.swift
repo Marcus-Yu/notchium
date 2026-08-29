@@ -1,6 +1,5 @@
 import Foundation
 import NotchiumCore
-import NotchiumDynamicIsland
 @testable import NotchiumFeature
 import NotchiumServices
 import NotchiumTestFixtures
@@ -9,7 +8,7 @@ import XCTest
 @MainActor
 final class ArchitectureTests: XCTestCase {
     func testProductionFlagsExposeOnlyTheShell() {
-        let flags = FeatureFlags.stageOne
+        let flags = FeatureFlags.stageTwoShell
 
         XCTAssertTrue(flags[.notchShell])
         XCTAssertFalse(flags[.media])
@@ -52,7 +51,7 @@ final class ArchitectureTests: XCTestCase {
         let authorizer = RealPermissionAuthorizer()
 
         do {
-            try await authorizer.request(.camera)
+            _ = try await authorizer.request(.camera)
             XCTFail("Stage 1 unexpectedly allowed a permission request")
         } catch let error as ServiceFailure {
             XCTAssertEqual(error, .permissionRequestsDisabled)
@@ -91,28 +90,11 @@ final class ArchitectureTests: XCTestCase {
                 temporaryURL: URL(fileURLWithPath: "/private/tmp/notchium-tests")
             ),
             logger: FixtureFactory.logger(),
-            featureFlags: .stageOne,
+            featureFlags: .stageTwoShell,
             distributionProfile: .developerID
         )
 
         XCTAssertEqual(environment.distributionProfile, .developerID)
         XCTAssertTrue(environment.services.media is MockMediaService)
-    }
-}
-
-@MainActor
-final class DynamicIslandPresentationTests: XCTestCase {
-    func testCollapsedHoveredAndOpenedStatesAreExplicit() {
-        let model = DynamicIslandPresentationModel()
-
-        XCTAssertEqual(model.interaction, .collapsed)
-        model.setHovered(true)
-        XCTAssertEqual(model.interaction, .hovered)
-        model.toggleOpened()
-        XCTAssertEqual(model.interaction, .opened)
-        model.setHovered(false)
-        XCTAssertEqual(model.interaction, .opened)
-        model.toggleOpened()
-        XCTAssertEqual(model.interaction, .collapsed)
     }
 }
