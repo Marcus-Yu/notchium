@@ -42,4 +42,6 @@ public struct FeatureFlags: Equatable, Sendable {
         .focus: false,
         .spotifyAudioWaveform: false,
     ])
+
+    public static let stageTwoShell = stageOne
 }

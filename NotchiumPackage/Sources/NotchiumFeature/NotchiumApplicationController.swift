@@ -6,30 +6,27 @@ import NotchiumDiagnostics
 import NotchiumDynamicIsland
 import Observation
 
-public enum ShellPlacement: String, Equatable, Sendable {
-    case builtInNotch
-    case menuBarFallback
-}
-
 @MainActor
 @Observable
 public final class NotchiumApplicationController {
     public let environment: AppEnvironment
-    public let panelCoordinator: NotchiumPanelCoordinator
+    public let displayCoordinator: NotchiumDisplayCoordinator
     public private(set) var isRunning = false
-    public private(set) var shellPlacement: ShellPlacement = .menuBarFallback
 
 #if DEBUG
     public let developerPanelModel: DeveloperPanelModel
+    public let shellDebugModel: NotchShellDebugModel
 #endif
 
-    public init(
-        environment: AppEnvironment,
-        panelCoordinator: NotchiumPanelCoordinator = NotchiumPanelCoordinator()
-    ) {
+    public init(environment: AppEnvironment) {
         self.environment = environment
-        self.panelCoordinator = panelCoordinator
 #if DEBUG
+        let shellDebugModel = NotchShellDebugModel()
+        self.shellDebugModel = shellDebugModel
+        displayCoordinator = NotchiumDisplayCoordinator(
+            clock: environment.clock,
+            debugModel: shellDebugModel
+        )
         developerPanelModel = DeveloperPanelModel(
             services: environment.services,
             clock: environment.clock,
@@ -37,6 +34,8 @@ public final class NotchiumApplicationController {
             persistence: environment.persistence,
             logger: environment.logger
         )
+#else
+        displayCoordinator = NotchiumDisplayCoordinator(clock: environment.clock)
 #endif
     }
 
@@ -47,10 +46,7 @@ public final class NotchiumApplicationController {
     public func start() {
         guard !isRunning else { return }
         isRunning = true
-        panelCoordinator.start()
-        shellPlacement = panelCoordinator.hasBuiltInNotch
-            ? .builtInNotch
-            : .menuBarFallback
+        displayCoordinator.start()
 
         let logger = environment.logger
         Task { await logger.record(.applicationStarted, level: .notice) }
@@ -58,7 +54,7 @@ public final class NotchiumApplicationController {
 
     public func stop() {
         guard isRunning else { return }
-        panelCoordinator.stop()
+        displayCoordinator.stop()
         isRunning = false
 
         let logger = environment.logger

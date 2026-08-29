@@ -34,7 +34,10 @@ struct NotchiumApp: App {
 
 #if DEBUG
         Window("Developer Panel", id: "developer-panel") {
-            NotchiumDeveloperPanelView(model: appDelegate.controller.developerPanelModel)
+            NotchiumDeveloperPanelView(
+                model: appDelegate.controller.developerPanelModel,
+                shellDebugModel: appDelegate.controller.shellDebugModel
+            )
         }
         .defaultSize(width: 720, height: 520)
 #endif

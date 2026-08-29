@@ -14,10 +14,8 @@ public struct NotchiumMenuView: View {
 
     public var body: some View {
         Group {
-            Label("Stage 1 architecture", systemImage: "checkmark.seal")
-            Text(controller.shellPlacement == .builtInNotch
-                 ? "Built-in notch shell active"
-                 : "Menu-bar fallback active")
+            Label("Stage 2 shell", systemImage: "checkmark.seal")
+            Text(shellStatus)
                 .foregroundStyle(.secondary)
 
             Divider()
@@ -40,6 +38,18 @@ public struct NotchiumMenuView: View {
                 NSApplication.shared.terminate(nil)
             }
             .keyboardShortcut("q")
+        }
+    }
+
+    private var shellStatus: String {
+        guard let placement = controller.displayCoordinator.shellPlacement else {
+            return "Menu-bar fallback active"
+        }
+        switch placement.mode {
+        case .physicalNotch:
+            return "Physical notch shell on \(placement.display.name)"
+        case .virtualPill:
+            return "Virtual pill on \(placement.display.name)"
         }
     }
 }

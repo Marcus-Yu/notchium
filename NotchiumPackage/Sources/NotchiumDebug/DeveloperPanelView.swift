@@ -4,15 +4,23 @@ import NotchiumDesignSystem
 import NotchiumServices
 import SwiftUI
 
-public struct DeveloperPanelView: View {
+public struct DeveloperPanelView<ShellContent: View>: View {
     @Bindable private var model: DeveloperPanelModel
+    private let shellContent: ShellContent
 
-    public init(model: DeveloperPanelModel) {
+    public init(
+        model: DeveloperPanelModel,
+        @ViewBuilder shellContent: () -> ShellContent
+    ) {
         self.model = model
+        self.shellContent = shellContent()
     }
 
     public var body: some View {
         TabView {
+            shellContent
+                .tabItem { Label("Shell", systemImage: "capsule") }
+
             providers
                 .tabItem { Label("Providers", systemImage: "shippingbox") }
 
