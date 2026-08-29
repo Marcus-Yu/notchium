@@ -25,7 +25,6 @@ public struct NotchPanelLayout: Equatable, Sendable {
 public enum NotchGeometryResolver {
     private static let horizontalMargin: CGFloat = 16
     private static let bottomMargin: CGFloat = 32
-    private static let virtualTopInset: CGFloat = 6
 
     public static func layout(
         for placement: NotchShellPlacement,
@@ -34,7 +33,7 @@ public enum NotchGeometryResolver {
         let display = placement.display
         let availableWidth = max(1, display.frame.width - horizontalMargin * 2)
         let availableHeight = max(1, display.frame.height - bottomMargin)
-        let topInset = placement.mode == .virtualPill ? virtualTopInset : 0
+        let topInset: CGFloat = 0
 
         let requestedSize = requestedSurfaceSize(for: placement, state: state)
         let width = min(max(1, requestedSize.width), availableWidth)

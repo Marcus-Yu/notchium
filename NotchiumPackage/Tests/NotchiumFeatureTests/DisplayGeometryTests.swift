@@ -68,15 +68,77 @@ final class NotchGeometryResolverTests: XCTestCase {
         XCTAssertEqual(layout.surfaceSize.width, 240)
     }
 
-    func testVirtualPillUsesSixPointTopInset() {
+    func testVirtualPillUsesAbsoluteTopEdge() {
         let display = externalDisplay()
         let placement = NotchShellPlacement(display: display, mode: .virtualPill)
         let layout = NotchGeometryResolver.layout(for: placement, state: .collapsed)
 
         XCTAssertEqual(layout.surfaceSize, CGSize(width: 220, height: 44))
         XCTAssertEqual(layout.panelFrame.midX, display.frame.midX, accuracy: 0.001)
-        XCTAssertEqual(layout.panelFrame.maxY, display.frame.maxY - 6, accuracy: 0.001)
+        XCTAssertEqual(layout.panelFrame.maxY, display.frame.maxY, accuracy: 0.001)
+        XCTAssertEqual(layout.topInset, 0)
         XCTAssertNil(layout.physicalBridgeSize)
+    }
+
+    func testEveryModeAndPresentationStateSharesDisplayTopAndHorizontalCenter() {
+        let displays = [
+            builtInDisplay(frame: CGRect(x: -1512, y: 144, width: 1512, height: 982)),
+            externalDisplay(frame: CGRect(x: 384, y: -120, width: 1728, height: 1117)),
+        ]
+        let placements = [
+            NotchShellPlacement(display: displays[0], mode: .physicalNotch),
+            NotchShellPlacement(display: displays[1], mode: .virtualPill),
+        ]
+
+        for placement in placements {
+            for state in NotchStableState.allCases {
+                let layout = NotchGeometryResolver.layout(for: placement, state: state)
+                XCTAssertEqual(
+                    layout.panelFrame.maxY,
+                    placement.display.frame.maxY,
+                    accuracy: 0.001,
+                    "\(placement.mode) \(state) must remain top anchored"
+                )
+                XCTAssertEqual(
+                    layout.panelFrame.midX,
+                    placement.display.frame.midX,
+                    accuracy: 0.001,
+                    "\(placement.mode) \(state) must remain centered"
+                )
+            }
+        }
+    }
+
+    func testBackingScaleDoesNotChangePointBasedTopAnchor() {
+        let frame = CGRect(x: 90, y: 220, width: 1440, height: 900)
+        let standard = NotchiumDisplaySnapshot(
+            id: NotchiumDisplayID(rawValue: 10),
+            name: "Standard scale",
+            frame: frame,
+            isBuiltIn: false,
+            isPrimary: true,
+            backingScaleFactor: 1
+        )
+        let retina = NotchiumDisplaySnapshot(
+            id: NotchiumDisplayID(rawValue: 11),
+            name: "Retina scale",
+            frame: frame,
+            isBuiltIn: false,
+            isPrimary: true,
+            backingScaleFactor: 2
+        )
+
+        let standardLayout = NotchGeometryResolver.layout(
+            for: NotchShellPlacement(display: standard, mode: .virtualPill),
+            state: .expanded
+        )
+        let retinaLayout = NotchGeometryResolver.layout(
+            for: NotchShellPlacement(display: retina, mode: .virtualPill),
+            state: .expanded
+        )
+
+        XCTAssertEqual(standardLayout.panelFrame, retinaLayout.panelFrame)
+        XCTAssertEqual(retinaLayout.panelFrame.maxY, frame.maxY, accuracy: 0.001)
     }
 
     func testEveryPresentationStateUsesContractDimensions() {
@@ -113,7 +175,7 @@ final class NotchGeometryResolverTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(layout.panelFrame.minX, display.frame.minX + 16)
         XCTAssertLessThanOrEqual(layout.panelFrame.maxX, display.frame.maxX - 16)
         XCTAssertGreaterThanOrEqual(layout.panelFrame.minY, display.frame.minY + 32)
-        XCTAssertLessThanOrEqual(layout.panelFrame.maxY, display.frame.maxY - 6)
+        XCTAssertEqual(layout.panelFrame.maxY, display.frame.maxY, accuracy: 0.001)
     }
 
     func testExtremelySmallDisplayNeverProducesNegativeDimensions() {

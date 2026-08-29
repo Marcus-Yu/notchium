@@ -35,6 +35,10 @@ private final class NotchTrackingHostingView: NSHostingView<NotchiumShellView> {
     var hoverHandler: ((Bool) -> Void)?
     private var shellTrackingArea: NSTrackingArea?
 
+    override var safeAreaInsets: NSEdgeInsets {
+        NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+    }
+
     override func updateTrackingAreas() {
         if let shellTrackingArea {
             removeTrackingArea(shellTrackingArea)
@@ -128,6 +132,11 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         }
 
         updateFrame(layout.panelFrame, animated: animated)
+        let showsExpandedShadow = model.visualState == .expanded
+        if panel.hasShadow != showsExpandedShadow {
+            panel.hasShadow = showsExpandedShadow
+            panel.invalidateShadow()
+        }
 
         if model.visualState == .expanded {
             installEscapeMonitorIfNeeded()

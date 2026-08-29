@@ -51,9 +51,9 @@ public final class NotchShellDebugModel {
         case .live:
             live
         case .builtInMock:
-            [Self.builtInFixture]
+            [Self.builtInFixture(projectedOnto: live.first)]
         case .externalMock:
-            [Self.externalFixture]
+            [Self.externalFixture(projectedOnto: live.first)]
         }
     }
 
@@ -87,6 +87,58 @@ public final class NotchShellDebugModel {
         isBuiltIn: false,
         isPrimary: true
     )
+
+    private static func builtInFixture(
+        projectedOnto liveDisplay: NotchiumDisplaySnapshot?
+    ) -> NotchiumDisplaySnapshot {
+        guard let liveDisplay else { return builtInFixture }
+
+        let frame = liveDisplay.frame
+        let safeAreaTop = min(38, frame.height)
+        let notchWidth = min(212, max(1, frame.width * 0.15))
+        let notchMinX = frame.midX - notchWidth / 2
+        let notchMaxX = frame.midX + notchWidth / 2
+        let auxiliaryY = frame.maxY - safeAreaTop
+
+        return NotchiumDisplaySnapshot(
+            id: builtInFixture.id,
+            name: builtInFixture.name,
+            frame: frame,
+            visibleFrame: liveDisplay.visibleFrame,
+            safeAreaInsets: NotchiumDisplayInsets(top: safeAreaTop),
+            auxiliaryTopLeftArea: CGRect(
+                x: frame.minX,
+                y: auxiliaryY,
+                width: max(0, notchMinX - frame.minX),
+                height: safeAreaTop
+            ),
+            auxiliaryTopRightArea: CGRect(
+                x: notchMaxX,
+                y: auxiliaryY,
+                width: max(0, frame.maxX - notchMaxX),
+                height: safeAreaTop
+            ),
+            isBuiltIn: true,
+            isPrimary: true,
+            backingScaleFactor: liveDisplay.backingScaleFactor
+        )
+    }
+
+    private static func externalFixture(
+        projectedOnto liveDisplay: NotchiumDisplaySnapshot?
+    ) -> NotchiumDisplaySnapshot {
+        guard let liveDisplay else { return externalFixture }
+
+        return NotchiumDisplaySnapshot(
+            id: externalFixture.id,
+            name: externalFixture.name,
+            frame: liveDisplay.frame,
+            visibleFrame: liveDisplay.visibleFrame,
+            isBuiltIn: false,
+            isPrimary: true,
+            backingScaleFactor: liveDisplay.backingScaleFactor
+        )
+    }
 
     private func apply(arguments: [String]) {
         for (index, argument) in arguments.enumerated() {

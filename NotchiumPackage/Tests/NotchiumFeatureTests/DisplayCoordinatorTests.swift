@@ -109,6 +109,51 @@ final class DisplayCoordinatorTests: XCTestCase {
         XCTAssertEqual(panel.renderConfiguration?.reduceTransparency, .on)
     }
 
+    func testExternalDebugFixtureUsesLiveGlobalFrameAndRetinaScale() {
+        let liveDisplay = NotchiumDisplaySnapshot(
+            id: NotchiumDisplayID(rawValue: 99),
+            name: "Live offset display",
+            frame: CGRect(x: 1512, y: -120, width: 1728, height: 1117),
+            visibleFrame: CGRect(x: 1512, y: -80, width: 1728, height: 1077),
+            isBuiltIn: false,
+            isPrimary: true,
+            backingScaleFactor: 2
+        )
+        let source = MockDisplaySource(displays: [liveDisplay])
+        let panel = MockPanelController()
+        let debugModel = NotchShellDebugModel(arguments: [])
+        debugModel.displaySource = .externalMock
+        let coordinator = makeCoordinator(source: source, panel: panel, debugModel: debugModel)
+        coordinator.start()
+        defer { coordinator.stop() }
+
+        XCTAssertEqual(panel.placement?.display.frame, liveDisplay.frame)
+        XCTAssertEqual(panel.placement?.display.visibleFrame, liveDisplay.visibleFrame)
+        XCTAssertEqual(panel.placement?.display.backingScaleFactor, 2)
+        XCTAssertEqual(panel.layout?.panelFrame.maxY, liveDisplay.frame.maxY)
+        XCTAssertEqual(panel.layout?.panelFrame.midX, liveDisplay.frame.midX)
+    }
+
+    func testBuiltInDebugFixtureProjectsNotchGeometryOntoLiveFrame() {
+        let liveDisplay = externalDisplay(
+            id: 77,
+            frame: CGRect(x: -1728, y: 96, width: 1728, height: 1117)
+        )
+        let source = MockDisplaySource(displays: [liveDisplay])
+        let panel = MockPanelController()
+        let debugModel = NotchShellDebugModel(arguments: [])
+        debugModel.displaySource = .builtInMock
+        let coordinator = makeCoordinator(source: source, panel: panel, debugModel: debugModel)
+        coordinator.start()
+        defer { coordinator.stop() }
+
+        XCTAssertEqual(panel.placement?.mode, .physicalNotch)
+        XCTAssertEqual(panel.placement?.display.frame, liveDisplay.frame)
+        XCTAssertEqual(panel.placement?.display.physicalNotchGap?.midX, liveDisplay.frame.midX)
+        XCTAssertEqual(panel.layout?.panelFrame.maxY, liveDisplay.frame.maxY)
+        XCTAssertEqual(panel.layout?.panelFrame.midX, liveDisplay.frame.midX)
+    }
+
     private func makeCoordinator(
         source: MockDisplaySource,
         panel: MockPanelController,

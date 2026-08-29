@@ -43,6 +43,7 @@ public struct NotchiumShellView: View {
             )
         }
         .frame(width: layout.surfaceSize.width, height: layout.surfaceSize.height)
+        .ignoresSafeArea(.container, edges: .top)
         .preferredColorScheme(renderConfiguration.appearance.colorScheme)
         .animation(shellAnimation(reduceMotion: accessibility.reduceMotion), value: model.visualState)
         .onAppear {
@@ -101,7 +102,7 @@ private struct NotchShellOuterSurface: View {
                     .accessibilityHidden(true)
             }
         }
-        .contentShape(RoundedRectangle(cornerRadius: layout.cornerRadius, style: .continuous))
+        .contentShape(NotchShellShape(bottomRadius: layout.cornerRadius))
     }
 
     @ViewBuilder
@@ -147,31 +148,49 @@ private struct NotchShellSurfaceModifier: ViewModifier {
     let glassNamespace: Namespace.ID
 
     func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        let shape = NotchShellShape(bottomRadius: cornerRadius)
 
         Group {
             if reduceTransparency {
                 content
                     .background {
                         shape
-                            .fill(.background)
-                            .overlay(shape.fill(.regularMaterial).opacity(0.12))
+                            .fill(Color(red: 0.025, green: 0.027, blue: 0.032))
                     }
             } else if interactive {
                 content
-                    .glassEffect(.regular.interactive(), in: shape)
+                    .background { shape.fill(.black.opacity(0.92)) }
+                    .glassEffect(.regular.tint(.black.opacity(0.78)).interactive(), in: shape)
                     .glassEffectID("notchium-shell-surface", in: glassNamespace)
             } else {
                 content
-                    .glassEffect(.regular, in: shape)
+                    .background { shape.fill(.black.opacity(0.92)) }
+                    .glassEffect(.regular.tint(.black.opacity(0.78)), in: shape)
                     .glassEffectID("notchium-shell-surface", in: glassNamespace)
             }
         }
         .overlay {
-            if increaseContrast {
-                shape.stroke(.primary.opacity(0.42), lineWidth: 1)
-            }
+            shape.stroke(
+                .white.opacity(increaseContrast ? 0.34 : 0.10),
+                lineWidth: increaseContrast ? 1.25 : 0.75
+            )
         }
+        .foregroundStyle(.white)
+    }
+}
+
+private struct NotchShellShape: Shape {
+    let bottomRadius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        UnevenRoundedRectangle(
+            topLeadingRadius: 0,
+            bottomLeadingRadius: bottomRadius,
+            bottomTrailingRadius: bottomRadius,
+            topTrailingRadius: 0,
+            style: .continuous
+        )
+        .path(in: rect)
     }
 }
 

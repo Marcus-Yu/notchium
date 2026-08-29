@@ -22,9 +22,9 @@ Only one shell is active. Display identity or mode changes collapse it before im
 
 Physical mode derives the notch gap from `auxiliaryTopLeftArea` and `auxiliaryTopRightArea`. When those areas are absent, it uses a centered bridge based on the safe-area height and a clamped 15-percent display width. A black bridge represents the physical obstruction; the lower shell remains adaptive glass.
 
-Virtual mode draws no hardware bridge. Its collapsed surface is `220 × 44` points with a six-point top inset.
+Virtual mode draws no hardware bridge. Its collapsed surface is `220 × 44` points and is flush with the display's absolute top edge.
 
-Both modes anchor at display top-center. Physical collapsed size is `max(notchGap + 24, 240)` by `max(safeAreaTop + 10, 44)`. Hovered size is at least `272 × 56`. Expanded size requests `420 × 260` and clamps to 16-point horizontal and 32-point bottom margins. Layout values remain nonnegative on unusually small fixtures.
+Both modes anchor at display top-center in every presentation state: `panelFrame.maxY == display.frame.maxY`. The dedicated panel hosting view reports zero safe-area insets and the shell root ignores the inherited top container safe area because this panel intentionally owns explicitly computed notch geometry; feature content remains constrained by the shell's own layout. Physical collapsed size is `max(notchGap + 24, 240)` by `max(safeAreaTop + 10, 44)`. Hovered size is at least `272 × 56`. Expanded size requests `420 × 260` and clamps to 16-point horizontal and 32-point bottom margins. Layout values remain nonnegative on unusually small fixtures. DEBUG display fixtures are projected into the selected live screen's global coordinate space so simulated dimensions cannot displace the real panel.
 
 ## Panel lifecycle
 
@@ -48,7 +48,7 @@ The injected `AppClock` owns timing. Hover and transition tasks are cancelled wh
 
 ## Liquid Glass and accessibility
 
-The fully laid-out shell content receives public macOS 26 `glassEffect` inside one `GlassEffectContainer`, with a stable `glassEffectID`. Interactive glass is limited to actual controls: the collapsed/hovered shell control and expanded close control. The expanded container uses noninteractive glass.
+The fully laid-out shell content receives public macOS 26 `glassEffect` inside one `GlassEffectContainer`, with a stable `glassEffectID`. A deep-black tint keeps the shell visually continuous with the hardware notch while preserving restrained system glass response. The top corners remain square at the screen edge and the lower corners carry the adaptive radius. Interactive glass is limited to actual controls: the collapsed/hovered shell control and expanded close control. The expanded container uses noninteractive glass and the panel adds a native shadow only while expanded.
 
 Reduce Transparency substitutes an opaque semantic background. Increase Contrast adds a restrained boundary. Reduce Motion changes both SwiftUI and AppKit timing. System light/dark appearance is automatic in production. The shell exposes explicit accessibility identifiers, labels, state values, keyboard close behavior, and a minimum useful control geometry.
 

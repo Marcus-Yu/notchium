@@ -15,7 +15,7 @@ struct NotchCollapsedPlaceholder: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             Circle()
-                .fill(.green)
+                .fill(.white.opacity(0.58))
                 .frame(width: 7, height: 7)
                 .frame(width: 16, height: 16)
                 .accessibilityLabel("Ready")
@@ -39,7 +39,7 @@ struct NotchHoverReveal: View {
                     .lineLimit(1)
                 Text("Click to open")
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white.opacity(0.56))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -65,7 +65,7 @@ struct NotchExpandedPlaceholderContainer: View {
                         .font(.headline)
                     Text("Shell preview")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.white.opacity(0.56))
                 }
 
                 Spacer()
@@ -76,7 +76,7 @@ struct NotchExpandedPlaceholderContainer: View {
                         .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.plain)
-                .glassEffect(.regular.interactive(), in: .circle)
+                .glassEffect(.regular.tint(.black.opacity(0.48)).interactive(), in: .circle)
                 .keyboardShortcut(.cancelAction)
                 .accessibilityLabel("Close Notchium")
                 .accessibilityIdentifier("notchium.shell.close")
@@ -96,16 +96,16 @@ struct NotchExpandedPlaceholderContainer: View {
     private func placeholderCard(title: String, symbol: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: symbol)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.white.opacity(0.58))
             Text(title)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.white.opacity(0.58))
                 .lineLimit(1)
             Spacer(minLength: 0)
         }
         .padding(12)
         .frame(maxWidth: .infinity, minHeight: 54)
-        .background(.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 14))
+        .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 14))
         .accessibilityElement(children: .combine)
     }
 }
