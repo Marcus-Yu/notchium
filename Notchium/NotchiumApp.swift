@@ -14,14 +14,21 @@ final class NotchiumAppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         controller.stop()
     }
+
+    func applicationShouldTerminateAfterLastWindowClosed(
+        _ sender: NSApplication
+    ) -> Bool {
+        false
+    }
 }
 
 @main
 struct NotchiumApp: App {
     @NSApplicationDelegateAdaptor(NotchiumAppDelegate.self) private var appDelegate
+    @State private var isMenuBarExtraInserted = true
 
     var body: some Scene {
-        MenuBarExtra {
+        MenuBarExtra(isInserted: $isMenuBarExtraInserted) {
             NotchiumMenuView(controller: appDelegate.controller)
         } label: {
             Label("Notchium", systemImage: "capsule.fill")

@@ -6,6 +6,22 @@ final class NotchiumUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    func testApplicationRemainsRunningWithoutTraditionalWindows() throws {
+        let app = XCUIApplication()
+        defer { app.terminate() }
+        launch(app, display: "builtInMock", surface: "physical")
+
+        XCTAssertTrue(shellElement("notchium.shell.toggle", in: app).waitForExistence(timeout: 5))
+
+        let idle = expectation(description: "App remains alive while idle")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            idle.fulfill()
+        }
+        wait(for: [idle], timeout: 4)
+
+        XCTAssertNotEqual(app.state, .notRunning)
+    }
+
     func testPhysicalShellHoverExpandCloseAndRelaunchWithoutPermissionPrompts() throws {
         let app = XCUIApplication()
         defer { app.terminate() }
