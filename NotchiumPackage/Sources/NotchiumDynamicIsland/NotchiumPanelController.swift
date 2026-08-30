@@ -31,36 +31,9 @@ private final class NotchiumPanel: NSPanel {
     }
 }
 
-private final class NotchTrackingHostingView: NSHostingView<NotchiumShellView> {
-    var hoverHandler: ((Bool) -> Void)?
-    private var shellTrackingArea: NSTrackingArea?
-
+private final class NotchHostingView: NSHostingView<NotchiumShellView> {
     override var safeAreaInsets: NSEdgeInsets {
         NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
-    }
-
-    override func updateTrackingAreas() {
-        if let shellTrackingArea {
-            removeTrackingArea(shellTrackingArea)
-        }
-
-        let trackingArea = NSTrackingArea(
-            rect: .zero,
-            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(trackingArea)
-        shellTrackingArea = trackingArea
-        super.updateTrackingAreas()
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        hoverHandler?(true)
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        hoverHandler?(false)
     }
 }
 
@@ -68,12 +41,19 @@ private final class NotchTrackingHostingView: NSHostingView<NotchiumShellView> {
 final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDelegate {
     private let panel: NotchiumPanel
     private let model: DynamicIslandPresentationModel
-    private var hostingView: NotchTrackingHostingView?
-    private var currentFrame: CGRect?
+    private let allowsPointerDrivenHover: Bool
+    private var hostingView: NotchHostingView?
+    private var currentLayout: NotchPanelLayout?
     private var escapeMonitor: Any?
+    private var globalMouseMonitor: Any?
 
     init(model: DynamicIslandPresentationModel) {
         self.model = model
+#if DEBUG
+        allowsPointerDrivenHover = !ProcessInfo.processInfo.arguments.contains("--ui-testing")
+#else
+        allowsPointerDrivenHover = true
+#endif
         panel = NotchiumPanel(
             contentRect: .zero,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -97,6 +77,7 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
+        panel.ignoresMouseEvents = true
         panel.becomesKeyOnlyIfNeeded = true
         panel.animationBehavior = .none
         panel.escapeHandler = { [weak self] in
@@ -114,29 +95,28 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
     ) {
         let rootView = NotchiumShellView(
             model: model,
-            placement: placement,
             layout: layout,
             renderConfiguration: renderConfiguration
         )
 
         if let hostingView {
             hostingView.rootView = rootView
+            configureHostingView(hostingView, for: layout)
         } else {
-            let hostingView = NotchTrackingHostingView(rootView: rootView)
-            hostingView.hoverHandler = { [weak model] isHovered in
-                model?.setHovered(isHovered)
-            }
+            let hostingView = NotchHostingView(rootView: rootView)
             hostingView.setAccessibilityIdentifier("notchium.shell.host")
+            configureHostingView(hostingView, for: layout)
             panel.contentView = hostingView
             self.hostingView = hostingView
         }
 
-        updateFrame(layout.panelFrame, animated: animated)
-        let showsExpandedShadow = model.visualState == .expanded
-        if panel.hasShadow != showsExpandedShadow {
-            panel.hasShadow = showsExpandedShadow
-            panel.invalidateShadow()
-        }
+        currentLayout = layout
+        panel.setFrame(layout.panelFrame, display: true)
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+        panel.ignoresMouseEvents = model.visualState != .expanded
+        installGlobalMouseMonitorIfNeeded()
 
         if model.visualState == .expanded {
             installEscapeMonitorIfNeeded()
@@ -157,7 +137,13 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
 
     func hide() {
         removeEscapeMonitor()
-        currentFrame = nil
+        removeGlobalMouseMonitor()
+        currentLayout = nil
+        panel.hasShadow = false
+        panel.invalidateShadow()
+        if panel.isKeyWindow {
+            panel.resignKey()
+        }
         panel.orderOut(nil)
     }
 
@@ -171,28 +157,37 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         model.collapse()
     }
 
-    private func updateFrame(_ frame: CGRect, animated: Bool) {
-        guard currentFrame != frame else { return }
-        let previousFrame = currentFrame
-        currentFrame = frame
+    private func configureHostingView(
+        _ hostingView: NotchHostingView,
+        for layout: NotchPanelLayout
+    ) {
+        hostingView.frame = NSRect(origin: .zero, size: layout.panelFrame.size)
+        hostingView.autoresizingMask = [.width, .height]
+        hostingView.sizingOptions = []
+    }
 
-        guard animated, previousFrame != nil else {
-            panel.setFrame(frame, display: true)
-            return
+    private func installGlobalMouseMonitorIfNeeded() {
+        guard allowsPointerDrivenHover, globalMouseMonitor == nil else { return }
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved) {
+            [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handleMouseMoved(at: NSEvent.mouseLocation)
+            }
         }
+    }
 
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = model.reduceMotion
-                ? 0.12
-                : model.visualState == .expanded ? 0.30 : 0.18
-            context.allowsImplicitAnimation = true
-            context.timingFunction = model.reduceMotion
-                ? CAMediaTimingFunction(name: .easeInEaseOut)
-                : model.visualState == .expanded
-                    ? CAMediaTimingFunction(controlPoints: 0.22, 0.92, 0.26, 1.06)
-                    : CAMediaTimingFunction(name: .easeInEaseOut)
-            panel.animator().setFrame(frame, display: true)
-        }
+    private func handleMouseMoved(at point: CGPoint) {
+        guard let currentLayout else { return }
+        let zone = model.visualState == .expanded
+            ? currentLayout.panelFrame
+            : currentLayout.collapsedHoverFrame
+        model.setHovered(NotchHoverRegion.contains(point, in: zone))
+    }
+
+    private func removeGlobalMouseMonitor() {
+        guard let globalMouseMonitor else { return }
+        NSEvent.removeMonitor(globalMouseMonitor)
+        self.globalMouseMonitor = nil
     }
 
     private func installEscapeMonitorIfNeeded() {

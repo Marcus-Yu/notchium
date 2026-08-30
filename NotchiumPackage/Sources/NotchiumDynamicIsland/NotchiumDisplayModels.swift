@@ -37,7 +37,9 @@ public struct NotchiumDisplaySnapshot: Equatable, Sendable {
     public let auxiliaryTopRightArea: CGRect?
     public let isBuiltIn: Bool
     public let isPrimary: Bool
+    public let containsMousePointer: Bool
     public let backingScaleFactor: CGFloat
+    public let statusBarThickness: CGFloat
 
     public init(
         id: NotchiumDisplayID,
@@ -49,7 +51,9 @@ public struct NotchiumDisplaySnapshot: Equatable, Sendable {
         auxiliaryTopRightArea: CGRect? = nil,
         isBuiltIn: Bool,
         isPrimary: Bool,
-        backingScaleFactor: CGFloat = 2
+        containsMousePointer: Bool = false,
+        backingScaleFactor: CGFloat = 2,
+        statusBarThickness: CGFloat = 24
     ) {
         self.id = id
         self.name = name
@@ -60,11 +64,15 @@ public struct NotchiumDisplaySnapshot: Equatable, Sendable {
         self.auxiliaryTopRightArea = auxiliaryTopRightArea
         self.isBuiltIn = isBuiltIn
         self.isPrimary = isPrimary
+        self.containsMousePointer = containsMousePointer
         self.backingScaleFactor = backingScaleFactor
+        self.statusBarThickness = statusBarThickness
     }
 
     public var isEligiblePhysicalNotchDisplay: Bool {
-        isBuiltIn && safeAreaInsets.top > 0
+        safeAreaInsets.top > 0
+            && auxiliaryTopLeftArea != nil
+            && auxiliaryTopRightArea != nil
     }
 
     public var physicalNotchGap: CGRect? {
@@ -83,6 +91,22 @@ public struct NotchiumDisplaySnapshot: Equatable, Sendable {
             height: max(left.height, right.height)
         )
     }
+
+    public var menuBarHeight: CGFloat {
+        max(0, min(frame.height, frame.maxY - visibleFrame.maxY))
+    }
+}
+
+public struct NotchHardwareGeometry: Equatable, Sendable {
+    public let frame: CGRect
+
+    public init(frame: CGRect) {
+        self.frame = frame
+    }
+
+    public var width: CGFloat { frame.width }
+    public var height: CGFloat { frame.height }
+    public var centerX: CGFloat { frame.midX }
 }
 
 public enum NotchSurfaceMode: String, CaseIterable, Equatable, Sendable {
@@ -106,7 +130,9 @@ public enum NotchiumDisplaySelectionPolicy {
             return NotchShellPlacement(display: physicalDisplay, mode: .physicalNotch)
         }
 
-        guard let virtualDisplay = displays.first(where: \.isPrimary) ?? displays.first else {
+        guard let virtualDisplay = displays.first(where: \.containsMousePointer)
+            ?? displays.first(where: \.isPrimary)
+            ?? displays.first else {
             return nil
         }
         return NotchShellPlacement(display: virtualDisplay, mode: .virtualPill)

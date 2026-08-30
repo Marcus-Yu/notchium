@@ -32,15 +32,18 @@ public struct NotchShellRenderConfiguration: Equatable, Sendable {
     public var appearance: NotchAppearanceOverride
     public var reduceMotion: NotchAccessibilityOverride
     public var reduceTransparency: NotchAccessibilityOverride
+    public var showsGeometryOverlay: Bool
 
     public init(
         appearance: NotchAppearanceOverride = .system,
         reduceMotion: NotchAccessibilityOverride = .system,
-        reduceTransparency: NotchAccessibilityOverride = .system
+        reduceTransparency: NotchAccessibilityOverride = .system,
+        showsGeometryOverlay: Bool = false
     ) {
         self.appearance = appearance
         self.reduceMotion = reduceMotion
         self.reduceTransparency = reduceTransparency
+        self.showsGeometryOverlay = showsGeometryOverlay
     }
 
     public static let automatic = NotchShellRenderConfiguration()

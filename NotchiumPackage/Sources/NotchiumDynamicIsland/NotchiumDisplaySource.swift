@@ -9,7 +9,8 @@ protocol NotchiumDisplaySnapshotting: AnyObject {
 @MainActor
 final class AppKitDisplaySource: NotchiumDisplaySnapshotting {
     func snapshots() -> [NotchiumDisplaySnapshot] {
-        NSScreen.screens.enumerated().compactMap { index, screen in
+        let mouseLocation = NSEvent.mouseLocation
+        return NSScreen.screens.enumerated().compactMap { index, screen in
             guard let displayID = screen.notchiumDisplayID else { return nil }
             return NotchiumDisplaySnapshot(
                 id: NotchiumDisplayID(rawValue: displayID),
@@ -26,7 +27,9 @@ final class AppKitDisplaySource: NotchiumDisplaySnapshotting {
                 auxiliaryTopRightArea: screen.auxiliaryTopRightArea,
                 isBuiltIn: CGDisplayIsBuiltin(displayID) != 0,
                 isPrimary: index == 0,
-                backingScaleFactor: screen.backingScaleFactor
+                containsMousePointer: screen.frame.contains(mouseLocation),
+                backingScaleFactor: screen.backingScaleFactor,
+                statusBarThickness: NSStatusBar.system.thickness
             )
         }
     }

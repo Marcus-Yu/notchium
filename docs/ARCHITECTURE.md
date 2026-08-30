@@ -75,7 +75,7 @@ There is no global mutable event bus. Views do not construct services. The `AppE
 
 ## Stage 2 display and presentation ownership
 
-`NotchiumDisplayCoordinator` now owns display selection and one active `NotchiumPanelController`. It receives pure `NotchiumDisplaySnapshot` values from the AppKit adapter, prefers an eligible built-in notch, and otherwise selects a primary-display virtual pill. Domain and feature code never retain `NSScreen` or select `NSScreen.main`.
+`NotchiumDisplayCoordinator` now owns display selection and one active `NotchiumPanelController`. It receives pure `NotchiumDisplaySnapshot` values from the AppKit adapter, prefers a display with a verified public auxiliary-area notch gap, and otherwise selects the pointer display, primary display, or first available display for a virtual pill. Domain and feature code never retain `NSScreen` or select `NSScreen.main`.
 
 The required flow is:
 
@@ -177,7 +177,7 @@ The package and Xcode targets use Swift 6.0 language mode and complete strict-co
 
 The shell uses SwiftUI until macOS window behavior requires AppKit. `NotchiumPanelController` is that bridge and owns one borderless, nonactivating `NSPanel`.
 
-`NotchiumDisplayCoordinator` prefers a built-in screen whose public safe-area projection reports a top obstruction. If none is eligible, it selects the primary available display for a virtual pill; with zero displays it hides the panel. `NSScreen.auxiliaryTopLeftArea` and `auxiliaryTopRightArea` refine the physical gap when available. The panel uses documented Spaces and full-screen collection behavior. It does not hide the system HUD, claim ownership of hardware, or use private display metadata.
+`NotchiumDisplayCoordinator` requires a nonzero public top safe-area inset and valid `NSScreen.auxiliaryTopLeftArea` and `auxiliaryTopRightArea` values before selecting physical-notch mode. If none is eligible, it selects the pointer display, primary display, or first display for a virtual pill; with zero displays it hides the panel. The controller keeps one transparent expanded-size host panel top-anchored to the full screen frame. SwiftUI separately paints only the active visible surface and paints nothing in collapsed physical mode. Collapsed and hovered hosting regions remain click-through while a global mouse-moved monitor drives the narrow hardware-derived hover zone. The panel uses documented Spaces and full-screen collection behavior. It does not hide the system HUD, claim ownership of hardware, or use private display metadata.
 
 `DynamicIslandPresentationModel` owns `collapsed`, `hovered`, and `expanded` stable states plus explicit transition phases. Injected `AppClock` tasks implement delayed hover entry/exit and reject stale completion by generation. The panel becomes key only for deliberate expansion and collapses on focus loss, Escape, its close/toggle action, display moves, and Space changes. No feature page is implemented.
 
@@ -218,7 +218,7 @@ The `NotchiumFeatureTests` unit-test target covers:
 - root dependency replacement;
 - delayed/cancelled collapsed, hovered, expanded, and transitioning behavior;
 - display selection, hot-plug fallback, and zero-display behavior;
-- physical and virtual geometry, clamping, and accessibility configuration;
+- physical and virtual geometry, fixed host-panel placement, hover boundaries, and accessibility configuration;
 - panel reconciliation, focus-loss, Escape, and deterministic UI fixtures.
 
 `NotchiumUITests` launches the actual application target and verifies that the process remains running without showing permission alerts. `Notchium.xctestplan` includes both the package unit-test target and UI-test target.

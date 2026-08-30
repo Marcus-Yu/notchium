@@ -14,7 +14,7 @@ The minimum deployment target is macOS 26 and Swift 6 strict concurrency is enab
 
 ## Stage 2 behavior
 
-The app starts as an accessory application and owns one public-AppKit `NSPanel`. It prefers an eligible built-in physical notch, otherwise places a centered virtual pill on the primary available display. A menu-bar extra remains available in every configuration and is the only surface when no display is present. The placeholder shell supports collapsed, hovered, and deliberately expanded states with native macOS 26 Liquid Glass and accessibility fallbacks.
+The app starts as an accessory application and owns one public-AppKit `NSPanel`. It prefers a display with a verified physical notch, otherwise places a centered virtual pill on the pointer, primary, or first available display. In collapsed physical mode it paints nothing over or below the hardware notch. A menu-bar extra remains available in every configuration and is the only surface when no display is present. The placeholder shell supports collapsed, hovered, and deliberately expanded states with native macOS 26 Liquid Glass and accessibility fallbacks.
 
 No media, calendar, clipboard, camera, capture, monitoring, keyboard suppression, Ambient Edge, Snap Zone, or other Stage 3+ implementation runs in Stage 2. Real provider adapters remain inert and the shell never triggers permission prompts.
 

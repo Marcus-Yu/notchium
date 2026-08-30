@@ -1,31 +1,6 @@
 import NotchiumDesignSystem
 import SwiftUI
 
-struct NotchCollapsedPlaceholder: View {
-    var body: some View {
-        HStack(spacing: 9) {
-            Image(systemName: "waveform.circle.fill")
-                .font(.system(size: 20, weight: .medium))
-                .frame(width: 24, height: 24)
-
-            Text("Notchium is ready")
-                .font(.system(.caption, design: .rounded, weight: .semibold))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            Circle()
-                .fill(.white.opacity(0.58))
-                .frame(width: 7, height: 7)
-                .frame(width: 16, height: 16)
-                .accessibilityLabel("Ready")
-        }
-        .padding(.horizontal, 12)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .contentShape(Rectangle())
-    }
-}
-
 struct NotchHoverReveal: View {
     var body: some View {
         HStack(spacing: 10) {

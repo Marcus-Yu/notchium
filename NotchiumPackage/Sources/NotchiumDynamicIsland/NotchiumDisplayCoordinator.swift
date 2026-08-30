@@ -17,6 +17,7 @@ public final class NotchiumDisplayCoordinator: NSObject {
     @ObservationIgnored private var isStarted = false
     @ObservationIgnored private var isSleeping = false
     @ObservationIgnored private var presentationObservationGeneration = 0
+    @ObservationIgnored private var screenCorrectionGeneration = 0
 #if DEBUG
     public let debugModel: NotchShellDebugModel
     @ObservationIgnored private var debugObservationGeneration = 0
@@ -127,6 +128,7 @@ public final class NotchiumDisplayCoordinator: NSObject {
         guard isStarted else { return }
         isStarted = false
         presentationObservationGeneration &+= 1
+        screenCorrectionGeneration &+= 1
 #if DEBUG
         debugObservationGeneration &+= 1
 #endif
@@ -161,6 +163,14 @@ public final class NotchiumDisplayCoordinator: NSObject {
     @objc
     private func screenConfigurationChanged() {
         refreshDisplayConfiguration()
+        screenCorrectionGeneration &+= 1
+        let generation = screenCorrectionGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self,
+                  self.isStarted,
+                  generation == self.screenCorrectionGeneration else { return }
+            self.refreshDisplayConfiguration(collapseForMove: false)
+        }
     }
 
     @objc
@@ -210,6 +220,8 @@ public final class NotchiumDisplayCoordinator: NSObject {
             state: presentationModel.visualState
         )
 #if DEBUG
+        debugModel.updateRuntimeGeometry(placement: shellPlacement, layout: layout)
+        printGeometry(placement: shellPlacement, layout: layout)
         let renderConfiguration = debugModel.renderConfiguration
 #else
         let renderConfiguration = NotchShellRenderConfiguration.automatic
@@ -221,6 +233,27 @@ public final class NotchiumDisplayCoordinator: NSObject {
             animated: animated
         )
     }
+
+#if DEBUG
+    private func printGeometry(
+        placement: NotchShellPlacement,
+        layout: NotchPanelLayout
+    ) {
+        let display = placement.display
+        print("""
+        [Notchium Geometry]
+        Screen frame: \(display.frame)
+        Visible frame: \(display.visibleFrame)
+        Safe top: \(display.safeAreaInsets.top)
+        Aux left: \(String(describing: display.auxiliaryTopLeftArea))
+        Aux right: \(String(describing: display.auxiliaryTopRightArea))
+        Hardware notch: \(String(describing: layout.hardwareNotchGeometry?.frame))
+        Collapsed: \(layout.collapsedVisibleFrame)
+        Panel: \(layout.panelFrame)
+        Has hardware notch: \(layout.hasHardwareNotch)
+        """)
+    }
+#endif
 
     private func observePresentationChanges() {
         presentationObservationGeneration &+= 1

@@ -23,7 +23,10 @@ public final class NotchShellDebugModel {
     public var appearance: NotchAppearanceOverride = .system { didSet { changed() } }
     public var reduceMotion: NotchAccessibilityOverride = .system { didSet { changed() } }
     public var reduceTransparency: NotchAccessibilityOverride = .system { didSet { changed() } }
+    public var showNotchGeometry = false { didSet { changed() } }
     public private(set) var revision = 0
+    public private(set) var runtimePlacement: NotchShellPlacement?
+    public private(set) var runtimeLayout: NotchPanelLayout?
 
     public init(arguments: [String] = CommandLine.arguments) {
         apply(arguments: arguments)
@@ -33,7 +36,8 @@ public final class NotchShellDebugModel {
         NotchShellRenderConfiguration(
             appearance: appearance,
             reduceMotion: reduceMotion,
-            reduceTransparency: reduceTransparency
+            reduceTransparency: reduceTransparency,
+            showsGeometryOverlay: showNotchGeometry
         )
     }
 
@@ -44,6 +48,7 @@ public final class NotchShellDebugModel {
         appearance = .system
         reduceMotion = .system
         reduceTransparency = .system
+        showNotchGeometry = false
     }
 
     public func snapshots(live: [NotchiumDisplaySnapshot]) -> [NotchiumDisplaySnapshot] {
@@ -67,6 +72,14 @@ public final class NotchShellDebugModel {
         case .virtual:
             return NotchShellPlacement(display: placement.display, mode: .virtualPill)
         }
+    }
+
+    public func updateRuntimeGeometry(
+        placement: NotchShellPlacement,
+        layout: NotchPanelLayout
+    ) {
+        runtimePlacement = placement
+        runtimeLayout = layout
     }
 
     public static let builtInFixture = NotchiumDisplaySnapshot(
@@ -157,6 +170,8 @@ public final class NotchShellDebugModel {
                 reduceMotion = NotchAccessibilityOverride(rawValue: value) ?? reduceMotion
             case "--notchium-reduce-transparency":
                 reduceTransparency = NotchAccessibilityOverride(rawValue: value) ?? reduceTransparency
+            case "--notchium-show-geometry":
+                showNotchGeometry = value == "on"
             default:
                 continue
             }

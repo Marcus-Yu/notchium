@@ -37,6 +37,9 @@ private final class MockPanelController: NotchPanelControlling {
 
     func hide() {
         hideCount += 1
+        placement = nil
+        layout = nil
+        renderConfiguration = nil
     }
 }
 
@@ -96,6 +99,7 @@ final class DisplayCoordinatorTests: XCTestCase {
         debugModel.surfaceMode = .virtual
         debugModel.reduceMotion = .on
         debugModel.reduceTransparency = .on
+        debugModel.showNotchGeometry = true
         let coordinator = makeCoordinator(
             source: source,
             panel: panel,
@@ -107,6 +111,9 @@ final class DisplayCoordinatorTests: XCTestCase {
         XCTAssertEqual(panel.placement?.mode, .virtualPill)
         XCTAssertEqual(panel.renderConfiguration?.reduceMotion, .on)
         XCTAssertEqual(panel.renderConfiguration?.reduceTransparency, .on)
+        XCTAssertEqual(panel.renderConfiguration?.showsGeometryOverlay, true)
+        XCTAssertEqual(debugModel.runtimeLayout, panel.layout)
+        XCTAssertEqual(debugModel.runtimePlacement, panel.placement)
     }
 
     func testExternalDebugFixtureUsesLiveGlobalFrameAndRetinaScale() {

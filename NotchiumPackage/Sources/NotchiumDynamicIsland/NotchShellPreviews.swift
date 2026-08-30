@@ -16,7 +16,6 @@ private struct NotchShellPreviewFixture: View {
 
         NotchiumShellView(
             model: model,
-            placement: placement,
             layout: layout,
             renderConfiguration: configuration
         )

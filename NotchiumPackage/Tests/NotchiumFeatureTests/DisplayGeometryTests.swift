@@ -22,6 +22,23 @@ final class DisplaySelectionTests: XCTestCase {
         XCTAssertEqual(placement?.mode, .virtualPill)
     }
 
+    func testMouseDisplayWinsOverPrimaryForVirtualPill() {
+        let placement = NotchiumDisplaySelectionPolicy.select(from: [
+            externalDisplay(id: 2, primary: true),
+            NotchiumDisplaySnapshot(
+                id: NotchiumDisplayID(rawValue: 3),
+                name: "Pointer display",
+                frame: CGRect(x: 1920, y: 0, width: 1728, height: 1117),
+                isBuiltIn: false,
+                isPrimary: false,
+                containsMousePointer: true
+            ),
+        ])
+
+        XCTAssertEqual(placement?.display.id, NotchiumDisplayID(rawValue: 3))
+        XCTAssertEqual(placement?.mode, .virtualPill)
+    }
+
     func testFirstDisplayIsSafeFallbackWhenNoDisplayIsMarkedPrimary() {
         let placement = NotchiumDisplaySelectionPolicy.select(from: [
             externalDisplay(id: 8, primary: false),
@@ -53,19 +70,27 @@ final class NotchGeometryResolverTests: XCTestCase {
         let placement = NotchShellPlacement(display: display, mode: .physicalNotch)
         let layout = NotchGeometryResolver.layout(for: placement, state: .collapsed)
 
-        XCTAssertEqual(layout.surfaceSize, CGSize(width: 240, height: 48))
+        XCTAssertEqual(layout.surfaceSize, CGSize(width: 212, height: 38))
         XCTAssertEqual(layout.panelFrame.midX, display.frame.midX, accuracy: 0.001)
         XCTAssertEqual(layout.panelFrame.maxY, display.frame.maxY, accuracy: 0.001)
-        XCTAssertEqual(layout.physicalBridgeSize, CGSize(width: 212, height: 38))
+        XCTAssertEqual(layout.hardwareNotchGeometry?.frame, layout.collapsedVisibleFrame)
+        XCTAssertEqual(layout.visibleSurfaceFrame, layout.collapsedVisibleFrame)
+        XCTAssertEqual(layout.panelFrame.size, CGSize(width: 420, height: 260))
+        XCTAssertTrue(layout.hasHardwareNotch)
+        XCTAssertEqual(layout.collapsedVisibleFrame.height, display.safeAreaInsets.top)
+        XCTAssertEqual(layout.collapsedVisibleFrame.minX, display.auxiliaryTopLeftArea?.maxX)
+        XCTAssertEqual(layout.collapsedVisibleFrame.maxX, display.auxiliaryTopRightArea?.minX)
+        XCTAssertEqual(layout.collapsedVisibleFrame.maxY, display.frame.maxY, accuracy: 0.001)
     }
 
-    func testMissingAuxiliaryAreasUseClampedPercentageBridge() {
+    func testMissingAuxiliaryAreasFallBackToVirtualNotchGeometry() {
         let display = builtInDisplay(includeAuxiliaryAreas: false)
         let placement = NotchShellPlacement(display: display, mode: .physicalNotch)
         let layout = NotchGeometryResolver.layout(for: placement, state: .collapsed)
 
-        XCTAssertEqual(layout.physicalBridgeSize?.width, 200)
-        XCTAssertEqual(layout.surfaceSize.width, 240)
+        XCTAssertNil(layout.hardwareNotchGeometry)
+        XCTAssertFalse(layout.hasHardwareNotch)
+        XCTAssertEqual(layout.surfaceSize, CGSize(width: 180, height: 24))
     }
 
     func testVirtualPillUsesAbsoluteTopEdge() {
@@ -73,11 +98,123 @@ final class NotchGeometryResolverTests: XCTestCase {
         let placement = NotchShellPlacement(display: display, mode: .virtualPill)
         let layout = NotchGeometryResolver.layout(for: placement, state: .collapsed)
 
-        XCTAssertEqual(layout.surfaceSize, CGSize(width: 220, height: 44))
+        XCTAssertEqual(layout.surfaceSize, CGSize(width: 180, height: 24))
         XCTAssertEqual(layout.panelFrame.midX, display.frame.midX, accuracy: 0.001)
         XCTAssertEqual(layout.panelFrame.maxY, display.frame.maxY, accuracy: 0.001)
-        XCTAssertEqual(layout.topInset, 0)
-        XCTAssertNil(layout.physicalBridgeSize)
+        XCTAssertNil(layout.hardwareNotchGeometry)
+        XCTAssertEqual(layout.panelFrame.size, CGSize(width: 420, height: 260))
+        XCTAssertEqual(layout.visibleSurfaceFrame, layout.collapsedVisibleFrame)
+    }
+
+    func testPhysicalNotchUsesActualAuxiliaryGapCenterInsteadOfDisplayCenter() {
+        let frame = CGRect(x: 100, y: 50, width: 1600, height: 1000)
+        let display = NotchiumDisplaySnapshot(
+            id: NotchiumDisplayID(rawValue: 77),
+            name: "Asymmetric notch fixture",
+            frame: frame,
+            safeAreaInsets: NotchiumDisplayInsets(top: 36),
+            auxiliaryTopLeftArea: CGRect(x: 100, y: 1014, width: 630, height: 36),
+            auxiliaryTopRightArea: CGRect(x: 950, y: 1014, width: 750, height: 36),
+            isBuiltIn: true,
+            isPrimary: true
+        )
+        let layout = NotchGeometryResolver.layout(
+            for: NotchShellPlacement(display: display, mode: .physicalNotch),
+            state: .collapsed
+        )
+
+        XCTAssertEqual(layout.collapsedVisibleFrame, CGRect(x: 730, y: 1014, width: 220, height: 36))
+        XCTAssertNotEqual(layout.collapsedVisibleFrame.midX, display.frame.midX)
+    }
+
+    func testCollapsedPhysicalSurfaceNeverExtendsBelowHardwareSafeArea() {
+        let display = builtInDisplay()
+        let layout = NotchGeometryResolver.layout(
+            for: NotchShellPlacement(display: display, mode: .physicalNotch),
+            state: .collapsed
+        )
+
+        XCTAssertEqual(layout.collapsedVisibleFrame.minY, display.frame.maxY - display.safeAreaInsets.top)
+        XCTAssertEqual(layout.collapsedVisibleFrame.height, display.safeAreaInsets.top)
+    }
+
+    func testExpandedSurfaceGrowsDownwardAndOutwardFromCollapsedOrigin() {
+        let placement = NotchShellPlacement(display: builtInDisplay(), mode: .physicalNotch)
+        let collapsed = NotchGeometryResolver.layout(for: placement, state: .collapsed)
+        let expanded = NotchGeometryResolver.layout(for: placement, state: .expanded)
+
+        XCTAssertEqual(expanded.panelFrame.maxY, collapsed.panelFrame.maxY, accuracy: 0.001)
+        XCTAssertEqual(expanded.panelFrame.midX, collapsed.panelFrame.midX, accuracy: 0.001)
+        XCTAssertGreaterThan(expanded.visibleSurfaceFrame.width, collapsed.visibleSurfaceFrame.width)
+        XCTAssertGreaterThan(expanded.visibleSurfaceFrame.height, collapsed.visibleSurfaceFrame.height)
+    }
+
+    func testVirtualNotchHeightUsesAvailableMenuBarRegion() {
+        let frame = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        let display = NotchiumDisplaySnapshot(
+            id: NotchiumDisplayID(rawValue: 88),
+            name: "Menu bar fixture",
+            frame: frame,
+            visibleFrame: CGRect(x: 0, y: 0, width: 1920, height: 1054),
+            isBuiltIn: false,
+            isPrimary: true
+        )
+        let layout = NotchGeometryResolver.layout(
+            for: NotchShellPlacement(display: display, mode: .virtualPill),
+            state: .collapsed
+        )
+
+        XCTAssertEqual(layout.collapsedVisibleFrame.height, 26)
+        XCTAssertEqual(layout.collapsedVisibleFrame.maxY, frame.maxY)
+        XCTAssertGreaterThanOrEqual(layout.collapsedVisibleFrame.minY, display.visibleFrame.maxY)
+    }
+
+    func testVirtualNotchHeightUsesStatusBarThicknessAsMinimum() {
+        let frame = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        let display = NotchiumDisplaySnapshot(
+            id: NotchiumDisplayID(rawValue: 89),
+            name: "Auto-hidden menu bar fixture",
+            frame: frame,
+            visibleFrame: frame,
+            isBuiltIn: false,
+            isPrimary: true,
+            statusBarThickness: 25
+        )
+        let layout = NotchGeometryResolver.layout(
+            for: NotchShellPlacement(display: display, mode: .virtualPill),
+            state: .collapsed
+        )
+
+        XCTAssertEqual(layout.collapsedVisibleFrame, CGRect(x: 870, y: 1055, width: 180, height: 25))
+    }
+
+    func testCollapsedHoverFrameAddsFivePointsAtSidesAndBottom() {
+        let layout = NotchGeometryResolver.layout(
+            for: NotchShellPlacement(display: builtInDisplay(), mode: .physicalNotch),
+            state: .collapsed
+        )
+
+        XCTAssertEqual(
+            layout.collapsedHoverFrame,
+            CGRect(
+                x: layout.collapsedVisibleFrame.minX - 5,
+                y: layout.collapsedVisibleFrame.minY - 5,
+                width: layout.collapsedVisibleFrame.width + 10,
+                height: layout.collapsedVisibleFrame.height + 5
+            )
+        )
+        XCTAssertTrue(
+            NotchHoverRegion.contains(
+                CGPoint(x: layout.collapsedHoverFrame.maxX, y: layout.collapsedHoverFrame.maxY),
+                in: layout.collapsedHoverFrame
+            )
+        )
+        XCTAssertFalse(
+            NotchHoverRegion.contains(
+                CGPoint(x: layout.collapsedHoverFrame.maxX + 0.001, y: layout.collapsedHoverFrame.maxY),
+                in: layout.collapsedHoverFrame
+            )
+        )
     }
 
     func testEveryModeAndPresentationStateSharesDisplayTopAndHorizontalCenter() {
@@ -91,8 +228,13 @@ final class NotchGeometryResolverTests: XCTestCase {
         ]
 
         for placement in placements {
+            let collapsedPanelFrame = NotchGeometryResolver.layout(
+                for: placement,
+                state: .collapsed
+            ).panelFrame
             for state in NotchStableState.allCases {
                 let layout = NotchGeometryResolver.layout(for: placement, state: state)
+                XCTAssertEqual(layout.panelFrame, collapsedPanelFrame)
                 XCTAssertEqual(
                     layout.panelFrame.maxY,
                     placement.display.frame.maxY,
@@ -163,18 +305,15 @@ final class NotchGeometryResolverTests: XCTestCase {
         )
     }
 
-    func testSmallDisplaysClampExpandedPanelInsideMargins() {
+    func testSmallDisplaysRetainTheFixedHostPanelContract() {
         let display = externalDisplay(
             frame: CGRect(x: 0, y: 0, width: 300, height: 180)
         )
         let placement = NotchShellPlacement(display: display, mode: .virtualPill)
         let layout = NotchGeometryResolver.layout(for: placement, state: .expanded)
 
-        XCTAssertGreaterThan(layout.panelFrame.width, 0)
-        XCTAssertGreaterThan(layout.panelFrame.height, 0)
-        XCTAssertGreaterThanOrEqual(layout.panelFrame.minX, display.frame.minX + 16)
-        XCTAssertLessThanOrEqual(layout.panelFrame.maxX, display.frame.maxX - 16)
-        XCTAssertGreaterThanOrEqual(layout.panelFrame.minY, display.frame.minY + 32)
+        XCTAssertEqual(layout.panelFrame.size, CGSize(width: 420, height: 260))
+        XCTAssertEqual(layout.panelFrame.midX, display.frame.midX, accuracy: 0.001)
         XCTAssertEqual(layout.panelFrame.maxY, display.frame.maxY, accuracy: 0.001)
     }
 
@@ -187,10 +326,9 @@ final class NotchGeometryResolverTests: XCTestCase {
 
         XCTAssertGreaterThan(layout.panelFrame.width, 0)
         XCTAssertGreaterThan(layout.panelFrame.height, 0)
-        XCTAssertGreaterThanOrEqual(layout.panelFrame.minX, display.frame.minX)
-        XCTAssertLessThanOrEqual(layout.panelFrame.maxX, display.frame.maxX)
-        XCTAssertGreaterThanOrEqual(layout.panelFrame.minY, display.frame.minY)
-        XCTAssertLessThanOrEqual(layout.panelFrame.maxY, display.frame.maxY)
+        XCTAssertEqual(layout.panelFrame.size, CGSize(width: 420, height: 260))
+        XCTAssertEqual(layout.panelFrame.midX, display.frame.midX, accuracy: 0.001)
+        XCTAssertEqual(layout.panelFrame.maxY, display.frame.maxY, accuracy: 0.001)
     }
 }
 

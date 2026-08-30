@@ -18,7 +18,7 @@ The product follows three interaction levels:
 2. **Hovered:** reveal a small amount of additional context without taking application focus.
 3. **Deliberately opened:** a click or explicit keyboard action opens controls, history, or details. This state may become key when keyboard input is required.
 
-The shell prefers the built-in notched display whenever one is eligible. External-only, clamshell, notchless, and otherwise noneligible configurations receive one centered virtual pill on the primary available display. The persistent menu-bar item remains available in every configuration and becomes the only surface when no display is available. Stage 2 explicitly supersedes the earlier virtual-pill deferral; it does not authorize Ambient Edge or Snap Zone overlays.
+The shell prefers a display whose documented safe-area and auxiliary-area geometry verifies a physical notch. External-only, clamshell, notchless, and otherwise noneligible configurations receive one centered virtual pill on the pointer display, then the primary or first available display. Collapsed physical mode adds no software-drawn black surface outside the hardware obstruction. The persistent menu-bar item remains available in every configuration and becomes the only surface when no display is available. Stage 2 explicitly supersedes the earlier virtual-pill deferral; it does not authorize Ambient Edge or Snap Zone overlays.
 
 ## 2. Product principles
 

@@ -11,24 +11,35 @@ final class NotchiumUITests: XCTestCase {
         defer { app.terminate() }
         launch(app, display: "builtInMock", surface: "physical")
 
-        let toggle = shellElement("notchium.shell.toggle", in: app)
-        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        XCTAssertTrue(shellElement("notchium.shell.toggle", in: app).waitForExistence(timeout: 5))
         XCTAssertTrue(waitForState("collapsed", in: app, timeout: 2))
+        let collapsedShell = shellElement("notchium.shell", in: app)
+        XCTAssertEqual(collapsedShell.frame.width, 420, accuracy: 1)
+        XCTAssertEqual(collapsedShell.frame.height, 260, accuracy: 1)
+        XCTAssertFalse(app.staticTexts["Notchium is ready"].exists)
         XCTAssertEqual(app.alerts.count, 0)
         attachScreenshot(named: "physical-collapsed")
 
-        toggle.hover()
-        XCTAssertTrue(waitForState("hovered", in: app, timeout: 2))
+        app.terminate()
+        launch(app, display: "builtInMock", surface: "physical", presentation: "hovered")
+        XCTAssertTrue(waitForState("hovered", in: app, timeout: 5))
         attachScreenshot(named: "physical-hovered")
 
-        shellElement("notchium.shell.toggle", in: app).click()
-        XCTAssertTrue(waitForState("expanded", in: app, timeout: 2))
+        app.terminate()
+        launch(app, display: "builtInMock", surface: "physical", presentation: "expanded")
+        XCTAssertTrue(waitForState("expanded", in: app, timeout: 5))
         attachScreenshot(named: "physical-expanded")
 
         shellElement("notchium.shell.close", in: app).click()
         XCTAssertTrue(waitForState("collapsed", in: app, timeout: 2))
 
         app.terminate()
+        app.launchArguments = fixtureArguments(
+            display: "builtInMock",
+            surface: "physical",
+            presentation: "collapsed",
+            appearance: "system"
+        )
         app.launch()
         XCTAssertTrue(waitForState("collapsed", in: app, timeout: 5))
         XCTAssertEqual(app.alerts.count, 0)
@@ -37,16 +48,13 @@ final class NotchiumUITests: XCTestCase {
     func testExpandedShellClosesWithOwnControlAndOutsideFocusLoss() throws {
         let app = XCUIApplication()
         defer { app.terminate() }
-        launch(app, display: "externalMock", surface: "virtual")
-
-        shellElement("notchium.shell.toggle", in: app).click()
-        XCTAssertTrue(waitForState("expanded", in: app, timeout: 2))
+        launch(app, display: "externalMock", surface: "virtual", presentation: "expanded")
 
         shellElement("notchium.shell.close", in: app).click()
         XCTAssertTrue(waitForState("collapsed", in: app, timeout: 2))
 
-        shellElement("notchium.shell.toggle", in: app).click()
-        XCTAssertTrue(waitForState("expanded", in: app, timeout: 2))
+        app.terminate()
+        launch(app, display: "externalMock", surface: "virtual", presentation: "expanded")
         let finder = XCUIApplication(bundleIdentifier: "com.apple.finder")
         finder.activate()
         let finderMenuBar = finder.menuBars.firstMatch
@@ -106,11 +114,32 @@ final class NotchiumUITests: XCTestCase {
         launch(app, display: "externalMock", surface: "virtual")
 
         for _ in 0..<6 {
-            shellElement("notchium.shell.toggle", in: app).click()
-            XCTAssertTrue(waitForState("expanded", in: app, timeout: 2))
+            app.terminate()
+            launch(app, display: "externalMock", surface: "virtual", presentation: "expanded")
+            XCTAssertTrue(waitForState("expanded", in: app, timeout: 5))
             shellElement("notchium.shell.close", in: app).click()
             XCTAssertTrue(waitForState("collapsed", in: app, timeout: 2))
         }
+    }
+
+    func testDebugGeometryOverlayUsesTheCollapsedHardwareFootprint() throws {
+        let app = XCUIApplication()
+        defer { app.terminate() }
+        app.launchArguments = fixtureArguments(
+            display: "builtInMock",
+            surface: "physical",
+            presentation: "collapsed",
+            appearance: "system",
+            showGeometry: true
+        )
+        app.launch()
+
+        let shell = shellElement("notchium.shell", in: app)
+        XCTAssertTrue(shell.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForState("collapsed", in: app, timeout: 2))
+        XCTAssertEqual(shell.frame.width, 420, accuracy: 1)
+        XCTAssertEqual(shell.frame.height, 260, accuracy: 1)
+        attachScreenshot(named: "physical-collapsed-geometry-overlay")
     }
 
     private func launch(
@@ -136,7 +165,8 @@ final class NotchiumUITests: XCTestCase {
         surface: String,
         presentation: String,
         appearance: String,
-        reduceTransparency: String = "system"
+        reduceTransparency: String = "system",
+        showGeometry: Bool = false
     ) -> [String] {
         [
             "--ui-testing",
@@ -146,6 +176,7 @@ final class NotchiumUITests: XCTestCase {
             "--notchium-appearance", appearance,
             "--notchium-reduce-motion", "on",
             "--notchium-reduce-transparency", reduceTransparency,
+            "--notchium-show-geometry", showGeometry ? "on" : "off",
         ]
     }
 
