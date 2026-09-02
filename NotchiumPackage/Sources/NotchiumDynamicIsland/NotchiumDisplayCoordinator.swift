@@ -105,14 +105,8 @@ public final class NotchiumDisplayCoordinator: NSObject {
         )
         workspaceCenter.addObserver(
             self,
-            selector: #selector(activeSpaceDidChange),
+            selector: #selector(activeSpaceDidChange(_:)),
             name: NSWorkspace.activeSpaceDidChangeNotification,
-            object: nil
-        )
-        workspaceCenter.addObserver(
-            self,
-            selector: #selector(workspaceDidActivateApplication(_:)),
-            name: NSWorkspace.didActivateApplicationNotification,
             object: nil
         )
 
@@ -193,20 +187,8 @@ public final class NotchiumDisplayCoordinator: NSObject {
     }
 
     @objc
-    private func activeSpaceDidChange() {
-        presentationModel.present(.collapsed, animated: false)
-        refreshDisplayConfiguration(collapseForMove: false)
-    }
-
-    @objc
-    private func workspaceDidActivateApplication(_ notification: Notification) {
-        guard presentationModel.visualState == .expanded,
-              let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
-                as? NSRunningApplication,
-              application.processIdentifier != ProcessInfo.processInfo.processIdentifier else {
-            return
-        }
-        presentationModel.collapse()
+    private func activeSpaceDidChange(_ notification: Notification) {
+        panelController.orderFrontRegardless()
     }
 
     private func reconcilePanel(animated: Bool) {

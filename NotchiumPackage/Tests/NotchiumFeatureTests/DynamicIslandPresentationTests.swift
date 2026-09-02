@@ -22,6 +22,20 @@ final class DynamicIslandPresentationTests: XCTestCase {
         XCTAssertEqual(model.phase, .hovered)
     }
 
+    func testHoverAndCollapseUseExactForgivenessDelays() async {
+        let clock = TestAppClock(now: Date(timeIntervalSince1970: 0))
+        let model = DynamicIslandPresentationModel(clock: clock)
+
+        model.setHovered(true)
+        await drainMainActorTasks()
+        model.setHovered(false)
+        await drainMainActorTasks()
+
+        let history = await clock.sleepHistory()
+        XCTAssertTrue(history.contains(.milliseconds(80)))
+        XCTAssertTrue(history.contains(.milliseconds(180)))
+    }
+
     func testCancelledHoverEntryNeverWins() async {
         let clock = ControlledAppClock()
         let model = DynamicIslandPresentationModel(clock: clock)

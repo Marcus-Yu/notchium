@@ -56,7 +56,7 @@ public final class DynamicIslandPresentationModel {
     @ObservationIgnored private var hoverGeneration = 0
     @ObservationIgnored private var transitionGeneration = 0
 
-    private let hoverEntryDelay: Duration = .milliseconds(120)
+    private let hoverEntryDelay: Duration = .milliseconds(80)
     private let hoverExitDelay: Duration = .milliseconds(180)
 
     public init(
@@ -165,10 +165,7 @@ public final class DynamicIslandPresentationModel {
         if reduceMotion {
             return .milliseconds(120)
         }
-        if source == .expanded || target == .expanded {
-            return .milliseconds(300)
-        }
-        return .milliseconds(180)
+        return .milliseconds(620)
     }
 
     private static func phase(for state: NotchStableState) -> NotchPresentationPhase {

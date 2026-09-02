@@ -1,27 +1,22 @@
 import SwiftUI
 
-enum NotchShellMotion {
-    static let response = 0.46
-    static let dampingFraction = 0.88
-    static let blendDuration = 0.08
+enum NotchMotion {
+    static let notchMorphAnimation: Animation =
+        .spring(
+            response: 0.62,
+            dampingFraction: 0.90,
+            blendDuration: 0.12
+        )
+    static let reducedMotionAnimation = Animation.easeInOut(duration: 0.18)
 
-    static let notchSpring = Animation.spring(
-        response: response,
-        dampingFraction: dampingFraction,
-        blendDuration: blendDuration
-    )
-    static let reducedMotion = Animation.easeOut(duration: 0.18)
-
-    static func surface(reduceMotion: Bool) -> Animation {
-        reduceMotion ? reducedMotion : notchSpring
+    static func shellStateAnimation(reduceMotion: Bool) -> Animation {
+        reduceMotion ? reducedMotionAnimation : notchMorphAnimation
     }
 
-    static func contentInsertion(reduceMotion: Bool) -> Animation {
-        let fade = Animation.easeOut(duration: 0.14)
-        return reduceMotion ? fade : fade.delay(0.08)
-    }
-
-    static let contentRemoval = Animation.easeOut(duration: 0.12)
+    static let contentInsertion = Animation
+        .easeOut(duration: 0.22)
+        .delay(0.16)
+    static let contentRemoval = Animation.easeOut(duration: 0.22)
 }
 
 public struct NotchiumShellView: View {
@@ -56,8 +51,7 @@ public struct NotchiumShellView: View {
 
             NotchShellOuterSurface(
                 model: model,
-                layout: layout,
-                reduceMotion: accessibility.reduceMotion
+                layout: layout
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
@@ -90,7 +84,6 @@ public struct NotchiumShellView: View {
 private struct NotchShellOuterSurface: View {
     @Bindable var model: DynamicIslandPresentationModel
     let layout: NotchPanelLayout
-    let reduceMotion: Bool
 
     var body: some View {
         let shape = NotchShape(
@@ -105,10 +98,6 @@ private struct NotchShellOuterSurface: View {
             shape.fill(.black)
 
             shellContent
-                .animation(
-                    NotchShellMotion.surface(reduceMotion: reduceMotion),
-                    value: model.visualState
-                )
                 .frame(
                     width: layout.surfaceSize.width,
                     height: layout.surfaceSize.height,
@@ -153,10 +142,8 @@ private struct NotchShellOuterSurface: View {
 
     private var contentTransition: AnyTransition {
         .asymmetric(
-            insertion: .opacity.animation(
-                NotchShellMotion.contentInsertion(reduceMotion: reduceMotion)
-            ),
-            removal: .opacity.animation(NotchShellMotion.contentRemoval)
+            insertion: .opacity.animation(NotchMotion.contentInsertion),
+            removal: .opacity.animation(NotchMotion.contentRemoval)
         )
     }
 }

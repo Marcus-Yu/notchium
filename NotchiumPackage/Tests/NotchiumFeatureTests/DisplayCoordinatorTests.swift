@@ -21,6 +21,7 @@ private final class MockPanelController: NotchPanelControlling {
     private(set) var layout: NotchPanelLayout?
     private(set) var renderConfiguration: NotchShellRenderConfiguration?
     private(set) var reconcileCount = 0
+    private(set) var orderFrontRegardlessCount = 0
     private(set) var hideCount = 0
 
     func reconcile(
@@ -35,6 +36,10 @@ private final class MockPanelController: NotchPanelControlling {
         reconcileCount += 1
     }
 
+    func orderFrontRegardless() {
+        orderFrontRegardlessCount += 1
+    }
+
     func hide() {
         hideCount += 1
         placement = nil
@@ -45,6 +50,26 @@ private final class MockPanelController: NotchPanelControlling {
 
 @MainActor
 final class DisplayCoordinatorTests: XCTestCase {
+    func testSpaceChangeOnlyReassertsTheExistingPanel() {
+        let source = MockDisplaySource(displays: [builtInDisplay()])
+        let panel = MockPanelController()
+        let coordinator = makeCoordinator(source: source, panel: panel)
+        coordinator.start()
+        defer { coordinator.stop() }
+
+        coordinator.presentationModel.present(.expanded, animated: false)
+        let reconcileCount = panel.reconcileCount
+
+        NSWorkspace.shared.notificationCenter.post(
+            name: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil
+        )
+
+        XCTAssertEqual(panel.orderFrontRegardlessCount, 1)
+        XCTAssertEqual(panel.reconcileCount, reconcileCount)
+        XCTAssertEqual(coordinator.presentationModel.visualState, .expanded)
+    }
+
     func testHotPlugMovesFromVirtualPillToBuiltInNotchAndCollapses() {
         let source = MockDisplaySource(displays: [externalDisplay()])
         let panel = MockPanelController()

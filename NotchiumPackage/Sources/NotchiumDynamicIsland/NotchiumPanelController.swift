@@ -9,6 +9,7 @@ protocol NotchPanelControlling: AnyObject {
         renderConfiguration: NotchShellRenderConfiguration,
         animated: Bool
     )
+    func orderFrontRegardless()
     func hide()
 }
 
@@ -28,6 +29,8 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
     private var escapeMonitor: Any?
     private var globalPointerMonitor: Any?
     private var localPointerMonitor: Any?
+    private var positionedDisplayID: CGDirectDisplayID?
+    private var positionedScreenFrame: NSRect?
 
     init(model: DynamicIslandPresentationModel) {
         self.model = model
@@ -56,11 +59,14 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         panel.isMovable = false
         panel.isMovableByWindowBackground = false
         panel.hidesOnDeactivate = false
+        panel.canHide = false
+        panel.isReleasedWhenClosed = false
         panel.level = .screenSaver
         panel.collectionBehavior = [
             .canJoinAllSpaces,
             .stationary,
             .fullScreenAuxiliary,
+            .ignoresCycle,
         ]
         panel.ignoresMouseEvents = true
         panel.animationBehavior = .none
@@ -113,7 +119,12 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
             panel.orderOut(nil)
             return
         }
-        positionPanel(panel, on: screen)
+        if positionedDisplayID != screen.notchiumDisplayID
+            || positionedScreenFrame != screen.frame {
+            positionPanel(panel, on: screen)
+            positionedDisplayID = screen.notchiumDisplayID
+            positionedScreenFrame = screen.frame
+        }
         panel.orderFrontRegardless()
         print("""
         [Notchium Actual Panel]
@@ -139,15 +150,21 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
             return
         }
 
-        withAnimation(NotchShellMotion.surface(reduceMotion: model.reduceMotion)) {
+        withAnimation(NotchMotion.shellStateAnimation(reduceMotion: model.reduceMotion)) {
             hostingView.rootView = rootView
         }
+    }
+
+    func orderFrontRegardless() {
+        panel.orderFrontRegardless()
     }
 
     func hide() {
         removeEscapeMonitor()
         removePointerMonitors()
         currentLayout = nil
+        positionedDisplayID = nil
+        positionedScreenFrame = nil
         panel.hasShadow = false
         panel.invalidateShadow()
         if panel.isKeyWindow {
