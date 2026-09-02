@@ -39,7 +39,7 @@ public struct NotchPanelLayout: Equatable, Sendable {
 
 public enum NotchGeometryResolver {
     public static let expandedNotchSize = CGSize(
-        width: 640,
+        width: 450,
         height: 190
     )
     public static let panelSize = CGSize(

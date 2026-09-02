@@ -292,19 +292,19 @@ final class NotchGeometryResolverTests: XCTestCase {
 
         XCTAssertEqual(
             NotchGeometryResolver.layout(for: physical, state: .hovered).surfaceSize,
-            CGSize(width: 640, height: 190)
+            CGSize(width: 450, height: 190)
         )
         XCTAssertEqual(
             NotchGeometryResolver.layout(for: virtual, state: .hovered).surfaceSize,
-            CGSize(width: 640, height: 190)
+            CGSize(width: 450, height: 190)
         )
         XCTAssertEqual(
             NotchGeometryResolver.layout(for: physical, state: .expanded).surfaceSize,
-            CGSize(width: 640, height: 190)
+            CGSize(width: 450, height: 190)
         )
         XCTAssertEqual(
             NotchGeometryResolver.layout(for: virtual, state: .expanded).surfaceSize,
-            CGSize(width: 640, height: 190)
+            CGSize(width: 450, height: 190)
         )
     }
 
@@ -401,11 +401,11 @@ final class NotchShapeTests: XCTestCase {
         )
 
         shape.animatableData = AnimatablePair(
-            AnimatablePair(640, 190),
+            AnimatablePair(450, 190),
             AnimatablePair(320, AnimatablePair(12, 26))
         )
 
-        XCTAssertEqual(shape.width, 640)
+        XCTAssertEqual(shape.width, 450)
         XCTAssertEqual(shape.height, 190)
         XCTAssertEqual(shape.centerX, 320)
         XCTAssertEqual(shape.topCornerRadius, 12)

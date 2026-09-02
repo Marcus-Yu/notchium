@@ -82,7 +82,7 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         )
 
         if let hostingView {
-            hostingView.rootView = rootView
+            updateRootView(rootView, in: hostingView, animated: animated)
             configureHostingView(hostingView, for: layout)
         } else {
             let hostingView = NotchHostingView(rootView: rootView)
@@ -123,6 +123,25 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         panel.maxY: \(panel.frame.maxY)
         panel.level: \(panel.level.rawValue)
         """)
+    }
+
+    private func updateRootView(
+        _ rootView: NotchiumShellView,
+        in hostingView: NotchHostingView,
+        animated: Bool
+    ) {
+        guard animated else {
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                hostingView.rootView = rootView
+            }
+            return
+        }
+
+        withAnimation(NotchShellMotion.surface(reduceMotion: model.reduceMotion)) {
+            hostingView.rootView = rootView
+        }
     }
 
     func hide() {
