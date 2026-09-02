@@ -39,7 +39,7 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
 #else
         allowsPointerDrivenHover = true
 #endif
-        panel = NotchPanel(
+        let panel = NotchPanel(
             contentRect: NSRect(
                 x: 0,
                 y: 0,
@@ -50,26 +50,38 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
             backing: .buffered,
             defer: false
         )
+        panel.applyNotchWindowBehavior()
+
+#if DEBUG
+        assert(panel.collectionBehavior.contains(.canJoinAllSpaces))
+        assert(panel.collectionBehavior.contains(.stationary))
+        assert(panel.collectionBehavior.contains(.fullScreenAuxiliary))
+        assert(panel.collectionBehavior.contains(.ignoresCycle))
+
+        print("""
+        [Notchium Window Behavior]
+        canJoinAllSpaces:
+        \(panel.collectionBehavior.contains(.canJoinAllSpaces))
+
+        stationary:
+        \(panel.collectionBehavior.contains(.stationary))
+
+        fullScreenAuxiliary:
+        \(panel.collectionBehavior.contains(.fullScreenAuxiliary))
+
+        ignoresCycle:
+        \(panel.collectionBehavior.contains(.ignoresCycle))
+
+        frame:
+        \(panel.frame)
+        """)
+#endif
+
+        self.panel = panel
         super.init()
 
         panel.delegate = self
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = false
-        panel.isMovable = false
-        panel.isMovableByWindowBackground = false
-        panel.hidesOnDeactivate = false
-        panel.canHide = false
-        panel.isReleasedWhenClosed = false
-        panel.level = .screenSaver
-        panel.collectionBehavior = [
-            .canJoinAllSpaces,
-            .stationary,
-            .fullScreenAuxiliary,
-            .ignoresCycle,
-        ]
         panel.ignoresMouseEvents = true
-        panel.animationBehavior = .none
         panel.acceptsMouseMovedEvents = true
         panel.setAccessibilityLabel("Notchium shell")
         panel.setAccessibilityIdentifier("notchium.shell.panel")
@@ -150,7 +162,7 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
             return
         }
 
-        withAnimation(NotchMotion.shellStateAnimation(reduceMotion: model.reduceMotion)) {
+        withAnimation(model.reduceMotion ? NotchMotion.reduced : NotchMotion.morph) {
             hostingView.rootView = rootView
         }
     }

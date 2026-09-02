@@ -18,4 +18,33 @@ final class NotchPanel: NSPanel {
     override var canBecomeMain: Bool {
         false
     }
+
+    func applyNotchWindowBehavior() {
+        styleMask = [
+            .borderless,
+            .nonactivatingPanel,
+        ]
+
+        isOpaque = false
+        backgroundColor = .clear
+        hasShadow = false
+
+        isMovable = false
+        isMovableByWindowBackground = false
+
+        hidesOnDeactivate = false
+        canHide = false
+        isReleasedWhenClosed = false
+
+        animationBehavior = .none
+
+        level = .screenSaver
+
+        collectionBehavior = [
+            .canJoinAllSpaces,
+            .stationary,
+            .fullScreenAuxiliary,
+            .ignoresCycle,
+        ]
+    }
 }

@@ -32,8 +32,8 @@ final class DynamicIslandPresentationTests: XCTestCase {
         await drainMainActorTasks()
 
         let history = await clock.sleepHistory()
-        XCTAssertTrue(history.contains(.milliseconds(80)))
-        XCTAssertTrue(history.contains(.milliseconds(180)))
+        XCTAssertTrue(history.contains(.milliseconds(120)))
+        XCTAssertTrue(history.contains(.milliseconds(240)))
     }
 
     func testCancelledHoverEntryNeverWins() async {
@@ -50,15 +50,21 @@ final class DynamicIslandPresentationTests: XCTestCase {
         XCTAssertEqual(model.phase, .collapsed)
     }
 
-    func testExpandedStateIgnoresHoverExit() {
+    func testExpandedStateCollapsesAfterHoverExitDelay() async {
+        let clock = ControlledAppClock()
         let model = DynamicIslandPresentationModel(
             phase: .expanded,
-            clock: TestAppClock(now: Date(timeIntervalSince1970: 0))
+            clock: clock
         )
 
         model.setHovered(false)
-
         XCTAssertEqual(model.phase, .expanded)
+
+        await waitForPendingSleep(clock)
+        await clock.releaseAll()
+        await drainMainActorTasks()
+
+        XCTAssertEqual(model.phase, .transitioning(from: .expanded, to: .collapsed))
     }
 
     func testToggleAndOutsideDismissalUseExplicitTransitions() async {
@@ -78,6 +84,31 @@ final class DynamicIslandPresentationTests: XCTestCase {
         await clock.releaseAll()
         await drainMainActorTasks()
         XCTAssertEqual(model.phase, .collapsed)
+    }
+
+    func testClickExpansionIsImmediateAndDoesNotUseTheHoverDelay() async {
+        let clock = TestAppClock(now: Date(timeIntervalSince1970: 0))
+        let model = DynamicIslandPresentationModel(clock: clock)
+
+        model.toggleExpanded()
+        await drainMainActorTasks()
+
+        XCTAssertEqual(model.phase, .expanded)
+        let history = await clock.sleepHistory()
+        XCTAssertEqual(history, [.milliseconds(780)])
+    }
+
+    func testHoverReentryCancelsPendingCollapse() async {
+        let clock = ControlledAppClock()
+        let model = DynamicIslandPresentationModel(phase: .expanded, clock: clock)
+
+        model.setHovered(false)
+        await waitForPendingSleep(clock)
+        model.setHovered(true)
+        await clock.releaseAll()
+        await drainMainActorTasks()
+
+        XCTAssertEqual(model.phase, .expanded)
     }
 
     func testStaleTransitionCompletionIsRejected() async {
@@ -104,7 +135,7 @@ final class DynamicIslandPresentationTests: XCTestCase {
 
         XCTAssertEqual(model.phase, .expanded)
         let history = await clock.sleepHistory()
-        XCTAssertEqual(history, [.milliseconds(120)])
+        XCTAssertEqual(history, [.milliseconds(220)])
     }
 
     func testEveryStableStateCanBeCommandedWithoutAnimation() {

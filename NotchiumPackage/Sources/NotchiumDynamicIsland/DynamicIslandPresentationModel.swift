@@ -1,5 +1,7 @@
+import AppKit
 import NotchiumCore
 import Observation
+import SwiftUI
 
 public enum NotchStableState: String, CaseIterable, Equatable, Sendable {
     case collapsed
@@ -51,13 +53,14 @@ public final class DynamicIslandPresentationModel {
     }
 
     @ObservationIgnored private let clock: any AppClock
-    @ObservationIgnored private var hoverTask: Task<Void, Never>?
+    @ObservationIgnored private var pendingHoverTask: Task<Void, Never>?
+    @ObservationIgnored private var pendingCollapseTask: Task<Void, Never>?
     @ObservationIgnored private var transitionTask: Task<Void, Never>?
     @ObservationIgnored private var hoverGeneration = 0
     @ObservationIgnored private var transitionGeneration = 0
 
-    private let hoverEntryDelay: Duration = .milliseconds(80)
-    private let hoverExitDelay: Duration = .milliseconds(180)
+    private let hoverEntryDelay: Duration = .milliseconds(120)
+    private let hoverExitDelay: Duration = .milliseconds(240)
 
     public init(
         phase: NotchPresentationPhase = .collapsed,
@@ -68,27 +71,42 @@ public final class DynamicIslandPresentationModel {
     }
 
     public func setHovered(_ isHovered: Bool) {
-        guard visualState != .expanded else { return }
-        scheduleHoverTransition(
-            to: isHovered ? .hovered : .collapsed,
-            after: isHovered ? hoverEntryDelay : hoverExitDelay
-        )
+        if isHovered {
+            scheduleHoverExpansion()
+        } else {
+            scheduleCollapse()
+        }
     }
 
     public func toggleExpanded() {
-        hoverTask?.cancel()
-        transition(to: visualState == .expanded ? .collapsed : .expanded)
+        pendingHoverTask?.cancel()
+        pendingCollapseTask?.cancel()
+        setExpanded(visualState != .expanded)
     }
 
     public func collapse() {
-        hoverTask?.cancel()
-        transition(to: .collapsed)
+        pendingHoverTask?.cancel()
+        pendingCollapseTask?.cancel()
+        setExpanded(false)
+    }
+
+    public func setExpanded(
+        _ expanded: Bool,
+        target: NotchStableState = .expanded
+    ) {
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let animation = reduceMotion ? NotchMotion.reduced : NotchMotion.morph
+
+        withAnimation(animation) {
+            transition(to: expanded ? target : .collapsed)
+        }
     }
 
     public func present(_ state: NotchStableState, animated: Bool = true) {
-        hoverTask?.cancel()
+        pendingHoverTask?.cancel()
+        pendingCollapseTask?.cancel()
         if animated {
-            transition(to: state)
+            setExpanded(state != .collapsed, target: state)
         } else {
             transitionTask?.cancel()
             transitionGeneration &+= 1
@@ -97,7 +115,8 @@ public final class DynamicIslandPresentationModel {
     }
 
     public func reset() {
-        hoverTask?.cancel()
+        pendingHoverTask?.cancel()
+        pendingCollapseTask?.cancel()
         transitionTask?.cancel()
         hoverGeneration &+= 1
         transitionGeneration &+= 1
@@ -109,12 +128,17 @@ public final class DynamicIslandPresentationModel {
         self.reduceMotion = reduceMotion
     }
 
-    private func scheduleHoverTransition(to target: NotchStableState, after delay: Duration) {
-        hoverTask?.cancel()
+    private func scheduleHoverExpansion() {
+        pendingCollapseTask?.cancel()
+        pendingHoverTask?.cancel()
+
+        guard visualState != .expanded else { return }
+
         hoverGeneration &+= 1
         let generation = hoverGeneration
+        let delay = hoverEntryDelay
 
-        hoverTask = Task { [weak self, clock] in
+        pendingHoverTask = Task { [weak self, clock] in
             do {
                 try await clock.sleep(for: delay)
             } catch {
@@ -122,13 +146,38 @@ public final class DynamicIslandPresentationModel {
             }
 
             guard !Task.isCancelled, let self else { return }
-            self.completeHoverTransition(to: target, generation: generation)
+            self.completeHoverExpansion(generation: generation)
         }
     }
 
-    private func completeHoverTransition(to target: NotchStableState, generation: Int) {
-        guard generation == hoverGeneration, visualState != .expanded else { return }
-        transition(to: target)
+    private func scheduleCollapse() {
+        pendingHoverTask?.cancel()
+        pendingCollapseTask?.cancel()
+
+        hoverGeneration &+= 1
+        let generation = hoverGeneration
+        let delay = hoverExitDelay
+
+        pendingCollapseTask = Task { [weak self, clock] in
+            do {
+                try await clock.sleep(for: delay)
+            } catch {
+                return
+            }
+
+            guard !Task.isCancelled, let self else { return }
+            self.completeScheduledCollapse(generation: generation)
+        }
+    }
+
+    private func completeHoverExpansion(generation: Int) {
+        guard generation == hoverGeneration else { return }
+        setExpanded(true, target: .hovered)
+    }
+
+    private func completeScheduledCollapse(generation: Int) {
+        guard generation == hoverGeneration else { return }
+        setExpanded(false)
     }
 
     private func transition(to target: NotchStableState) {
@@ -163,9 +212,9 @@ public final class DynamicIslandPresentationModel {
         to target: NotchStableState
     ) -> Duration {
         if reduceMotion {
-            return .milliseconds(120)
+            return .milliseconds(220)
         }
-        return .milliseconds(620)
+        return .milliseconds(780)
     }
 
     private static func phase(for state: NotchStableState) -> NotchPresentationPhase {

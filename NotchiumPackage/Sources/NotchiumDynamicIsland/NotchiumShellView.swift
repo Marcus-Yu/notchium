@@ -1,22 +1,19 @@
 import SwiftUI
 
 enum NotchMotion {
-    static let notchMorphAnimation: Animation =
-        .spring(
-            response: 0.62,
-            dampingFraction: 0.90,
-            blendDuration: 0.12
-        )
-    static let reducedMotionAnimation = Animation.easeInOut(duration: 0.18)
+    static let morph = Animation.spring(
+        response: 0.78,
+        dampingFraction: 0.92,
+        blendDuration: 0.16
+    )
 
-    static func shellStateAnimation(reduceMotion: Bool) -> Animation {
-        reduceMotion ? reducedMotionAnimation : notchMorphAnimation
-    }
+    static let contentIn = Animation
+        .easeOut(duration: 0.28)
+        .delay(0.18)
 
-    static let contentInsertion = Animation
-        .easeOut(duration: 0.22)
-        .delay(0.16)
-    static let contentRemoval = Animation.easeOut(duration: 0.22)
+    static let contentOut = Animation.easeOut(duration: 0.18)
+
+    static let reduced = Animation.easeInOut(duration: 0.22)
 }
 
 public struct NotchiumShellView: View {
@@ -112,10 +109,8 @@ private struct NotchShellOuterSurface: View {
         .foregroundStyle(.white)
     }
 
-    @ViewBuilder
     private var shellContent: some View {
-        switch model.visualState {
-        case .collapsed:
+        ZStack {
             Button(action: model.toggleExpanded) {
                 Color.clear
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -126,25 +121,34 @@ private struct NotchShellOuterSurface: View {
             .contentShape(Rectangle())
             .accessibilityLabel("Expand Notchium")
             .accessibilityIdentifier("notchium.shell.toggle")
-        case .hovered:
+            .opacity(model.visualState == .collapsed ? 1 : 0)
+            .allowsHitTesting(model.visualState == .collapsed)
+
             Button(action: model.toggleExpanded) {
                 NotchHoverReveal()
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Expand Notchium")
             .accessibilityIdentifier("notchium.shell.toggle")
-            .transition(contentTransition)
-        case .expanded:
-            NotchExpandedPlaceholderContainer(close: model.collapse)
-                .transition(contentTransition)
-        }
-    }
+            .opacity(model.visualState == .hovered ? 1 : 0)
+            .allowsHitTesting(model.visualState == .hovered)
+            .animation(
+                model.visualState == .hovered
+                    ? NotchMotion.contentIn
+                    : NotchMotion.contentOut,
+                value: model.visualState
+            )
 
-    private var contentTransition: AnyTransition {
-        .asymmetric(
-            insertion: .opacity.animation(NotchMotion.contentInsertion),
-            removal: .opacity.animation(NotchMotion.contentRemoval)
-        )
+            NotchExpandedPlaceholderContainer(close: model.collapse)
+                .opacity(model.visualState == .expanded ? 1 : 0)
+                .allowsHitTesting(model.visualState == .expanded)
+                .animation(
+                    model.visualState == .expanded
+                        ? NotchMotion.contentIn
+                        : NotchMotion.contentOut,
+                    value: model.visualState
+                )
+        }
     }
 }
 

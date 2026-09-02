@@ -358,11 +358,11 @@ final class NotchPanelTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        panel.applyNotchWindowBehavior()
         let controller = NotchiumPanelController(
             model: DynamicIslandPresentationModel(clock: ControlledAppClock())
         )
 
-        panel.level = .screenSaver
         controller.positionPanel(panel, on: screen)
         panel.orderFrontRegardless()
         defer { panel.orderOut(nil) }
@@ -372,6 +372,11 @@ final class NotchPanelTests: XCTestCase {
         XCTAssertEqual(panel.frame.maxY, screen.frame.maxY, accuracy: 0.001)
         XCTAssertFalse(panel.canBecomeKey)
         XCTAssertFalse(panel.canBecomeMain)
+        XCTAssertEqual(
+            panel.collectionBehavior,
+            [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
+        )
+        XCTAssertEqual(panel.animationBehavior, .none)
     }
 }
 
