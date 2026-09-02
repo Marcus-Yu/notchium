@@ -35,7 +35,7 @@ final class AppKitDisplaySource: NotchiumDisplaySnapshotting {
     }
 }
 
-private extension NSScreen {
+extension NSScreen {
     var notchiumDisplayID: CGDirectDisplayID? {
         guard let number = deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
             return nil

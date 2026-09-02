@@ -9,7 +9,8 @@ public struct NotchPanelLayout: Equatable, Sendable {
     public let surfaceSize: CGSize
     public let expandedSize: CGSize
     public let hasHardwareNotch: Bool
-    public let cornerRadius: CGFloat
+    public let topCornerRadius: CGFloat
+    public let bottomCornerRadius: CGFloat
 
     public init(
         panelFrame: CGRect,
@@ -20,7 +21,8 @@ public struct NotchPanelLayout: Equatable, Sendable {
         surfaceSize: CGSize,
         expandedSize: CGSize,
         hasHardwareNotch: Bool,
-        cornerRadius: CGFloat
+        topCornerRadius: CGFloat,
+        bottomCornerRadius: CGFloat
     ) {
         self.panelFrame = panelFrame
         self.visibleSurfaceFrame = visibleSurfaceFrame
@@ -30,31 +32,33 @@ public struct NotchPanelLayout: Equatable, Sendable {
         self.surfaceSize = surfaceSize
         self.expandedSize = expandedSize
         self.hasHardwareNotch = hasHardwareNotch
-        self.cornerRadius = cornerRadius
+        self.topCornerRadius = topCornerRadius
+        self.bottomCornerRadius = bottomCornerRadius
     }
 }
 
 public enum NotchGeometryResolver {
-    public static let defaultExpandedSize = CGSize(width: 420, height: 260)
+    public static let expandedNotchSize = CGSize(
+        width: 640,
+        height: 190
+    )
+    public static let panelSize = CGSize(
+        width: 640,
+        height: 210
+    )
     public static let virtualNotchWidth: CGFloat = 180
 
-    private static let hoveredMinimumSize = CGSize(width: 272, height: 56)
     private static let hoverHorizontalSlop: CGFloat = 5
     private static let hoverBottomSlop: CGFloat = 5
 
     public static func layout(
         for placement: NotchShellPlacement,
-        state: NotchStableState,
-        expandedSize: CGSize = defaultExpandedSize
+        state: NotchStableState
     ) -> NotchPanelLayout {
         let hardwareGeometry = hardwareNotchGeometry(for: placement)
         let hasHardwareNotch = hardwareGeometry != nil
         let collapsedFrame = hardwareGeometry?.frame ?? virtualNotchFrame(for: placement.display)
 
-        let panelSize = CGSize(
-            width: max(expandedSize.width, collapsedFrame.width),
-            height: max(expandedSize.height, collapsedFrame.height)
-        )
         let panelFrame = CGRect(
             x: placement.display.frame.midX - panelSize.width / 2,
             y: placement.display.frame.maxY - panelSize.height,
@@ -65,10 +69,11 @@ public enum NotchGeometryResolver {
         let surfaceSize = visibleSurfaceSize(
             state: state,
             collapsedSize: collapsedFrame.size,
-            expandedSize: expandedSize
+            expandedSize: expandedNotchSize
         )
+        let surfaceCenterX = state == .collapsed ? collapsedFrame.midX : panelFrame.midX
         let visibleSurfaceFrame = CGRect(
-            x: panelFrame.midX - surfaceSize.width / 2,
+            x: surfaceCenterX - surfaceSize.width / 2,
             y: panelFrame.maxY - surfaceSize.height,
             width: surfaceSize.width,
             height: surfaceSize.height
@@ -81,9 +86,10 @@ public enum NotchGeometryResolver {
             collapsedHoverFrame: collapsedHoverFrame(from: collapsedFrame),
             hardwareNotchGeometry: hardwareGeometry,
             surfaceSize: surfaceSize,
-            expandedSize: expandedSize,
+            expandedSize: expandedNotchSize,
             hasHardwareNotch: hasHardwareNotch,
-            cornerRadius: cornerRadius(for: placement.mode, state: state)
+            topCornerRadius: topCornerRadius(for: placement.mode, state: state),
+            bottomCornerRadius: bottomCornerRadius(for: placement.mode, state: state)
         )
     }
 
@@ -145,27 +151,30 @@ public enum NotchGeometryResolver {
         switch state {
         case .collapsed:
             collapsedSize
-        case .hovered:
-            CGSize(
-                width: max(collapsedSize.width, hoveredMinimumSize.width),
-                height: max(collapsedSize.height, hoveredMinimumSize.height)
-            )
-        case .expanded:
+        case .hovered, .expanded:
             expandedSize
         }
     }
 
-    private static func cornerRadius(
+    private static func topCornerRadius(
         for mode: NotchSurfaceMode,
         state: NotchStableState
     ) -> CGFloat {
         switch (mode, state) {
-        case (.physicalNotch, .collapsed): 0
-        case (.physicalNotch, .hovered): 20
-        case (.physicalNotch, .expanded): 26
+        case (_, .collapsed): 0
+        case (.physicalNotch, .hovered), (.physicalNotch, .expanded): 12
+        case (.virtualPill, .hovered), (.virtualPill, .expanded): 0
+        }
+    }
+
+    private static func bottomCornerRadius(
+        for mode: NotchSurfaceMode,
+        state: NotchStableState
+    ) -> CGFloat {
+        switch (mode, state) {
+        case (.physicalNotch, .collapsed): 8
         case (.virtualPill, .collapsed): 12
-        case (.virtualPill, .hovered): 24
-        case (.virtualPill, .expanded): 28
+        case (_, .hovered), (_, .expanded): 26
         }
     }
 }

@@ -12,25 +12,6 @@ protocol NotchPanelControlling: AnyObject {
     func hide()
 }
 
-private final class NotchiumPanel: NSPanel {
-    var escapeHandler: (() -> Void)?
-
-    override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { false }
-
-    override func cancelOperation(_ sender: Any?) {
-        escapeHandler?()
-    }
-
-    override func keyDown(with event: NSEvent) {
-        guard event.keyCode == 53 else {
-            super.keyDown(with: event)
-            return
-        }
-        escapeHandler?()
-    }
-}
-
 private final class NotchHostingView: NSHostingView<NotchiumShellView> {
     override var safeAreaInsets: NSEdgeInsets {
         NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
@@ -39,13 +20,14 @@ private final class NotchHostingView: NSHostingView<NotchiumShellView> {
 
 @MainActor
 final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDelegate {
-    private let panel: NotchiumPanel
+    private let panel: NotchPanel
     private let model: DynamicIslandPresentationModel
     private let allowsPointerDrivenHover: Bool
     private var hostingView: NotchHostingView?
     private var currentLayout: NotchPanelLayout?
     private var escapeMonitor: Any?
-    private var globalMouseMonitor: Any?
+    private var globalPointerMonitor: Any?
+    private var localPointerMonitor: Any?
 
     init(model: DynamicIslandPresentationModel) {
         self.model = model
@@ -54,35 +36,35 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
 #else
         allowsPointerDrivenHover = true
 #endif
-        panel = NotchiumPanel(
-            contentRect: .zero,
+        panel = NotchPanel(
+            contentRect: NSRect(
+                x: 0,
+                y: 0,
+                width: 640,
+                height: 210
+            ),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
-            defer: true
+            defer: false
         )
         super.init()
 
         panel.delegate = self
-        panel.level = .statusBar
-        panel.collectionBehavior = [
-            .canJoinAllSpaces,
-            .fullScreenAuxiliary,
-            .stationary,
-            .ignoresCycle,
-        ]
-        panel.isFloatingPanel = true
-        panel.hidesOnDeactivate = false
-        panel.isMovable = false
-        panel.isMovableByWindowBackground = false
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
+        panel.isMovable = false
+        panel.isMovableByWindowBackground = false
+        panel.hidesOnDeactivate = false
+        panel.level = .screenSaver
+        panel.collectionBehavior = [
+            .canJoinAllSpaces,
+            .stationary,
+            .fullScreenAuxiliary,
+        ]
         panel.ignoresMouseEvents = true
-        panel.becomesKeyOnlyIfNeeded = true
         panel.animationBehavior = .none
-        panel.escapeHandler = { [weak self] in
-            self?.handleEscapeCommand()
-        }
+        panel.acceptsMouseMovedEvents = true
         panel.setAccessibilityLabel("Notchium shell")
         panel.setAccessibilityIdentifier("notchium.shell.panel")
     }
@@ -111,33 +93,41 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         }
 
         currentLayout = layout
-        panel.setFrame(layout.panelFrame, display: true)
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
-        panel.ignoresMouseEvents = model.visualState != .expanded
-        installGlobalMouseMonitorIfNeeded()
+        panel.ignoresMouseEvents = model.visualState == .collapsed
+        installPointerMonitorsIfNeeded()
 
         if model.visualState == .expanded {
             installEscapeMonitorIfNeeded()
-            panel.becomesKeyOnlyIfNeeded = false
             NSApp.activate(ignoringOtherApps: true)
-            panel.orderFrontRegardless()
-            panel.makeKey()
-            panel.makeFirstResponder(hostingView)
         } else {
             removeEscapeMonitor()
-            panel.becomesKeyOnlyIfNeeded = true
             if panel.isKeyWindow {
                 panel.resignKey()
             }
-            panel.orderFrontRegardless()
         }
+
+        guard let screen = selectedScreen(for: placement) else {
+            panel.orderOut(nil)
+            return
+        }
+        positionPanel(panel, on: screen)
+        panel.orderFrontRegardless()
+        print("""
+        [Notchium Actual Panel]
+        screen.frame: \(screen.frame)
+        screen.maxY: \(screen.frame.maxY)
+        panel.frame: \(panel.frame)
+        panel.maxY: \(panel.frame.maxY)
+        panel.level: \(panel.level.rawValue)
+        """)
     }
 
     func hide() {
         removeEscapeMonitor()
-        removeGlobalMouseMonitor()
+        removePointerMonitors()
         currentLayout = nil
         panel.hasShadow = false
         panel.invalidateShadow()
@@ -166,28 +156,95 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         hostingView.sizingOptions = []
     }
 
-    private func installGlobalMouseMonitorIfNeeded() {
-        guard allowsPointerDrivenHover, globalMouseMonitor == nil else { return }
-        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved) {
-            [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.handleMouseMoved(at: NSEvent.mouseLocation)
+    @MainActor
+    func positionPanel(
+        _ panel: NSPanel,
+        on screen: NSScreen
+    ) {
+        let screenFrame = screen.frame
+
+        let origin = NSPoint(
+            x:
+                screenFrame.midX
+                - panel.frame.width / 2,
+            y:
+                screenFrame.maxY
+                - panel.frame.height
+        )
+
+        panel.setFrameOrigin(origin)
+    }
+
+    private func selectedScreen(for placement: NotchShellPlacement) -> NSScreen? {
+        NSScreen.screens.first {
+            $0.notchiumDisplayID == placement.display.id.rawValue
+        } ?? NSScreen.screens.first {
+            $0.frame == placement.display.frame
+        }
+    }
+
+    private func installPointerMonitorsIfNeeded() {
+        guard allowsPointerDrivenHover else { return }
+        let eventMask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDown]
+
+        if globalPointerMonitor == nil {
+            globalPointerMonitor = NSEvent.addGlobalMonitorForEvents(matching: eventMask) {
+                [weak self] event in
+                Task { @MainActor [weak self] in
+                    self?.handlePointerEvent(event.type, at: NSEvent.mouseLocation)
+                }
+            }
+        }
+
+        if localPointerMonitor == nil {
+            localPointerMonitor = NSEvent.addLocalMonitorForEvents(matching: eventMask) {
+                [weak self] event in
+                let location = NSEvent.mouseLocation
+                Task { @MainActor [weak self] in
+                    self?.handlePointerEvent(event.type, at: location)
+                }
+                return event
             }
         }
     }
 
+    private func handlePointerEvent(_ type: NSEvent.EventType, at point: CGPoint) {
+        switch type {
+        case .mouseMoved:
+            handleMouseMoved(at: point)
+        case .leftMouseDown:
+            handleCollapsedClick(at: point)
+        default:
+            break
+        }
+    }
+
+    private func handleCollapsedClick(at point: CGPoint) {
+        guard model.visualState == .collapsed,
+              let currentLayout,
+              NotchHoverRegion.contains(point, in: currentLayout.collapsedHoverFrame) else {
+            return
+        }
+        model.toggleExpanded()
+    }
+
     private func handleMouseMoved(at point: CGPoint) {
         guard let currentLayout else { return }
-        let zone = model.visualState == .expanded
-            ? currentLayout.panelFrame
-            : currentLayout.collapsedHoverFrame
+        let zone = model.visualState == .collapsed
+            ? currentLayout.collapsedHoverFrame
+            : currentLayout.visibleSurfaceFrame
         model.setHovered(NotchHoverRegion.contains(point, in: zone))
     }
 
-    private func removeGlobalMouseMonitor() {
-        guard let globalMouseMonitor else { return }
-        NSEvent.removeMonitor(globalMouseMonitor)
-        self.globalMouseMonitor = nil
+    private func removePointerMonitors() {
+        if let globalPointerMonitor {
+            NSEvent.removeMonitor(globalPointerMonitor)
+            self.globalPointerMonitor = nil
+        }
+        if let localPointerMonitor {
+            NSEvent.removeMonitor(localPointerMonitor)
+            self.localPointerMonitor = nil
+        }
     }
 
     private func installEscapeMonitorIfNeeded() {

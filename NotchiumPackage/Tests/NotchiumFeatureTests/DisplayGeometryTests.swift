@@ -1,4 +1,6 @@
 @testable import NotchiumDynamicIsland
+import AppKit
+import SwiftUI
 import XCTest
 
 final class DisplaySelectionTests: XCTestCase {
@@ -75,7 +77,7 @@ final class NotchGeometryResolverTests: XCTestCase {
         XCTAssertEqual(layout.panelFrame.maxY, display.frame.maxY, accuracy: 0.001)
         XCTAssertEqual(layout.hardwareNotchGeometry?.frame, layout.collapsedVisibleFrame)
         XCTAssertEqual(layout.visibleSurfaceFrame, layout.collapsedVisibleFrame)
-        XCTAssertEqual(layout.panelFrame.size, CGSize(width: 420, height: 260))
+        XCTAssertEqual(layout.panelFrame.size, CGSize(width: 640, height: 210))
         XCTAssertTrue(layout.hasHardwareNotch)
         XCTAssertEqual(layout.collapsedVisibleFrame.height, display.safeAreaInsets.top)
         XCTAssertEqual(layout.collapsedVisibleFrame.minX, display.auxiliaryTopLeftArea?.maxX)
@@ -102,7 +104,7 @@ final class NotchGeometryResolverTests: XCTestCase {
         XCTAssertEqual(layout.panelFrame.midX, display.frame.midX, accuracy: 0.001)
         XCTAssertEqual(layout.panelFrame.maxY, display.frame.maxY, accuracy: 0.001)
         XCTAssertNil(layout.hardwareNotchGeometry)
-        XCTAssertEqual(layout.panelFrame.size, CGSize(width: 420, height: 260))
+        XCTAssertEqual(layout.panelFrame.size, CGSize(width: 640, height: 210))
         XCTAssertEqual(layout.visibleSurfaceFrame, layout.collapsedVisibleFrame)
     }
 
@@ -124,6 +126,7 @@ final class NotchGeometryResolverTests: XCTestCase {
         )
 
         XCTAssertEqual(layout.collapsedVisibleFrame, CGRect(x: 730, y: 1014, width: 220, height: 36))
+        XCTAssertEqual(layout.visibleSurfaceFrame, layout.collapsedVisibleFrame)
         XCTAssertNotEqual(layout.collapsedVisibleFrame.midX, display.frame.midX)
     }
 
@@ -289,20 +292,33 @@ final class NotchGeometryResolverTests: XCTestCase {
 
         XCTAssertEqual(
             NotchGeometryResolver.layout(for: physical, state: .hovered).surfaceSize,
-            CGSize(width: 272, height: 56)
+            CGSize(width: 640, height: 190)
         )
         XCTAssertEqual(
             NotchGeometryResolver.layout(for: virtual, state: .hovered).surfaceSize,
-            CGSize(width: 272, height: 56)
+            CGSize(width: 640, height: 190)
         )
         XCTAssertEqual(
             NotchGeometryResolver.layout(for: physical, state: .expanded).surfaceSize,
-            CGSize(width: 420, height: 260)
+            CGSize(width: 640, height: 190)
         )
         XCTAssertEqual(
             NotchGeometryResolver.layout(for: virtual, state: .expanded).surfaceSize,
-            CGSize(width: 420, height: 260)
+            CGSize(width: 640, height: 190)
         )
+    }
+
+    func testStageTwoReferenceDisplayUsesExactFixedPanelFrame() {
+        let display = externalDisplay(
+            frame: CGRect(x: 0, y: 0, width: 1470, height: 956)
+        )
+        let layout = NotchGeometryResolver.layout(
+            for: NotchShellPlacement(display: display, mode: .virtualPill),
+            state: .expanded
+        )
+
+        XCTAssertEqual(layout.panelFrame, CGRect(x: 415, y: 746, width: 640, height: 210))
+        XCTAssertEqual(layout.panelFrame.maxY, 956)
     }
 
     func testSmallDisplaysRetainTheFixedHostPanelContract() {
@@ -312,7 +328,7 @@ final class NotchGeometryResolverTests: XCTestCase {
         let placement = NotchShellPlacement(display: display, mode: .virtualPill)
         let layout = NotchGeometryResolver.layout(for: placement, state: .expanded)
 
-        XCTAssertEqual(layout.panelFrame.size, CGSize(width: 420, height: 260))
+        XCTAssertEqual(layout.panelFrame.size, CGSize(width: 640, height: 210))
         XCTAssertEqual(layout.panelFrame.midX, display.frame.midX, accuracy: 0.001)
         XCTAssertEqual(layout.panelFrame.maxY, display.frame.maxY, accuracy: 0.001)
     }
@@ -326,9 +342,74 @@ final class NotchGeometryResolverTests: XCTestCase {
 
         XCTAssertGreaterThan(layout.panelFrame.width, 0)
         XCTAssertGreaterThan(layout.panelFrame.height, 0)
-        XCTAssertEqual(layout.panelFrame.size, CGSize(width: 420, height: 260))
+        XCTAssertEqual(layout.panelFrame.size, CGSize(width: 640, height: 210))
         XCTAssertEqual(layout.panelFrame.midX, display.frame.midX, accuracy: 0.001)
         XCTAssertEqual(layout.panelFrame.maxY, display.frame.maxY, accuracy: 0.001)
+    }
+}
+
+final class NotchPanelTests: XCTestCase {
+    @MainActor
+    func testActualAppKitPanelFrameReachesSelectedScreenTop() throws {
+        let screen = try XCTUnwrap(NSScreen.screens.first)
+        let panel = NotchPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 210),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        let controller = NotchiumPanelController(
+            model: DynamicIslandPresentationModel(clock: ControlledAppClock())
+        )
+
+        panel.level = .screenSaver
+        controller.positionPanel(panel, on: screen)
+        panel.orderFrontRegardless()
+        defer { panel.orderOut(nil) }
+
+        XCTAssertEqual(panel.frame.size, CGSize(width: 640, height: 210))
+        XCTAssertEqual(panel.frame.midX, screen.frame.midX, accuracy: 0.001)
+        XCTAssertEqual(panel.frame.maxY, screen.frame.maxY, accuracy: 0.001)
+        XCTAssertFalse(panel.canBecomeKey)
+        XCTAssertFalse(panel.canBecomeMain)
+    }
+}
+
+final class NotchShapeTests: XCTestCase {
+    func testShapeOwnsCollapsedWidthHeightAndTopAnchorInsideFixedPanel() {
+        let shape = NotchShape(
+            width: 212,
+            height: 38,
+            centerX: 320,
+            topCornerRadius: 0,
+            bottomCornerRadius: 8
+        )
+
+        XCTAssertEqual(
+            shape.path(in: CGRect(x: 0, y: 0, width: 640, height: 210)).boundingRect,
+            CGRect(x: 214, y: 0, width: 212, height: 38)
+        )
+    }
+
+    func testAllShapeGeometryParticipatesInOneAnimationVector() {
+        var shape = NotchShape(
+            width: 212,
+            height: 38,
+            centerX: 300,
+            topCornerRadius: 0,
+            bottomCornerRadius: 8
+        )
+
+        shape.animatableData = AnimatablePair(
+            AnimatablePair(640, 190),
+            AnimatablePair(320, AnimatablePair(12, 26))
+        )
+
+        XCTAssertEqual(shape.width, 640)
+        XCTAssertEqual(shape.height, 190)
+        XCTAssertEqual(shape.centerX, 320)
+        XCTAssertEqual(shape.topCornerRadius, 12)
+        XCTAssertEqual(shape.bottomCornerRadius, 26)
     }
 }
 

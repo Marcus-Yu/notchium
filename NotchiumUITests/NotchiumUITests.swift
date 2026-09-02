@@ -30,8 +30,8 @@ final class NotchiumUITests: XCTestCase {
         XCTAssertTrue(shellElement("notchium.shell.toggle", in: app).waitForExistence(timeout: 5))
         XCTAssertTrue(waitForState("collapsed", in: app, timeout: 2))
         let collapsedShell = shellElement("notchium.shell", in: app)
-        XCTAssertEqual(collapsedShell.frame.width, 420, accuracy: 1)
-        XCTAssertEqual(collapsedShell.frame.height, 260, accuracy: 1)
+        XCTAssertEqual(collapsedShell.frame.width, 640, accuracy: 1)
+        XCTAssertEqual(collapsedShell.frame.height, 210, accuracy: 1)
         XCTAssertFalse(app.staticTexts["Notchium is ready"].exists)
         XCTAssertEqual(app.alerts.count, 0)
         attachScreenshot(named: "physical-collapsed")
@@ -153,8 +153,8 @@ final class NotchiumUITests: XCTestCase {
         let shell = shellElement("notchium.shell", in: app)
         XCTAssertTrue(shell.waitForExistence(timeout: 5))
         XCTAssertTrue(waitForState("collapsed", in: app, timeout: 2))
-        XCTAssertEqual(shell.frame.width, 420, accuracy: 1)
-        XCTAssertEqual(shell.frame.height, 260, accuracy: 1)
+        XCTAssertEqual(shell.frame.width, 640, accuracy: 1)
+        XCTAssertEqual(shell.frame.height, 210, accuracy: 1)
         attachScreenshot(named: "physical-collapsed-geometry-overlay")
     }
 
