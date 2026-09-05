@@ -11,7 +11,7 @@ final class NotchiumUITests: XCTestCase {
         defer { app.terminate() }
         launch(app, display: "builtInMock", surface: "physical")
 
-        XCTAssertTrue(shellElement("notchium.shell.toggle", in: app).waitForExistence(timeout: 5))
+        XCTAssertTrue(shellElement("notchium.shell", in: app).waitForExistence(timeout: 5))
 
         let idle = expectation(description: "App remains alive while idle")
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
@@ -27,7 +27,7 @@ final class NotchiumUITests: XCTestCase {
         defer { app.terminate() }
         launch(app, display: "builtInMock", surface: "physical")
 
-        XCTAssertTrue(shellElement("notchium.shell.toggle", in: app).waitForExistence(timeout: 5))
+        XCTAssertTrue(shellElement("notchium.shell", in: app).waitForExistence(timeout: 5))
         XCTAssertTrue(waitForState("collapsed", in: app, timeout: 2))
         let collapsedShell = shellElement("notchium.shell", in: app)
         XCTAssertEqual(collapsedShell.frame.width, 640, accuracy: 1)
@@ -64,13 +64,13 @@ final class NotchiumUITests: XCTestCase {
     func testExpandedShellClosesWithOwnControlAndOutsideFocusLoss() throws {
         let app = XCUIApplication()
         defer { app.terminate() }
-        launch(app, display: "externalMock", surface: "virtual", presentation: "expanded")
+        launch(app, display: "builtInMock", surface: "physical", presentation: "expanded")
 
         shellElement("notchium.shell.close", in: app).click()
         XCTAssertTrue(waitForState("collapsed", in: app, timeout: 2))
 
         app.terminate()
-        launch(app, display: "externalMock", surface: "virtual", presentation: "expanded")
+        launch(app, display: "builtInMock", surface: "physical", presentation: "expanded")
         let finder = XCUIApplication(bundleIdentifier: "com.apple.finder")
         finder.activate()
         let finderMenuBar = finder.menuBars.firstMatch
@@ -82,29 +82,29 @@ final class NotchiumUITests: XCTestCase {
         app.activate()
     }
 
-    func testVirtualPillLightAndDarkFixtures() throws {
+    func testPhysicalShellLightAndDarkFixtures() throws {
         let app = XCUIApplication()
         defer { app.terminate() }
         launch(
             app,
-            display: "externalMock",
-            surface: "virtual",
+            display: "builtInMock",
+            surface: "physical",
             presentation: "expanded",
             appearance: "light"
         )
         XCTAssertTrue(waitForState("expanded", in: app, timeout: 5))
-        attachScreenshot(named: "virtual-light-expanded")
+        attachScreenshot(named: "physical-light-expanded")
 
         app.terminate()
         app.launchArguments = fixtureArguments(
-            display: "externalMock",
-            surface: "virtual",
+            display: "builtInMock",
+            surface: "physical",
             presentation: "expanded",
             appearance: "dark"
         )
         app.launch()
         XCTAssertTrue(waitForState("expanded", in: app, timeout: 5))
-        attachScreenshot(named: "virtual-dark-expanded")
+        attachScreenshot(named: "physical-dark-expanded")
     }
 
     func testTransparencyFallbackFixtureHasNoPermissionAlerts() throws {
@@ -112,8 +112,8 @@ final class NotchiumUITests: XCTestCase {
         defer { app.terminate() }
         launch(
             app,
-            display: "externalMock",
-            surface: "virtual",
+            display: "builtInMock",
+            surface: "physical",
             presentation: "expanded",
             appearance: "system",
             reduceTransparency: "on"
@@ -121,17 +121,17 @@ final class NotchiumUITests: XCTestCase {
 
         XCTAssertTrue(waitForState("expanded", in: app, timeout: 5))
         XCTAssertEqual(app.alerts.count, 0)
-        attachScreenshot(named: "virtual-reduce-transparency")
+        attachScreenshot(named: "physical-reduce-transparency")
     }
 
     func testRepeatedTransitionsForProfiling() throws {
         let app = XCUIApplication()
         defer { app.terminate() }
-        launch(app, display: "externalMock", surface: "virtual")
+        launch(app, display: "builtInMock", surface: "physical")
 
         for _ in 0..<6 {
             app.terminate()
-            launch(app, display: "externalMock", surface: "virtual", presentation: "expanded")
+            launch(app, display: "builtInMock", surface: "physical", presentation: "expanded")
             XCTAssertTrue(waitForState("expanded", in: app, timeout: 5))
             shellElement("notchium.shell.close", in: app).click()
             XCTAssertTrue(waitForState("collapsed", in: app, timeout: 2))

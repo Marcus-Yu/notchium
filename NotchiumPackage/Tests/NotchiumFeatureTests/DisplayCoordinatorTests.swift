@@ -70,14 +70,29 @@ final class DisplayCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.presentationModel.visualState, .expanded)
     }
 
-    func testHotPlugMovesFromVirtualPillToBuiltInNotchAndCollapses() {
+    func testSpaceChangeDoesNotResurrectShellWithoutBuiltInDisplay() {
+        let source = MockDisplaySource(displays: [builtInDisplay()])
+        let panel = MockPanelController()
+        let coordinator = makeCoordinator(source: source, panel: panel)
+        coordinator.start()
+        defer { coordinator.stop() }
+        source.displays = [externalDisplay()]
+        coordinator.refreshDisplayConfiguration()
+        NSWorkspace.shared.notificationCenter.post(
+            name: NSWorkspace.activeSpaceDidChangeNotification, object: nil
+        )
+        XCTAssertNil(panel.placement)
+        XCTAssertEqual(panel.orderFrontRegardlessCount, 0)
+    }
+
+    func testBuiltInArrivalEnablesShellAndCollapses() {
         let source = MockDisplaySource(displays: [externalDisplay()])
         let panel = MockPanelController()
         let coordinator = makeCoordinator(source: source, panel: panel)
         coordinator.start()
         defer { coordinator.stop() }
 
-        XCTAssertEqual(panel.placement?.mode, .virtualPill)
+        XCTAssertNil(panel.placement)
         coordinator.presentationModel.present(.expanded, animated: false)
 
         source.displays = [externalDisplay(), builtInDisplay(primary: false)]
@@ -88,7 +103,7 @@ final class DisplayCoordinatorTests: XCTestCase {
         XCTAssertEqual(panel.placement?.display.id, NotchiumDisplayID(rawValue: 1))
     }
 
-    func testNotchDisappearanceFallsBackToPrimaryVirtualPill() {
+    func testNotchDisappearanceHidesShell() {
         let source = MockDisplaySource(displays: [builtInDisplay(), externalDisplay(primary: false)])
         let panel = MockPanelController()
         let coordinator = makeCoordinator(source: source, panel: panel)
@@ -98,8 +113,7 @@ final class DisplayCoordinatorTests: XCTestCase {
         source.displays = [externalDisplay(primary: true)]
         coordinator.refreshDisplayConfiguration()
 
-        XCTAssertEqual(panel.placement?.mode, .virtualPill)
-        XCTAssertEqual(panel.placement?.display.id, NotchiumDisplayID(rawValue: 2))
+        XCTAssertNil(panel.placement)
     }
 
     func testZeroDisplaysHidesPanelAndLeavesNoPlacement() {
@@ -159,11 +173,7 @@ final class DisplayCoordinatorTests: XCTestCase {
         coordinator.start()
         defer { coordinator.stop() }
 
-        XCTAssertEqual(panel.placement?.display.frame, liveDisplay.frame)
-        XCTAssertEqual(panel.placement?.display.visibleFrame, liveDisplay.visibleFrame)
-        XCTAssertEqual(panel.placement?.display.backingScaleFactor, 2)
-        XCTAssertEqual(panel.layout?.panelFrame.maxY, liveDisplay.frame.maxY)
-        XCTAssertEqual(panel.layout?.panelFrame.midX, liveDisplay.frame.midX)
+        XCTAssertNil(panel.placement)
     }
 
     func testBuiltInDebugFixtureProjectsNotchGeometryOntoLiveFrame() {

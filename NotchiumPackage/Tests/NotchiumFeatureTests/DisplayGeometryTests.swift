@@ -14,17 +14,16 @@ final class DisplaySelectionTests: XCTestCase {
         XCTAssertEqual(placement?.mode, .physicalNotch)
     }
 
-    func testExternalOnlyConfigurationUsesPrimaryVirtualPill() {
+    func testExternalOnlyConfigurationHasNoShell() {
         let placement = NotchiumDisplaySelectionPolicy.select(from: [
             externalDisplay(id: 2, primary: false),
             externalDisplay(id: 3, primary: true),
         ])
 
-        XCTAssertEqual(placement?.display.id, NotchiumDisplayID(rawValue: 3))
-        XCTAssertEqual(placement?.mode, .virtualPill)
+        XCTAssertNil(placement)
     }
 
-    func testMouseDisplayWinsOverPrimaryForVirtualPill() {
+    func testPointerOnExternalDisplayDoesNotEnableShell() {
         let placement = NotchiumDisplaySelectionPolicy.select(from: [
             externalDisplay(id: 2, primary: true),
             NotchiumDisplaySnapshot(
@@ -37,17 +36,16 @@ final class DisplaySelectionTests: XCTestCase {
             ),
         ])
 
-        XCTAssertEqual(placement?.display.id, NotchiumDisplayID(rawValue: 3))
-        XCTAssertEqual(placement?.mode, .virtualPill)
+        XCTAssertNil(placement)
     }
 
-    func testFirstDisplayIsSafeFallbackWhenNoDisplayIsMarkedPrimary() {
+    func testExternalDisplayWithoutPrimaryHasNoShell() {
         let placement = NotchiumDisplaySelectionPolicy.select(from: [
             externalDisplay(id: 8, primary: false),
             externalDisplay(id: 9, primary: false),
         ])
 
-        XCTAssertEqual(placement?.display.id, NotchiumDisplayID(rawValue: 8))
+        XCTAssertNil(placement)
     }
 
     func testDisplayIdentityIsStableAcrossGeometryChanges() {
@@ -394,6 +392,35 @@ final class NotchShapeTests: XCTestCase {
             shape.path(in: CGRect(x: 0, y: 0, width: 640, height: 210)).boundingRect,
             CGRect(x: 214, y: 0, width: 212, height: 38)
         )
+    }
+
+    func testPassiveHardwareShapeHasNoDrawablePath() {
+        let hardware = CGRect(x: 214, y: 0, width: 212, height: 38)
+        let shape = NotchShape(
+            width: 212, height: 38, centerX: 320,
+            topCornerRadius: 0, bottomCornerRadius: 8,
+            hardwareExclusion: hardware
+        )
+        XCTAssertTrue(shape.path(in: CGRect(x: 0, y: 0, width: 640, height: 210)).isEmpty)
+    }
+
+    func testGrowingShapeKeepsHardwareExcludedAndTopFixed() {
+        let panel = CGRect(x: 0, y: 0, width: 640, height: 210)
+        for step in 1...60 {
+            let progress = CGFloat(step) / 60
+            let shape = NotchShape(
+                width: 212 + 238 * progress,
+                height: 38 + 152 * progress,
+                centerX: 320,
+                topCornerRadius: 12 * progress,
+                bottomCornerRadius: 8 + 18 * progress,
+                hardwareExclusion: CGRect(x: 214, y: 0, width: 212, height: 38)
+            )
+            let path = shape.path(in: panel)
+            XCTAssertEqual(path.boundingRect.minY, 0, accuracy: 0.001)
+            XCTAssertFalse(path.contains(CGPoint(x: 320, y: 20)))
+            XCTAssertTrue(path.contains(CGPoint(x: 320, y: 38 + 76 * progress)))
+        }
     }
 
     func testAllShapeGeometryParticipatesInOneAnimationVector() {

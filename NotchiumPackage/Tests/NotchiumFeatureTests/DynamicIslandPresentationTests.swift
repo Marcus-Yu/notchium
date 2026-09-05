@@ -33,7 +33,7 @@ final class DynamicIslandPresentationTests: XCTestCase {
 
         let history = await clock.sleepHistory()
         XCTAssertTrue(history.contains(.milliseconds(120)))
-        XCTAssertTrue(history.contains(.milliseconds(240)))
+        XCTAssertTrue(history.contains(.milliseconds(200)))
     }
 
     func testCancelledHoverEntryNeverWins() async {
@@ -50,7 +50,7 @@ final class DynamicIslandPresentationTests: XCTestCase {
         XCTAssertEqual(model.phase, .collapsed)
     }
 
-    func testExpandedStateCollapsesAfterHoverExitDelay() async {
+    func testPinnedStateIgnoresHoverExit() async {
         let clock = ControlledAppClock()
         let model = DynamicIslandPresentationModel(
             phase: .expanded,
@@ -64,7 +64,7 @@ final class DynamicIslandPresentationTests: XCTestCase {
         await clock.releaseAll()
         await drainMainActorTasks()
 
-        XCTAssertEqual(model.phase, .transitioning(from: .expanded, to: .collapsed))
+        XCTAssertEqual(model.phase, .expanded)
     }
 
     func testToggleAndOutsideDismissalUseExplicitTransitions() async {
@@ -95,12 +95,13 @@ final class DynamicIslandPresentationTests: XCTestCase {
 
         XCTAssertEqual(model.phase, .expanded)
         let history = await clock.sleepHistory()
-        XCTAssertEqual(history, [.milliseconds(780)])
+        XCTAssertEqual(history, [.milliseconds(600)])
     }
 
     func testHoverReentryCancelsPendingCollapse() async {
         let clock = ControlledAppClock()
-        let model = DynamicIslandPresentationModel(phase: .expanded, clock: clock)
+        let model = DynamicIslandPresentationModel(phase: .hovered, clock: clock)
+        model.setHovered(true)
 
         model.setHovered(false)
         await waitForPendingSleep(clock)
@@ -108,7 +109,7 @@ final class DynamicIslandPresentationTests: XCTestCase {
         await clock.releaseAll()
         await drainMainActorTasks()
 
-        XCTAssertEqual(model.phase, .expanded)
+        XCTAssertEqual(model.visualState, .hovered)
     }
 
     func testStaleTransitionCompletionIsRejected() async {
@@ -135,7 +136,7 @@ final class DynamicIslandPresentationTests: XCTestCase {
 
         XCTAssertEqual(model.phase, .expanded)
         let history = await clock.sleepHistory()
-        XCTAssertEqual(history, [.milliseconds(220)])
+        XCTAssertEqual(history, [.milliseconds(180)])
     }
 
     func testEveryStableStateCanBeCommandedWithoutAnimation() {
@@ -145,6 +146,56 @@ final class DynamicIslandPresentationTests: XCTestCase {
             model.present(state, animated: false)
             XCTAssertEqual(model.visualState, state)
         }
+    }
+
+    func testRepeatedPointerMovementDoesNotRestartEntryDelay() async {
+        let clock = ControlledAppClock()
+        let model = DynamicIslandPresentationModel(clock: clock)
+        model.setHovered(true)
+        await waitForPendingSleep(clock)
+        for _ in 0..<20 { model.setHovered(true) }
+        await clock.releaseAll()
+        await drainMainActorTasks()
+        XCTAssertEqual(model.visualState, .hovered)
+    }
+
+    func testPinCancelsPendingHoverCollapse() async {
+        let clock = ControlledAppClock()
+        let model = DynamicIslandPresentationModel(phase: .hovered, clock: clock)
+        model.setHovered(true)
+        model.setHovered(false)
+        await waitForPendingSleep(clock)
+        model.toggleExpanded()
+        await clock.releaseAll()
+        await drainMainActorTasks()
+        XCTAssertEqual(model.visualState, .expanded)
+    }
+
+    func testPanelClickPinsTogglesAndDismissesOutside() {
+        let model = DynamicIslandPresentationModel(clock: ControlledAppClock())
+        let controller = NotchiumPanelController(model: model)
+        defer { controller.hide() }
+        let placement = NotchShellPlacement(display: builtInDisplay(), mode: .physicalNotch)
+        func reconcile() {
+            controller.reconcile(
+                placement: placement,
+                layout: NotchGeometryResolver.layout(for: placement, state: model.visualState),
+                renderConfiguration: .automatic,
+                animated: false
+            )
+        }
+        let point = CGPoint(x: 756, y: 980)
+        reconcile()
+        controller.handleClick(at: point)
+        XCTAssertEqual(model.visualState, .expanded)
+        reconcile()
+        controller.handleClick(at: point)
+        XCTAssertEqual(model.visualState, .collapsed)
+        reconcile()
+        controller.handleClick(at: point)
+        reconcile()
+        controller.handleClick(at: CGPoint(x: 0, y: 100))
+        XCTAssertEqual(model.visualState, .collapsed)
     }
 
     func testPanelEscapeCommandCollapsesExpandedPresentation() async {
