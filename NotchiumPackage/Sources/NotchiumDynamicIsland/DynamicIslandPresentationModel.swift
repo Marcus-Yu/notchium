@@ -60,7 +60,8 @@ public final class DynamicIslandPresentationModel {
     @ObservationIgnored private var transitionGeneration = 0
 
     private let hoverEntryDelay: Duration = .milliseconds(120)
-    private let hoverExitDelay: Duration = .milliseconds(240)
+    private let hoverExitDelay: Duration = .milliseconds(200)
+    @ObservationIgnored private var pointerIsInside = false
 
     public init(
         phase: NotchPresentationPhase = .collapsed,
@@ -71,6 +72,8 @@ public final class DynamicIslandPresentationModel {
     }
 
     public func setHovered(_ isHovered: Bool) {
+        guard pointerIsInside != isHovered else { return }
+        pointerIsInside = isHovered
         if isHovered {
             scheduleHoverExpansion()
         } else {
@@ -94,7 +97,6 @@ public final class DynamicIslandPresentationModel {
         _ expanded: Bool,
         target: NotchStableState = .expanded
     ) {
-        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         let animation = reduceMotion ? NotchMotion.reduced : NotchMotion.morph
 
         withAnimation(animation) {
@@ -120,6 +122,7 @@ public final class DynamicIslandPresentationModel {
         transitionTask?.cancel()
         hoverGeneration &+= 1
         transitionGeneration &+= 1
+        pointerIsInside = false
         phase = .collapsed
     }
 
@@ -154,6 +157,7 @@ public final class DynamicIslandPresentationModel {
         pendingHoverTask?.cancel()
         pendingCollapseTask?.cancel()
 
+        guard visualState != .expanded else { return }
         hoverGeneration &+= 1
         let generation = hoverGeneration
         let delay = hoverExitDelay
@@ -176,7 +180,7 @@ public final class DynamicIslandPresentationModel {
     }
 
     private func completeScheduledCollapse(generation: Int) {
-        guard generation == hoverGeneration else { return }
+        guard generation == hoverGeneration, visualState != .expanded else { return }
         setExpanded(false)
     }
 
@@ -212,9 +216,9 @@ public final class DynamicIslandPresentationModel {
         to target: NotchStableState
     ) -> Duration {
         if reduceMotion {
-            return .milliseconds(220)
+            return .milliseconds(180)
         }
-        return .milliseconds(780)
+        return .milliseconds(600)
     }
 
     private static func phase(for state: NotchStableState) -> NotchPresentationPhase {
