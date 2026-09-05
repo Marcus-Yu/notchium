@@ -232,7 +232,6 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
     }
 
     private func installPointerMonitorsIfNeeded() {
-        guard allowsPointerDrivenHover else { return }
         let eventMask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDown]
 
         if globalPointerMonitor == nil {
@@ -259,21 +258,23 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
     private func handlePointerEvent(_ type: NSEvent.EventType, at point: CGPoint) {
         switch type {
         case .mouseMoved:
-            handleMouseMoved(at: point)
+            if allowsPointerDrivenHover { handleMouseMoved(at: point) }
         case .leftMouseDown:
-            handleCollapsedClick(at: point)
+            handleClick(at: point)
         default:
             break
         }
     }
 
-    private func handleCollapsedClick(at point: CGPoint) {
-        guard model.visualState == .collapsed,
-              let currentLayout,
-              NotchHoverRegion.contains(point, in: currentLayout.collapsedHoverFrame) else {
-            return
+    func handleClick(at point: CGPoint) {
+        guard let currentLayout else { return }
+        let region = model.visualState == .collapsed
+            ? currentLayout.collapsedHoverFrame : currentLayout.visibleSurfaceFrame
+        if NotchHoverRegion.contains(point, in: region) {
+            model.toggleExpanded()
+        } else if model.visualState == .expanded {
+            model.collapse()
         }
-        model.toggleExpanded()
     }
 
     private func handleMouseMoved(at point: CGPoint) {

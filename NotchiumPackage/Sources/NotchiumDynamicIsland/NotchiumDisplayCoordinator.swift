@@ -188,6 +188,7 @@ public final class NotchiumDisplayCoordinator: NSObject {
 
     @objc
     private func activeSpaceDidChange(_ notification: Notification) {
+        guard isStarted, !isSleeping, shellPlacement != nil else { return }
         panelController.orderFrontRegardless()
     }
 

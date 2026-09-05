@@ -126,15 +126,9 @@ public struct NotchShellPlacement: Equatable, Sendable {
 
 public enum NotchiumDisplaySelectionPolicy {
     public static func select(from displays: [NotchiumDisplaySnapshot]) -> NotchShellPlacement? {
-        if let physicalDisplay = displays.first(where: \.isEligiblePhysicalNotchDisplay) {
-            return NotchShellPlacement(display: physicalDisplay, mode: .physicalNotch)
-        }
-
-        guard let virtualDisplay = displays.first(where: \.containsMousePointer)
-            ?? displays.first(where: \.isPrimary)
-            ?? displays.first else {
-            return nil
-        }
-        return NotchShellPlacement(display: virtualDisplay, mode: .virtualPill)
+        guard let display = displays.first(where: {
+            $0.isBuiltIn && $0.isEligiblePhysicalNotchDisplay && $0.physicalNotchGap != nil
+        }) else { return nil }
+        return NotchShellPlacement(display: display, mode: .physicalNotch)
     }
 }
