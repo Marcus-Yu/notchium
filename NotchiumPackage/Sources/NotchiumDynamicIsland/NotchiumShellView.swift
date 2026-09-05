@@ -46,8 +46,7 @@ public struct NotchiumShellView: View {
 
             NotchShellOuterSurface(
                 model: model,
-                layout: layout,
-                accessibility: accessibility
+                layout: layout
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
@@ -81,7 +80,6 @@ public struct NotchiumShellView: View {
 private struct NotchShellOuterSurface: View {
     @Bindable var model: DynamicIslandPresentationModel
     let layout: NotchPanelLayout
-    let accessibility: NotchShellAccessibilityConfiguration
     @State private var contentVisible = false
 
     var body: some View {
@@ -102,7 +100,8 @@ private struct NotchShellOuterSurface: View {
         )
 
         ZStack(alignment: .top) {
-            shape.fill(.black)
+            shape.fill(Color.black)
+                .zIndex(0)
 
             shellContent
                 .frame(
@@ -110,6 +109,7 @@ private struct NotchShellOuterSurface: View {
                     height: layout.expandedSize.height,
                     alignment: .top
                 )
+                .zIndex(1)
 
             NotchShellStateMarker(state: model.visualState)
         }
@@ -120,19 +120,9 @@ private struct NotchShellOuterSurface: View {
     }
 
     private var shellContent: some View {
-        GlassEffectContainer {
+        Group {
             NotchExpandedPlaceholderContainer(close: model.collapse)
                 .padding(.top, layout.collapsedVisibleFrame.height)
-                .background {
-                    if !accessibility.reduceTransparency {
-                        RoundedRectangle(cornerRadius: 20)
-                            .fill(.clear)
-                            .glassEffect(.regular.tint(.black.opacity(0.9)), in: .rect(cornerRadius: 20))
-                            .opacity(0.18)
-                            .padding(.top, layout.collapsedVisibleFrame.height)
-                            .padding(12)
-                    }
-                }
         }
         .opacity(contentVisible ? 1 : 0)
         .allowsHitTesting(contentVisible && model.visualState != .collapsed)
