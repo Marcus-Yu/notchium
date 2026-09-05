@@ -1,70 +1,44 @@
 # Stage 2 Notch Shell
 
-**Status:** Implemented shell contract
+**Status:** Stage 2 polish implemented; hardware motion acceptance remains pending.
 
-**Minimum OS:** macOS 26
+**Minimum OS:** macOS 26. **Target:** built-in notched MacBook only.
 
-Stage 2 implements one prioritized placeholder shell. It proves public display geometry, panel lifecycle, interaction state, native Liquid Glass, accessibility behavior, and deterministic test control. It does not implement pages, media, activities, permissions, Ambient Edge, Snap Zones, or any product provider.
+Stage 2 implements the shell and placeholder content only. No Stage 3 providers, permissions, external-display shell, private APIs, or custom animation engine are enabled.
 
-## Selection and ownership
+## Display and panel ownership
 
-`NotchiumDisplayCoordinator` owns one `NotchiumPanelController` and one `DynamicIslandPresentationModel`.
+`AppKitDisplaySource` reads public screen geometry into immutable snapshots. `NotchiumDisplayCoordinator` selects only a built-in display with valid auxiliary top areas and a positive notch gap. When none exists, it hides the panel; the menu-bar fallback remains available. Existing virtual geometry helpers and explicit DEBUG overrides remain fixtures, not live external-display support.
 
-1. Prefer the first display with `safeAreaInsets.top > 0` and valid left/right auxiliary top areas.
-2. Otherwise use the display containing the pointer for a virtual pill.
-3. Otherwise use the primary available display, then the first available display.
-4. With no displays, hide the panel and leave the menu-bar fallback available.
+The measured hardware footprint, screen coordinate calculations, expanded dimensions (450 × 190 pt), and fixed transparent host (640 × 210 pt) are unchanged. `NotchiumPanelController` positions the host only when display identity or screen frame changes. It never animates the NSPanel frame. The top edge remains at the absolute screen top.
 
-`AppKitDisplaySource` is the only shell type that reads `NSScreen`. It converts screens to immutable `NotchiumDisplaySnapshot` values with stable Core Graphics display IDs. Feature and domain code do not retain `NSScreen` or use `NSScreen.main`.
+`NotchPanel` is borderless, nonopaque, non-key, clear, shadowless, nonactivating, and uses `.canJoinAllSpaces`, `.stationary`, `.fullScreenAuxiliary`, and `.ignoresCycle`. Space-change notifications only reassert the existing panel. They do not change presentation, select another display, or reposition the window. Fullscreen uses the same panel contract.
 
-Only one shell is active. Display identity or mode changes collapse it before immediate relocation. Screen-parameter, active-Space, display sleep/wake, and workspace activation notifications drive reconciliation. A built-in eligible notch continues to win when external displays are attached.
+## One continuous surface
 
-## Physical and virtual strategies
+One persistent `NotchShape` interpolates width, height, shoulders, and bottom radius with SwiftUI's native animation system. Its top never moves. There is no shell scale transform, view replacement, crossfade, popup, or AppKit frame animation.
 
-Physical mode derives `NotchHardwareGeometry` from the horizontal gap between `auxiliaryTopLeftArea` and `auxiliaryTopRightArea`. Its vertical frame is always `display.frame.maxY - safeAreaInsets.top ... display.frame.maxY`. In collapsed physical mode, Notchium paints zero software pixels: the hardware obstruction supplies the entire visible black footprint. No padding, minimum shell size, menu-bar height, placeholder content, fake bridge, fallback model table, or inferred percentage width is added. A snapshot without both valid auxiliary areas is not treated as a physical-notch placement and uses the virtual strategy instead.
+The measured hardware rectangle is permanently subtracted from the drawable path, including its content clip. At the passive endpoint the drawable path is empty: no black overlay, chin, text, icon, reflection, or shadow remains. The invisible pointer target retains the existing hardware region and five-point input tolerance. DEBUG geometry outlines are also suppressed in passive mode.
 
-Virtual mode uses the same absolute top-center origin. Its width is 180 points. Height is `max(display.frame.maxY - display.visibleFrame.maxY, NSStatusBar.system.thickness)`. The closed virtual surface touches the absolute display top and remains inside the menu-bar-height region.
+Expansion reveals the shape's growing perimeter directly around the hardware footprint. The black fill remains dominant. One restrained native glass surface sits inside the expanded content, with an opaque fallback for Reduce Transparency. Content has a fixed expanded layout below the hardware region, avoiding resize-induced text movement.
 
-`NotchPanelLayout` keeps `hardwareNotchGeometry`, `collapsedVisibleFrame`, `collapsedHoverFrame`, `visibleSurfaceFrame`, and `panelFrame` explicit. The host panel remains a fixed transparent `640 × 210`, centered on the target display and anchored to its absolute top. Collapsed uses the exact physical/virtual footprint only as the visible-surface geometry. Hovered and pinned-expanded presentations share the `450 × 190` activated footprint. The single `NotchShape` animates its own width, height, horizontal center, concave top flare, and rounded lower corners downward and horizontally outward from the measured passive footprint to the display's top center while the host panel frame remains unchanged. In every state, `panelFrame.maxY == display.frame.maxY`.
+## Interaction and motion
 
-## Panel lifecycle
+`DynamicIslandPresentationModel` owns collapsed, temporarily hovered, and pinned-expanded states. Pointer-region edges drive timers; movement inside a region does not continually restart them.
 
-`NotchiumPanelController` owns one borderless, nonopaque `NotchPanel` with a clear AppKit background at screen-saver level. `NotchPanel` opts out of AppKit's menu-bar frame constraint so its actual frame reaches the absolute display top. It has no title, traffic-light controls, Dock presence, AppKit shadow, or painted AppKit background. Its fixed `NSHostingView` matches the panel, autoresizes in width and height, opts out of intrinsic sizing, and reports zero AppKit safe-area insets. SwiftUI fills that host but aligns the visible surface to the top and ignores the top safe area. Documented collection behavior keeps the panel available across Spaces and as a full-screen auxiliary surface.
+- Hover entry: 120 ms.
+- Hover leave grace: 200 ms.
+- Click: pin immediately; second click collapses.
+- Pinned ignores pointer exit; outside click and Esc collapse.
+- Both hover and click use `Animation.spring(response: 0.60, dampingFraction: 0.88, blendDuration: 0.10)` in both directions.
+- Reduce Motion uses a native 0.18 s ease-in-out transition, including explicit DEBUG overrides.
 
-The panel never becomes key or main. Collapsed mode ignores mouse events, so its transparent expanded-size area cannot block the desktop or menu bar. Global and local pointer monitors compare `NSEvent.mouseLocation` against the collapsed hardware/virtual region expanded by five points on each side and five points below. The comparison includes the maximum X and Y boundaries, allowing the absolute display-top edge to participate. Hovered and expanded modes accept mouse events, and expanded mode activates the app without changing the panel's non-key contract. Escape, close/toggle, display relocation, Space changes, and activation of another app collapse it. Expanded mode ignores pointer exit.
+Injected clock tasks track hover delays and presentation phase. Cancellation and generation checks reject stale completions; input remains enabled during motion, and SwiftUI retargets the existing shape. Phase timing is bookkeeping, not a frame loop.
 
-Screen-parameter changes trigger an immediate placement pass followed by a generation-checked correction after 0.5 seconds, accommodating delayed AppKit geometry updates after display and menu-bar changes without allowing stale corrections to win.
+Hover and pinned presentations share content. A cancellable view task waits 170 ms after opening before starting a 0.18 s opacity fade. Closing starts an 0.08 s opacity fade immediately, without a delay. Content never scales or slides, and pinning an already-hovered shell does not replay its reveal.
 
-## State and timing
+## Validation and acceptance
 
-`DynamicIslandPresentationModel` is the only presentation-state owner:
+Regression tests cover timing, pin persistence, timer cancellation, repeated pointer movement, click toggling/outside dismissal, Escape, Reduce Motion, empty passive shape, continuously top-anchored shape geometry, fixed dimensions, display selection, and Space notification behavior.
 
-- `NotchStableState`: collapsed, hovered, expanded.
-- `NotchPresentationPhase`: each stable state or `transitioning(from:to:)`.
-- Hover entry delay: 120 milliseconds.
-- Hover exit grace: 180 milliseconds.
-- Collapsed/hovered transition: 180 milliseconds.
-- Expansion/collapse: approximately 300 milliseconds.
-- Reduce Motion: 120-millisecond simple resize/fade without overshoot.
-
-The injected `AppClock` owns timing. Hover and transition tasks are cancelled when superseded; generation tokens reject stale completions.
-
-## Liquid Glass and accessibility
-
-The physical closed state draws no software surface or content. The virtual closed state is an unadorned pure-black shape with no branding, stroke, glass refraction, or shadow. Hovered and expanded content receive public macOS 26 `glassEffect` inside one `GlassEffectContainer`, with a stable `glassEffectID` and deep-black tint. The top corners remain square at the screen edge and the lower corners carry the adaptive radius. Interactive glass is limited to actual controls; the expanded container uses noninteractive glass.
-
-Reduce Transparency substitutes an opaque semantic background. Increase Contrast adds a restrained boundary. Reduce Motion changes both SwiftUI and AppKit timing. System light/dark appearance is automatic in production. The shell exposes explicit accessibility identifiers, labels, state values, keyboard close behavior, and a minimum useful control geometry.
-
-## Debug and test fixtures
-
-DEBUG builds expose one `NotchShellDebugModel` through the feature-composed Developer Panel. It can select live, built-in mock, or external mock displays; automatic, physical, or virtual placement; presentation state; appearance; motion; and transparency overrides. “Show Notch Geometry” outlines the transparent host panel, collapsed surface, and hardware frame. Runtime readouts and console diagnostics report the screen and visible frames, safe-area inset, both auxiliary areas, calculated hardware notch, collapsed surface, panel frame, and whether hardware-notch mode is active. Reset returns every value to automatic.
-
-The same model parses DEBUG-only launch arguments for deterministic UI tests. Production feature flags cannot be unlocked by these settings, and release builds contain no Developer Panel surface.
-
-Named previews and XCUITest fixtures cover physical/virtual collapsed, hovered, expanded, light/dark, reduced motion/transparency, long content, and small/large display contexts. Mocks verify policy and geometry but do not replace physical MacBook qualification.
-
-## Extension points and limitations
-
-Ambient Edge and Snap Zones remain documentation-only future extension points. Each requires an independent AppKit window, lifecycle owner, geometry model, and feature gate. Neither may stretch or repurpose the notch panel.
-
-Public APIs do not grant ownership of the physical notch or guarantee identical behavior across every hardware, menu-bar auto-hide configuration, Space, full-screen application, Stage Manager arrangement, display scaling mode, clamshell transition, or sleep/wake cycle. Geometry is recomputed from each selected display and never borrowed from another display. Notchium does not sample screen colors or use fullscreen as a substitute for correct base geometry. The menu-bar fallback remains available in every configuration. Stage 2 requests no protected permission and implements no Stage 3+ behavior.
+These tests do not certify visual acceptance. The release gate is a real 60 fps recording on a built-in notched MacBook of passive → hover → expanded → collapse, plus click opening/closing, mid-animation reversal, fullscreen hover, and three-finger Space swipes. Inspect every frame for a separate software notch and horizontal drift. Do not mark PASS from geometry tests, mocked displays, still screenshots, or a synthetic animation recording.

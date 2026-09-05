@@ -75,7 +75,7 @@ There is no global mutable event bus. Views do not construct services. The `AppE
 
 ## Stage 2 display and presentation ownership
 
-`NotchiumDisplayCoordinator` now owns display selection and one active `NotchiumPanelController`. It receives pure `NotchiumDisplaySnapshot` values from the AppKit adapter, prefers a display with a verified public auxiliary-area notch gap, and otherwise selects the pointer display, primary display, or first available display for a virtual pill. Domain and feature code never retain `NSScreen` or select `NSScreen.main`.
+`NotchiumDisplayCoordinator` now owns display selection and one active `NotchiumPanelController`. It receives pure `NotchiumDisplaySnapshot` values from the AppKit adapter, selects only a built-in display with a verified public auxiliary-area notch gap, and otherwise hides the shell while retaining the menu-bar fallback. Domain and feature code never retain `NSScreen` or select `NSScreen.main`.
 
 The required flow is:
 
@@ -97,7 +97,7 @@ The future ownership model is conceptually:
 
 ```text
 NotchiumDisplayCoordinator
-    └── NotchiumPanelController?     // one physical-notch or virtual-pill shell
+    └── NotchiumPanelController?     // one built-in physical-notch shell
 
 FuturePresentationCoordinator
     ├── AmbientEdgeOverlay?          // separate later-stage window
@@ -177,9 +177,9 @@ The package and Xcode targets use Swift 6.0 language mode and complete strict-co
 
 The shell uses SwiftUI until macOS window behavior requires AppKit. `NotchiumPanelController` is that bridge and owns one borderless, nonactivating `NSPanel`.
 
-`NotchiumDisplayCoordinator` requires a nonzero public top safe-area inset and valid `NSScreen.auxiliaryTopLeftArea` and `auxiliaryTopRightArea` values before selecting physical-notch mode. If none is eligible, it selects the pointer display, primary display, or first display for a virtual pill; with zero displays it hides the panel. The controller keeps one transparent expanded-size host panel top-anchored to the full screen frame. SwiftUI separately paints only the active visible surface and paints nothing in collapsed physical mode. Collapsed and hovered hosting regions remain click-through while a global mouse-moved monitor drives the narrow hardware-derived hover zone. The panel uses documented Spaces and full-screen collection behavior. It does not hide the system HUD, claim ownership of hardware, or use private display metadata.
+`NotchiumDisplayCoordinator` requires a built-in display, nonzero public top safe-area inset, and valid `NSScreen.auxiliaryTopLeftArea` and `auxiliaryTopRightArea` values with a positive gap. Without an eligible display it hides the panel and retains the menu-bar fallback. The controller keeps one transparent fixed-size host panel top-anchored to the full screen frame. SwiftUI animates one shape and permanently excludes the hardware footprint from drawing; collapsed physical mode has an empty drawable path. Public pointer monitors drive the narrow hardware-derived hover zone. The panel uses documented Spaces and fullscreen collection behavior, never animates its frame, and never becomes key.
 
-`DynamicIslandPresentationModel` owns `collapsed`, `hovered`, and `expanded` stable states plus explicit transition phases. Injected `AppClock` tasks implement delayed hover entry/exit and reject stale completion by generation. The panel becomes key only for deliberate expansion and collapses on focus loss, Escape, its close/toggle action, display moves, and Space changes. No feature page is implemented.
+`DynamicIslandPresentationModel` owns `collapsed`, temporarily `hovered`, and pinned `expanded` states plus transition phases. Injected clock tasks implement 120 ms hover entry and 200 ms exit grace, with cancellation and generation checks. Hover and click use the same 0.60/0.88/0.10 native spring, with a 0.18 s Reduce Motion fallback. Pinned state ignores hover exit; a second click, outside click, or Esc closes it. Space changes only reassert the current eligible panel. See [NOTCH_SHELL.md](NOTCH_SHELL.md) for content timing and the pending hardware acceptance gate. No feature page is implemented.
 
 Ambient Edge must not be added to `DynamicIslandPresentationModel` as decorative booleans. In its later stage it receives a separate immutable presentation model from the activity coordinator, and its AppKit overlay lifecycle remains independent of `NotchiumPanelController`.
 
