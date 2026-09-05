@@ -2,18 +2,16 @@ import SwiftUI
 
 enum NotchMotion {
     static let morph = Animation.spring(
-        response: 0.78,
-        dampingFraction: 0.92,
-        blendDuration: 0.16
+        response: 0.60,
+        dampingFraction: 0.88,
+        blendDuration: 0.10
     )
 
-    static let contentIn = Animation
-        .easeOut(duration: 0.28)
-        .delay(0.18)
+    static let contentIn = Animation.easeOut(duration: 0.18)
 
-    static let contentOut = Animation.easeOut(duration: 0.18)
+    static let contentOut = Animation.easeOut(duration: 0.08)
 
-    static let reduced = Animation.easeInOut(duration: 0.22)
+    static let reduced = Animation.easeInOut(duration: 0.18)
 }
 
 public struct NotchiumShellView: View {
@@ -48,14 +46,15 @@ public struct NotchiumShellView: View {
 
             NotchShellOuterSurface(
                 model: model,
-                layout: layout
+                layout: layout,
+                accessibility: accessibility
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .ignoresSafeArea(.all, edges: .top)
         .overlay {
-            if renderConfiguration.showsGeometryOverlay {
+            if renderConfiguration.showsGeometryOverlay, model.visualState != .collapsed {
                 NotchGeometryOverlay(layout: layout)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
@@ -75,12 +74,15 @@ public struct NotchiumShellView: View {
         .accessibilityLabel("Notchium shell")
         .accessibilityValue(model.phase.accessibilityValue)
         .accessibilityIdentifier("notchium.shell")
+        .accessibilityAction(named: "Toggle Notchium", model.toggleExpanded)
     }
 }
 
 private struct NotchShellOuterSurface: View {
     @Bindable var model: DynamicIslandPresentationModel
     let layout: NotchPanelLayout
+    let accessibility: NotchShellAccessibilityConfiguration
+    @State private var contentVisible = false
 
     var body: some View {
         let shape = NotchShape(
@@ -88,7 +90,15 @@ private struct NotchShellOuterSurface: View {
             height: layout.surfaceSize.height,
             centerX: layout.visibleSurfaceFrame.midX - layout.panelFrame.minX,
             topCornerRadius: layout.topCornerRadius,
-            bottomCornerRadius: layout.bottomCornerRadius
+            bottomCornerRadius: layout.bottomCornerRadius,
+            hardwareExclusion: layout.hardwareNotchGeometry.map {
+                CGRect(
+                    x: $0.frame.minX - layout.panelFrame.minX,
+                    y: 0,
+                    width: $0.frame.width,
+                    height: $0.frame.height
+                )
+            }
         )
 
         ZStack(alignment: .top) {
@@ -96,8 +106,8 @@ private struct NotchShellOuterSurface: View {
 
             shellContent
                 .frame(
-                    width: layout.surfaceSize.width,
-                    height: layout.surfaceSize.height,
+                    width: layout.expandedSize.width,
+                    height: layout.expandedSize.height,
                     alignment: .top
                 )
 
@@ -110,44 +120,33 @@ private struct NotchShellOuterSurface: View {
     }
 
     private var shellContent: some View {
-        ZStack {
-            Button(action: model.toggleExpanded) {
-                Color.clear
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .contentShape(Rectangle())
-            .accessibilityLabel("Expand Notchium")
-            .accessibilityIdentifier("notchium.shell.toggle")
-            .opacity(model.visualState == .collapsed ? 1 : 0)
-            .allowsHitTesting(model.visualState == .collapsed)
-
-            Button(action: model.toggleExpanded) {
-                NotchHoverReveal()
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Expand Notchium")
-            .accessibilityIdentifier("notchium.shell.toggle")
-            .opacity(model.visualState == .hovered ? 1 : 0)
-            .allowsHitTesting(model.visualState == .hovered)
-            .animation(
-                model.visualState == .hovered
-                    ? NotchMotion.contentIn
-                    : NotchMotion.contentOut,
-                value: model.visualState
-            )
-
+        GlassEffectContainer {
             NotchExpandedPlaceholderContainer(close: model.collapse)
-                .opacity(model.visualState == .expanded ? 1 : 0)
-                .allowsHitTesting(model.visualState == .expanded)
-                .animation(
-                    model.visualState == .expanded
-                        ? NotchMotion.contentIn
-                        : NotchMotion.contentOut,
-                    value: model.visualState
-                )
+                .padding(.top, layout.collapsedVisibleFrame.height)
+                .background {
+                    if !accessibility.reduceTransparency {
+                        RoundedRectangle(cornerRadius: 20)
+                            .fill(.clear)
+                            .glassEffect(.regular.tint(.black.opacity(0.9)), in: .rect(cornerRadius: 20))
+                            .opacity(0.18)
+                            .padding(.top, layout.collapsedVisibleFrame.height)
+                            .padding(12)
+                    }
+                }
+        }
+        .opacity(contentVisible ? 1 : 0)
+        .allowsHitTesting(contentVisible && model.visualState != .collapsed)
+        .accessibilityHidden(!contentVisible)
+        .task(id: model.visualState != .collapsed) {
+            guard model.visualState != .collapsed else {
+                withAnimation(NotchMotion.contentOut) { contentVisible = false }
+                return
+            }
+            do {
+                try await Task.sleep(for: .milliseconds(170))
+            } catch { return }
+            guard !Task.isCancelled else { return }
+            withAnimation(NotchMotion.contentIn) { contentVisible = true }
         }
     }
 }

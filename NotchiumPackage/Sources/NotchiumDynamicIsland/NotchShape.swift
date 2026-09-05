@@ -11,6 +11,7 @@ struct NotchShape: Shape {
     var centerX: CGFloat
     var topCornerRadius: CGFloat
     var bottomCornerRadius: CGFloat
+    var hardwareExclusion: CGRect? = nil
 
     var animatableData: AnimatablePair<
         AnimatablePair<CGFloat, CGFloat>,
@@ -48,6 +49,12 @@ struct NotchShape: Shape {
             height: resolvedHeight
         )
         guard surface.width > 0, surface.height > 0 else { return Path() }
+        // Boolean path subtraction can retain degenerate boundary segments.
+        // Return a truly empty path whenever the interpolated surface fits
+        // within the hardware, including a spring's tiny closing undershoot.
+        if let hardwareExclusion, hardwareExclusion.contains(surface) {
+            return Path()
+        }
 
         let topRadius = max(
             0,
@@ -87,6 +94,11 @@ struct NotchShape: Shape {
             control: CGPoint(x: leftWall, y: surface.minY)
         )
         path.closeSubpath()
+        // Permanently exclude the measured hardware footprint. At rest the
+        // entire path is excluded; expansion reveals only its growing perimeter.
+        if let hardwareExclusion {
+            return path.subtracting(Path(hardwareExclusion))
+        }
         return path
     }
 }

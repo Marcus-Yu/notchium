@@ -1,34 +1,6 @@
 import NotchiumDesignSystem
 import SwiftUI
 
-struct NotchHoverReveal: View {
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "waveform.circle.fill")
-                .font(.system(size: 24, weight: .medium))
-                .frame(width: 30, height: 30)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Notchium is ready")
-                    .font(.system(.caption, design: .rounded, weight: .semibold))
-                    .lineLimit(1)
-                Text("Click to open")
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.56))
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Image(systemName: "chevron.down")
-                .font(.caption.weight(.semibold))
-                .frame(width: 20, height: 20)
-                .accessibilityHidden(true)
-        }
-        .padding(.horizontal, 14)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .contentShape(Rectangle())
-    }
-}
-
 struct NotchExpandedPlaceholderContainer: View {
     let close: () -> Void
 
@@ -51,7 +23,7 @@ struct NotchExpandedPlaceholderContainer: View {
                         .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.plain)
-                .glassEffect(.regular.tint(.black.opacity(0.48)).interactive(), in: .circle)
+                .background(.white.opacity(0.08), in: .circle)
                 .keyboardShortcut(.cancelAction)
                 .accessibilityLabel("Close Notchium")
                 .accessibilityIdentifier("notchium.shell.close")
@@ -62,7 +34,6 @@ struct NotchExpandedPlaceholderContainer: View {
                 placeholderCard(title: "Context", symbol: "sparkles")
             }
 
-            placeholderCard(title: "Future activity surface", symbol: "rectangle.3.group")
         }
         .padding(18)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
