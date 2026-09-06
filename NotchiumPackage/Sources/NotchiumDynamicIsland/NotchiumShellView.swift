@@ -83,12 +83,12 @@ private struct NotchShellOuterSurface: View {
     @State private var contentVisible = false
 
     var body: some View {
-        let shape = NotchShape(
-            width: layout.surfaceSize.width,
-            height: layout.surfaceSize.height,
-            centerX: layout.visibleSurfaceFrame.midX - layout.panelFrame.minX,
-            topCornerRadius: layout.topCornerRadius,
-            bottomCornerRadius: layout.bottomCornerRadius,
+        let passiveShape = NotchShape(
+            width: layout.collapsedVisibleFrame.width,
+            height: layout.collapsedVisibleFrame.height,
+            centerX: layout.collapsedVisibleFrame.midX - layout.panelFrame.minX,
+            topCornerRadius: 0,
+            bottomCornerRadius: layout.hasHardwareNotch ? 8 : 12,
             hardwareExclusion: layout.hardwareNotchGeometry.map {
                 CGRect(
                     x: $0.frame.minX - layout.panelFrame.minX,
@@ -97,6 +97,13 @@ private struct NotchShellOuterSurface: View {
                     height: $0.frame.height
                 )
             }
+        )
+        let shape = NotchShellSurface(
+            width: layout.surfaceSize.width,
+            height: layout.surfaceSize.height,
+            centerX: layout.visibleSurfaceFrame.midX - layout.panelFrame.minX,
+            bottomRadius: model.visualState == .collapsed ? passiveShape.bottomCornerRadius : 28,
+            passiveShape: passiveShape
         )
 
         ZStack(alignment: .top) {
@@ -113,7 +120,7 @@ private struct NotchShellOuterSurface: View {
 
             NotchShellStateMarker(state: model.visualState)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .clipShape(shape)
         .contentShape(shape)
         .foregroundStyle(.white)
