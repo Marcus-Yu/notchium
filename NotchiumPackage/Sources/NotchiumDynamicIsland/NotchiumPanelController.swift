@@ -114,7 +114,7 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
-        panel.ignoresMouseEvents = model.visualState == .collapsed
+        panel.ignoresMouseEvents = model.surfaceState == .collapsed
         installPointerMonitorsIfNeeded()
 
         if model.visualState == .expanded {
@@ -268,7 +268,7 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
 
     func handleClick(at point: CGPoint) {
         guard let currentLayout else { return }
-        let region = model.visualState == .collapsed
+        let region = model.surfaceState == .collapsed
             ? currentLayout.collapsedHoverFrame : currentLayout.visibleSurfaceFrame
         if NotchHoverRegion.contains(point, in: region) {
             model.toggleExpanded()
@@ -279,7 +279,7 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
 
     private func handleMouseMoved(at point: CGPoint) {
         guard let currentLayout else { return }
-        let zone = model.visualState == .collapsed
+        let zone = model.surfaceState == .collapsed
             ? currentLayout.collapsedHoverFrame
             : currentLayout.visibleSurfaceFrame
         model.setHovered(NotchHoverRegion.contains(point, in: zone))

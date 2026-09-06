@@ -191,6 +191,7 @@ public final class NotchiumDisplayCoordinator: NSObject {
         guard isStarted, !isSleeping, shellPlacement != nil else { return }
         // Also cancel a queued hover while still passive. collapse() uses the
         // normal setExpanded(false) animation and keeps hover entry edge-driven.
+        presentationModel.activityCoordinator.clearAll()
         presentationModel.collapse()
         panelController.orderFrontRegardless()
     }
@@ -203,7 +204,7 @@ public final class NotchiumDisplayCoordinator: NSObject {
 
         let layout = NotchGeometryResolver.layout(
             for: shellPlacement,
-            state: presentationModel.visualState
+            state: presentationModel.surfaceState
         )
 #if DEBUG
         debugModel.updateRuntimeGeometry(placement: shellPlacement, layout: layout)
@@ -245,6 +246,7 @@ public final class NotchiumDisplayCoordinator: NSObject {
         presentationObservationGeneration &+= 1
         let generation = presentationObservationGeneration
         withObservationTracking {
+            _ = presentationModel.presentationState
             _ = presentationModel.phase
             _ = presentationModel.reduceMotion
         } onChange: { [weak self] in

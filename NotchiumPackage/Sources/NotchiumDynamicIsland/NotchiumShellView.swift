@@ -53,7 +53,7 @@ public struct NotchiumShellView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .ignoresSafeArea(.all, edges: .top)
         .overlay {
-            if renderConfiguration.showsGeometryOverlay, model.visualState != .collapsed {
+            if renderConfiguration.showsGeometryOverlay, model.surfaceState != .collapsed {
                 NotchGeometryOverlay(layout: layout)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
@@ -102,7 +102,7 @@ private struct NotchShellOuterSurface: View {
             width: layout.surfaceSize.width,
             height: layout.surfaceSize.height,
             centerX: layout.visibleSurfaceFrame.midX - layout.panelFrame.minX,
-            bottomRadius: model.visualState == .collapsed ? passiveShape.bottomCornerRadius : 28,
+            bottomRadius: model.surfaceState == .collapsed ? passiveShape.bottomCornerRadius : 28,
             passiveShape: passiveShape
         )
 
@@ -118,7 +118,7 @@ private struct NotchShellOuterSurface: View {
                 )
                 .zIndex(1)
 
-            NotchShellStateMarker(state: model.visualState)
+            NotchShellStateMarker(state: model.surfaceState)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .clipShape(shape)
@@ -128,14 +128,21 @@ private struct NotchShellOuterSurface: View {
 
     private var shellContent: some View {
         Group {
-            NotchExpandedPlaceholderContainer(close: model.collapse)
-                .padding(.top, layout.collapsedVisibleFrame.height)
+            Group {
+                if model.presentationState == .activity,
+                   let activity = model.activityCoordinator.activeActivity {
+                    NotchActivityView(activity: activity)
+                } else {
+                    NotchExpandedPlaceholderContainer(close: model.collapse, pageModel: model.pageModel)
+                }
+            }
+            .padding(.top, layout.collapsedVisibleFrame.height)
         }
         .opacity(contentVisible ? 1 : 0)
-        .allowsHitTesting(contentVisible && model.visualState != .collapsed)
+        .allowsHitTesting(contentVisible && model.surfaceState != .collapsed)
         .accessibilityHidden(!contentVisible)
-        .task(id: model.visualState != .collapsed) {
-            guard model.visualState != .collapsed else {
+        .task(id: model.surfaceState != .collapsed) {
+            guard model.surfaceState != .collapsed else {
                 withAnimation(NotchMotion.contentOut) { contentVisible = false }
                 return
             }

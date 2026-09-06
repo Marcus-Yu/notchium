@@ -95,6 +95,65 @@ final class DisplayCoordinatorTests: XCTestCase {
         }
     }
 
+    func testActivityOpensExistingShellAndDismissalRestoresPassiveGeometry() async {
+        let source = MockDisplaySource(displays: [builtInDisplay()])
+        let panel = MockPanelController()
+        let clock = TestAppClock(now: Date(timeIntervalSince1970: 0), automaticallyAdvances: false)
+        let coordinator = makeCoordinator(source: source, panel: panel, clock: clock)
+        coordinator.start()
+        defer { coordinator.stop() }
+        let model = coordinator.presentationModel
+        let passiveLayout = panel.layout
+        model.activityCoordinator.present(NotchActivity(
+            id: UUID(), kind: .media, title: "Mock song", subtitle: nil,
+            priority: 20, duration: nil
+        ))
+        await drainMainActorTasks()
+        XCTAssertEqual(model.presentationState, .activity)
+        XCTAssertEqual(model.visualState, .collapsed)
+        XCTAssertEqual(panel.layout?.surfaceSize, NotchGeometryResolver.expandedNotchSize)
+        XCTAssertEqual(panel.layout?.panelFrame, passiveLayout?.panelFrame)
+        model.activityCoordinator.dismissActive()
+        await drainMainActorTasks()
+        XCTAssertEqual(model.presentationState, .passive)
+        XCTAssertEqual(panel.layout, passiveLayout)
+    }
+
+    func testSpaceChangeClearsActivitiesQueueAndPinWithoutMovingPanel() async {
+        let source = MockDisplaySource(displays: [builtInDisplay()])
+        let panel = MockPanelController()
+        let clock = TestAppClock(now: Date(timeIntervalSince1970: 0), automaticallyAdvances: false)
+        let coordinator = makeCoordinator(source: source, panel: panel, clock: clock)
+        coordinator.start()
+        defer { coordinator.stop() }
+        let model = coordinator.presentationModel
+        model.present(.expanded, animated: false)
+        model.pageModel.selectedPage = .utilities
+        for kind in [NotchActivityKind.media, .notification] {
+            model.activityCoordinator.present(NotchActivity(
+                id: UUID(), kind: kind, title: kind.rawValue,
+                subtitle: nil, priority: kind.priority, duration: .seconds(3)
+            ))
+        }
+        await drainMainActorTasks()
+        let frame = panel.layout?.panelFrame
+        let hides = panel.hideCount
+        NSWorkspace.shared.notificationCenter.post(
+            name: NSWorkspace.activeSpaceDidChangeNotification, object: nil
+        )
+        XCTAssertEqual(model.presentationState, .passive)
+        XCTAssertEqual(model.visualState, .collapsed)
+        XCTAssertNil(model.activityCoordinator.activeActivity)
+        XCTAssertEqual(model.activityCoordinator.queueCount, 0)
+        XCTAssertEqual(model.pageModel.selectedPage, .utilities)
+        await clock.advance(by: .seconds(100))
+        await drainMainActorTasks()
+        XCTAssertEqual(model.presentationState, .passive)
+        XCTAssertEqual(panel.layout?.panelFrame, frame)
+        XCTAssertEqual(panel.hideCount, hides)
+        XCTAssertEqual(panel.orderFrontRegardlessCount, 1)
+    }
+
     func testSpaceChangeLeavesPassiveStateAndPanelUnchanged() {
         let source = MockDisplaySource(displays: [builtInDisplay()])
         let panel = MockPanelController()

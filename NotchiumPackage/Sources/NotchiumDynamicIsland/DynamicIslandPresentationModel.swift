@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import NotchiumCore
 import Observation
 import SwiftUI
@@ -48,6 +49,26 @@ public final class DynamicIslandPresentationModel {
     public private(set) var phase: NotchPresentationPhase
     public private(set) var reduceMotion = false
 
+    public let activityCoordinator: ActivityCoordinator
+    public let pageModel: NotchPageModel
+    private var activityRevision = 0
+    @ObservationIgnored private var activityObservation: AnyCancellable?
+
+    /// The sole presentation decision; Stage 2 phase remains manual interaction state.
+    public var presentationState: NotchPresentationState {
+        _ = activityRevision
+        if let activity = activityCoordinator.activeActivity {
+            if activity.kind == .notification && activity.priority == 100 { return .activity }
+            if visualState == .collapsed { return .activity }
+        }
+        return visualState == .collapsed ? .passive : .expanded
+    }
+
+    /// Activities reuse the existing open shell geometry without becoming pinned.
+    public var surfaceState: NotchStableState {
+        presentationState == .activity ? .hovered : visualState
+    }
+
     public var visualState: NotchStableState {
         phase.visualState
     }
@@ -69,6 +90,11 @@ public final class DynamicIslandPresentationModel {
     ) {
         self.phase = phase
         self.clock = clock
+        activityCoordinator = ActivityCoordinator(clock: clock)
+        pageModel = NotchPageModel()
+        activityObservation = activityCoordinator.$activeActivity.sink { [weak self] _ in
+            self?.activityRevision &+= 1
+        }
     }
 
     public func setHovered(_ isHovered: Bool) {
@@ -117,6 +143,7 @@ public final class DynamicIslandPresentationModel {
     }
 
     public func reset() {
+        activityCoordinator.clearAll()
         pendingHoverTask?.cancel()
         pendingCollapseTask?.cancel()
         transitionTask?.cancel()
