@@ -1,6 +1,6 @@
-# Architecture — Stage 2 Notch Shell
+# Architecture — Stage 3 Activity Infrastructure
 
-**Status:** Stage 2 shell implemented on the Stage 1 production architecture
+**Status:** Stage 3 mock-only activity and page infrastructure added to the Stage 2 shell. See [DYNAMIC_ISLAND.md](DYNAMIC_ISLAND.md) for current state, queue, timeout, and page behavior.
 
 **Minimum OS:** macOS 26
 
@@ -158,7 +158,7 @@ The package and Xcode targets use Swift 6.0 language mode and complete strict-co
 
 ## Determinism
 
-`AppClock` provides the current date and sleeping behavior. `ContinuousAppClock` is the production implementation. `TestAppClock` is an actor whose sleep operation advances time immediately and records the request, allowing timer behavior to be tested without wall-clock waits. `DateProviding` and `AppScheduling` name the two roles when a feature needs only one side of that contract.
+`AppClock` provides the current date and sleeping behavior. `ContinuousAppClock` is the production implementation. `TestAppClock` is an actor that records sleep requests. Its default mode advances time immediately for Stage 1 compatibility; Stage 3 timeout tests use its manually advanced mode, which suspends sleepers until `advance(by:)` reaches their deadlines. `DateProviding` and `AppScheduling` name the two roles when a feature needs only one side of that contract.
 
 `UUIDGenerating` and `FileSystemAccessing` provide corresponding system and deterministic mock implementations. Stage 1 fixtures use fixed dates and UUIDs. Views and services must not call hidden time, ID, or filesystem factories when deterministic behavior is required.
 
@@ -179,7 +179,7 @@ The shell uses SwiftUI until macOS window behavior requires AppKit. `NotchiumPan
 
 `NotchiumDisplayCoordinator` requires a built-in display, nonzero public top safe-area inset, and valid `NSScreen.auxiliaryTopLeftArea` and `auxiliaryTopRightArea` values with a positive gap. Without an eligible display it hides the panel and retains the menu-bar fallback. The controller keeps one transparent fixed-size host panel top-anchored to the full screen frame. SwiftUI animates one shape and permanently excludes the hardware footprint from drawing; collapsed physical mode has an empty drawable path. Public pointer monitors drive the narrow hardware-derived hover zone. The panel uses documented Spaces and fullscreen collection behavior, never animates its frame, and never becomes key.
 
-`DynamicIslandPresentationModel` owns `collapsed`, temporarily `hovered`, and pinned `expanded` states plus transition phases. Injected clock tasks implement 120 ms hover entry and 200 ms exit grace, with cancellation and generation checks. Hover and click use the same 0.60/0.88/0.10 native spring, with a 0.18 s Reduce Motion fallback. Pinned state ignores hover exit; a second click, outside click, or Esc closes it. Space-change notifications cancel pending hover activation and close hovered or pinned states through the existing collapse path before reasserting the current panel. They never recreate or reposition it, and hover requires fresh entry to reopen. See [NOTCH_SHELL.md](NOTCH_SHELL.md) for notification timing and the pending hardware acceptance gate. No feature page is implemented.
+`DynamicIslandPresentationModel` owns `collapsed`, temporarily `hovered`, and pinned `expanded` states plus transition phases. Injected clock tasks implement 120 ms hover entry and 200 ms exit grace, with cancellation and generation checks. Hover and click use the same 0.60/0.88/0.10 native spring, with a 0.18 s Reduce Motion fallback. Pinned state ignores hover exit; a second click, outside click, or Esc closes it. Space-change notifications cancel pending hover activation and close hovered or pinned states through the existing collapse path before reasserting the current panel. They never recreate or reposition it, and hover requires fresh entry to reopen. See [NOTCH_SHELL.md](NOTCH_SHELL.md) for notification timing and the pending hardware acceptance gate. Stage 3 adds five minimal page placeholders and generic activity content; no real feature page is implemented.
 
 Ambient Edge must not be added to `DynamicIslandPresentationModel` as decorative booleans. In its later stage it receives a separate immutable presentation model from the activity coordinator, and its AppKit overlay lifecycle remains independent of `NotchiumPanelController`.
 
