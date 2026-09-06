@@ -12,7 +12,9 @@ Stage 2 implements the shell and placeholder content only. No Stage 3 providers,
 
 The measured hardware footprint, screen coordinate calculations, expanded dimensions (450 × 190 pt), and fixed transparent host (640 × 210 pt) are unchanged. `NotchiumPanelController` positions the host only when display identity or screen frame changes. It never animates the NSPanel frame. The top edge remains at the absolute screen top.
 
-`NotchPanel` is borderless, nonopaque, non-key, clear, shadowless, nonactivating, and uses `.canJoinAllSpaces`, `.stationary`, `.fullScreenAuxiliary`, and `.ignoresCycle`. Space-change notifications only reassert the existing panel. They do not change presentation, select another display, or reposition the window. Fullscreen uses the same panel contract.
+`NotchPanel` is borderless, nonopaque, non-key, clear, shadowless, nonactivating, and uses `.canJoinAllSpaces`, `.stationary`, `.fullScreenAuxiliary`, and `.ignoresCycle`. Space-change notifications first call the existing `collapse()` method, which cancels pending hover timers and uses `setExpanded(false)` to close hovered or pinned presentations with the normal animation. They then reassert the existing panel without selecting another display, recreating it, or repositioning it. The shell remains passive until fresh hover entry or a click. Fullscreen uses the same panel contract.
+
+`NSWorkspace.activeSpaceDidChangeNotification` reports a Space change; Apple does not guarantee notification delivery at the beginning of the three-finger gesture. Collapse starts on notification delivery. First-frame swipe timing requires hardware verification.
 
 ## One continuous surface
 

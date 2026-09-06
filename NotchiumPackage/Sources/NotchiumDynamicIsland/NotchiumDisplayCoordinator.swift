@@ -189,6 +189,9 @@ public final class NotchiumDisplayCoordinator: NSObject {
     @objc
     private func activeSpaceDidChange(_ notification: Notification) {
         guard isStarted, !isSleeping, shellPlacement != nil else { return }
+        // Also cancel a queued hover while still passive. collapse() uses the
+        // normal setExpanded(false) animation and keeps hover entry edge-driven.
+        presentationModel.collapse()
         panelController.orderFrontRegardless()
     }
 
