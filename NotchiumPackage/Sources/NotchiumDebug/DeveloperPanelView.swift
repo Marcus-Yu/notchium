@@ -4,16 +4,19 @@ import NotchiumDesignSystem
 import NotchiumServices
 import SwiftUI
 
-public struct DeveloperPanelView<ShellContent: View>: View {
+public struct DeveloperPanelView<ShellContent: View, ActivityContent: View>: View {
     @Bindable private var model: DeveloperPanelModel
     private let shellContent: ShellContent
+    private let activityContent: ActivityContent
 
     public init(
         model: DeveloperPanelModel,
-        @ViewBuilder shellContent: () -> ShellContent
+        @ViewBuilder shellContent: () -> ShellContent,
+        @ViewBuilder activityContent: () -> ActivityContent
     ) {
         self.model = model
         self.shellContent = shellContent()
+        self.activityContent = activityContent()
     }
 
     public var body: some View {
@@ -27,7 +30,7 @@ public struct DeveloperPanelView<ShellContent: View>: View {
             permissions
                 .tabItem { Label("Permissions", systemImage: "lock.shield") }
 
-            activities
+            activityContent
                 .tabItem { Label("Activities", systemImage: "waveform.path.ecg") }
 
             diagnostics
@@ -67,21 +70,6 @@ public struct DeveloperPanelView<ShellContent: View>: View {
                     }
                 }
             }
-        }
-        .formStyle(.grouped)
-    }
-
-    private var activities: some View {
-        Form {
-            Section("Synthetic activities") {
-                ForEach(ActivityKind.allCases, id: \.self) { kind in
-                    Button("Emit \(kind.rawValue)") {
-                        Task { await model.createSyntheticActivity(kind) }
-                    }
-                }
-            }
-
-            LabeledContent("Session count", value: "\(model.syntheticActivities.count)")
         }
         .formStyle(.grouped)
     }
