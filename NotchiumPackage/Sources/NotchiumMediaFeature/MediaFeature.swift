@@ -6,6 +6,6 @@ public enum MediaFeature: FeatureModule {
         id: .media,
         name: "Media Center",
         summary: "Provider-neutral playback state and command presentation.",
-        requiredPermissions: [.appleMusic, .spotifyAccount, .systemAudioRecording]
+        requiredPermissions: [.spotifyAccount]
     )
 }
