@@ -10,6 +10,14 @@
 
 **SDK checked:** Xcode 26.6 (17F113) macOS SDK headers, supplemented by current official documentation
 
+## Stage 4 correction — macOS Apple Music (2026-09-07)
+
+The earlier Apple Music rows below incorrectly treated `SystemMusicPlayer` as available on macOS. The installed Xcode macOS 26.5 SDK's `MusicKit.swiftinterface` explicitly declares `@available(macOS, unavailable)` immediately above `SystemMusicPlayer`. Availability of the base `MusicPlayer` and its queue does not establish availability of `SystemMusicPlayer`. `ApplicationMusicPlayer` plays app-owned content and cannot substitute for observing the Music app.
+
+**Superseding verdict:** Apple Music app observation and control are **unavailable under the approved integration** on this macOS target. Stage 4 reports that limitation without requesting Apple Music permission or substituting Apple Events, scraping, or private frameworks. The named Apple Music acceptance gate remains unmet. A future approved integration decision is required to change this verdict.
+
+Spotify continues to use its documented Web API, Authorization Code with PKCE, loopback redirect, and Keychain token storage. No audio capture pipeline is enabled; the waveform is deterministic decorative playback motion.
+
 ## 1. Evidence and interpretation rules
 
 This assessment uses documented public APIs only. Primary evidence is Apple Developer documentation, installed SDK headers, Spotify policy and Web API documentation, and official Zoom, Google, Microsoft, Chrome, and Safari extension documentation. Context7 was used for discovery but is not the authority for an uncertain platform claim.

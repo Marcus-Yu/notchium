@@ -1,6 +1,6 @@
 # Notchium
 
-Notchium is a native macOS 26 application that will turn the MacBook notch into a compact productivity and system interface. The repository is currently at **Stage 2: notch shell, display geometry, and Liquid Glass**. Product-feature behavior remains deliberately disabled until later stages.
+Notchium is a native macOS 26 application that will turn the MacBook notch into a compact productivity and system interface. The repository is at **Stage 4: Media Center**. Media state, controls, public Spotify integration, and deterministic fixtures are implemented; Apple Music app observation is unavailable under the approved macOS API. Other product features remain disabled.
 
 ## Open the project
 
@@ -16,7 +16,7 @@ The minimum deployment target is macOS 26 and Swift 6 strict concurrency is enab
 
 The app starts as an accessory application and owns one public-AppKit `NSPanel`. It targets only a built-in display with a verified physical notch. In collapsed physical mode it paints nothing over or below the hardware notch. A menu-bar extra remains available in every configuration and is the only surface when no supported built-in notch is present. The placeholder shell supports collapsed, hovered, and deliberately expanded states with native macOS 26 Liquid Glass and accessibility fallbacks.
 
-No media, calendar, clipboard, camera, capture, monitoring, keyboard suppression, Ambient Edge, Snap Zone, or other Stage 3+ implementation runs in Stage 2. Real provider adapters remain inert and the shell never triggers permission prompts.
+With no media, the Stage 2 passive shell remains unchanged. Stage 4 adds an approved media-only 360-point rendering strip at hardware-notch height, plus media content inside the existing 450 × 190 expanded shell. Connect Spotify in Settings using a registered client ID and the displayed loopback redirect. Apple Music, unsupported generic sources, real lyrics, and audio capture remain unavailable. See [Media Center](docs/MEDIA_CENTER.md).
 
 ## Architecture
 

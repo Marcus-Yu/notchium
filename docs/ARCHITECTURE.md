@@ -1,6 +1,6 @@
 # Architecture — Stage 3 Activity Infrastructure
 
-**Status:** Stage 3 mock-only activity and page infrastructure added to the Stage 2 shell. See [DYNAMIC_ISLAND.md](DYNAMIC_ISLAND.md) for current state, queue, timeout, and page behavior.
+**Status:** Stage 4 Media Center adds provider state, public Spotify integration, media content, and developer fixtures. Stage 2 geometry/interactions and Stage 3 ActivityCoordinator rules remain frozen. See [MEDIA_CENTER.md](MEDIA_CENTER.md) for boundaries and limitations.
 
 **Minimum OS:** macOS 26
 
