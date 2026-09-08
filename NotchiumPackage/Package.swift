@@ -33,7 +33,7 @@ let package = Package(
         ),
         .target(
             name: "NotchiumMediaFeature",
-            dependencies: ["NotchiumCore", "NotchiumServices"]
+            dependencies: ["NotchiumCore", "NotchiumServices", "NotchiumDynamicIsland"]
         ),
         .target(
             name: "NotchiumCalendarFeature",
@@ -131,6 +131,7 @@ let package = Package(
                 "NotchiumFeature",
                 "NotchiumServices",
                 "NotchiumTestFixtures",
+                "NotchiumMediaFeature",
             ]
         ),
     ]

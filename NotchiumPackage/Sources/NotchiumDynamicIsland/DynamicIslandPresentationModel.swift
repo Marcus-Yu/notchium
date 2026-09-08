@@ -51,6 +51,12 @@ public final class DynamicIslandPresentationModel {
 
     public let activityCoordinator: ActivityCoordinator
     public let pageModel: NotchPageModel
+    public var mediaRenderer: (any NotchMediaRendering)?
+
+    public var showsCollapsedMedia: Bool {
+        _ = activityRevision
+        return mediaRenderer != nil && activityCoordinator.activeActivity?.kind == .media && visualState == .collapsed
+    }
     private var activityRevision = 0
     @ObservationIgnored private var activityObservation: AnyCancellable?
 
@@ -66,7 +72,7 @@ public final class DynamicIslandPresentationModel {
 
     /// Activities reuse the existing open shell geometry without becoming pinned.
     public var surfaceState: NotchStableState {
-        presentationState == .activity ? .hovered : visualState
+        showsCollapsedMedia ? .collapsed : (presentationState == .activity ? .hovered : visualState)
     }
 
     public var visualState: NotchStableState {
@@ -92,8 +98,11 @@ public final class DynamicIslandPresentationModel {
         self.clock = clock
         activityCoordinator = ActivityCoordinator(clock: clock)
         pageModel = NotchPageModel()
-        activityObservation = activityCoordinator.$activeActivity.sink { [weak self] _ in
+        activityObservation = activityCoordinator.$activeActivity.sink { [weak self] activity in
             self?.activityRevision &+= 1
+            if activity?.kind == .media, self?.mediaRenderer != nil {
+                self?.pageModel.selectedPage = .media
+            }
         }
     }
 

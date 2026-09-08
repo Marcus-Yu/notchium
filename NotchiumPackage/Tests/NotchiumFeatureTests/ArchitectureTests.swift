@@ -17,12 +17,12 @@ final class ArchitectureTests: XCTestCase {
         XCTAssertFalse(flags[.spotifyAudioWaveform])
     }
 
-    func testEveryRealProviderFailsClosedUntilStageTwo() async {
+    func testUnimplementedRealProvidersFailClosedAndMediaRequiresConnection() async {
         let services = ServiceRegistry.real()
 
         for service in ServiceKind.allCases {
             let availability = await services.availability(for: service)
-            XCTAssertEqual(availability, .unavailable(.stageTwoRequired))
+            XCTAssertEqual(availability, .unavailable(service == .media ? .permissionNotDetermined : .stageTwoRequired))
         }
     }
 

@@ -107,6 +107,13 @@ private struct NotchShellOuterSurface: View {
         )
 
         ZStack(alignment: .top) {
+            if model.showsCollapsedMedia, let renderer = model.mediaRenderer {
+                renderer.collapsedMedia(hardwareWidth: layout.hardwareNotchGeometry?.frame.width ?? 0)
+                    .frame(width: 360, height: layout.collapsedVisibleFrame.height)
+                    .background(.black, in: .rect(bottomLeadingRadius: 8, bottomTrailingRadius: 8))
+                    .zIndex(2)
+            }
+
             shape.fill(Color.black)
                 .zIndex(0)
 
@@ -121,8 +128,14 @@ private struct NotchShellOuterSurface: View {
             NotchShellStateMarker(state: model.surfaceState)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .clipShape(shape)
+        .mask {
+            if model.showsCollapsedMedia {
+                Rectangle().frame(width: 360, height: layout.collapsedVisibleFrame.height)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            } else { shape }
+        }
         .contentShape(shape)
+        .environment(\.notchMediaRenderer, model.mediaRenderer)
         .foregroundStyle(.white)
     }
 
@@ -131,7 +144,11 @@ private struct NotchShellOuterSurface: View {
             Group {
                 if model.presentationState == .activity,
                    let activity = model.activityCoordinator.activeActivity {
-                    NotchActivityView(activity: activity)
+                    if activity.kind == .media, let renderer = model.mediaRenderer {
+                        renderer.expandedMedia()
+                    } else {
+                        NotchActivityView(activity: activity)
+                    }
                 } else {
                     NotchExpandedPlaceholderContainer(close: model.collapse, pageModel: model.pageModel)
                 }

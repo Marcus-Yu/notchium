@@ -45,7 +45,10 @@ struct NotchiumApp: App {
                 model: appDelegate.controller.developerPanelModel,
                 shellDebugModel: appDelegate.controller.shellDebugModel,
                 presentationModel: appDelegate.controller.displayCoordinator.presentationModel,
-                uuids: appDelegate.controller.environment.uuids
+                uuids: appDelegate.controller.environment.uuids,
+                mediaModel: appDelegate.controller.mediaModel,
+                mockMedia: appDelegate.controller.mockMediaProvider,
+                realMedia: appDelegate.controller.environment.services.media
             )
         }
         .defaultSize(width: 720, height: 520)

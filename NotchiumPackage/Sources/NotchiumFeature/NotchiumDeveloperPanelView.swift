@@ -3,10 +3,15 @@ import NotchiumCore
 import NotchiumDebug
 import NotchiumDynamicIsland
 import SwiftUI
+import NotchiumMediaFeature
+import NotchiumServices
 
 public struct NotchiumDeveloperPanelView: View {
     private let presentationModel: DynamicIslandPresentationModel
     private let uuids: any UUIDGenerating
+    private let mediaModel: MediaFeatureModel
+    private let mockMedia: MockMediaProvider
+    private let realMedia: any MediaProviding
     private let model: DeveloperPanelModel
     private let shellDebugModel: NotchShellDebugModel
 
@@ -14,8 +19,10 @@ public struct NotchiumDeveloperPanelView: View {
         model: DeveloperPanelModel,
         shellDebugModel: NotchShellDebugModel,
         presentationModel: DynamicIslandPresentationModel,
-        uuids: any UUIDGenerating
+        uuids: any UUIDGenerating,
+        mediaModel: MediaFeatureModel, mockMedia: MockMediaProvider, realMedia: any MediaProviding
     ) {
+        self.mediaModel = mediaModel; self.mockMedia = mockMedia; self.realMedia = realMedia
         self.presentationModel = presentationModel
         self.uuids = uuids
         self.model = model
@@ -26,7 +33,10 @@ public struct NotchiumDeveloperPanelView: View {
         DeveloperPanelView(model: model) {
             NotchShellDeveloperControls(model: shellDebugModel)
         } activityContent: {
-            NotchActivityDeveloperControls(presentation: presentationModel, uuids: uuids)
+            VStack(spacing: 12) {
+                MediaDeveloperControls(model: mediaModel, mock: mockMedia, real: realMedia)
+                NotchActivityDeveloperControls(presentation: presentationModel, uuids: uuids)
+            }
         }
     }
 }

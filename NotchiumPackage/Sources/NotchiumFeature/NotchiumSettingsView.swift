@@ -1,5 +1,7 @@
 import NotchiumCore
 import SwiftUI
+import NotchiumMediaFeature
+import NotchiumServices
 
 public struct NotchiumSettingsView: View {
     private let environment: AppEnvironment
@@ -10,22 +12,14 @@ public struct NotchiumSettingsView: View {
 
     public var body: some View {
         Form {
-            Section("Stage 1") {
-                LabeledContent("Architecture", value: "Ready")
-                LabeledContent(
-                    "Distribution",
-                    value: environment.distributionProfile.rawValue
-                )
-                LabeledContent("Feature implementations", value: "Disabled")
+            if let media = environment.services.media as? RealMediaProvider {
+                MediaConnectionView(provider: media)
             }
-
-            Section("Product contract") {
-                Text("Minimal when collapsed. Useful when hovered. Powerful when deliberately opened.")
-                Text("All protected features remain off until enabled and first used in a later stage.")
-                    .foregroundStyle(.secondary)
+            Section("Distribution") {
+                Text(environment.distributionProfile.rawValue)
             }
         }
         .formStyle(.grouped)
-        .frame(width: 520, height: 300)
+        .frame(width: 520, height: 480)
     }
 }

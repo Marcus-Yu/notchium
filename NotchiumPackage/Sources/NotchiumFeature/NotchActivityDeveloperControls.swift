@@ -17,7 +17,7 @@ struct NotchActivityDeveloperControls: View {
     }
 
     private var sections: [String] {
-        MockNotchActivity.allCases.reduce(into: []) { result, event in
+        MockNotchActivity.allCases.filter { $0.section != "MEDIA" }.reduce(into: []) { result, event in
             if !result.contains(event.section) { result.append(event.section) }
         }
     }
@@ -43,9 +43,6 @@ struct NotchActivityDeveloperControls: View {
                                 coordinator.present(event.activity(id: id))
                             }
                         }
-                    }
-                    if section == "MEDIA" {
-                        Button("Stop Media") { coordinator.dismiss(kind: .media) }
                     }
                 }
             }
