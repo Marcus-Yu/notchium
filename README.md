@@ -1,6 +1,6 @@
 # Notchium
 
-Notchium is a native macOS 26 application that will turn the MacBook notch into a compact productivity and system interface. The repository is at **Stage 4: Media Center**. Media state, controls, public Spotify integration, and deterministic fixtures are implemented; Apple Music app observation is unavailable under the approved macOS API. Other product features remain disabled.
+Notchium is a native macOS 26 application that will turn the MacBook notch into a compact productivity and system interface. The repository is at **Stage 4 of 12: Media Center**. Media state, controls, public Spotify integration, and deterministic fixtures are implemented; Apple Music app observation is unavailable under the approved macOS API. Other product features remain disabled.
 
 ## Open the project
 
