@@ -13,7 +13,8 @@ import NotchiumServices
 public final class NotchiumApplicationController {
     public let environment: AppEnvironment
     public let displayCoordinator: NotchiumDisplayCoordinator
-    public let mediaModel: MediaFeatureModel
+    public let mediaSessionController: MediaSessionController
+    public var mediaModel: MediaSessionController { mediaSessionController }
 #if DEBUG
     public let mockMediaProvider = MockMediaProvider()
 #endif
@@ -44,8 +45,9 @@ public final class NotchiumApplicationController {
 #else
         displayCoordinator = NotchiumDisplayCoordinator(clock: environment.clock)
 #endif
-        mediaModel = MediaFeatureModel(provider: environment.services.media,
-                                       coordinator: displayCoordinator.presentationModel.activityCoordinator)
+        mediaSessionController = MediaSessionController(provider: environment.services.media,
+                                       coordinator: displayCoordinator.presentationModel.activityCoordinator,
+                                       visibilityClock: environment.clock, audioMeter: SystemAudioMeter())
         displayCoordinator.presentationModel.mediaRenderer = mediaModel
     }
 
@@ -72,6 +74,9 @@ public final class NotchiumApplicationController {
         guard isRunning else { return }
         mediaConnectionTask?.cancel(); mediaConnectionTask = nil
         mediaModel.stop()
+        if let real = environment.services.media as? RealMediaProvider {
+            Task { await real.shutdown() }
+        }
         displayCoordinator.stop()
         isRunning = false
 

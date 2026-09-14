@@ -105,11 +105,40 @@ private actor HeldSeekProvider: MediaProviding {
         XCTAssertNotNil(model.errorMessage)
         XCTAssertEqual(model.displayedPosition(at: now), 30)
     }
+    func testCollapsedVisibilityDelayCancellationAndPausedSession() async {
+        let clock = TestAppClock(now: now, automaticallyAdvances: false)
+        let coordinator = ActivityCoordinator(clock: clock)
+        let model = MediaFeatureModel(provider: MockMediaProvider(), coordinator: coordinator, visibilityClock: clock)
+        model.receive(sample())
+        XCTAssertTrue(model.collapsedMediaVisible) // Synchronous: no timer on appear.
+        model.receive(sample(playing: false))
+        await clock.waitForPendingSleeps()
+        await clock.advance(by: .milliseconds(449))
+        await Task.yield()
+        XCTAssertTrue(model.collapsedMediaVisible)
+        model.receive(sample()) // Resume cancels the pending removal.
+        await clock.advance(by: .milliseconds(450))
+        for _ in 0..<10 { await Task.yield() }
+        XCTAssertTrue(model.collapsedMediaVisible)
+        model.receive(sample(playing: false))
+        await clock.waitForPendingSleeps()
+        model.receive(sample(playing: false)) // Repeated polling must not reset the deadline.
+        await clock.advance(by: .milliseconds(450))
+        for _ in 0..<10 { await Task.yield() }
+        XCTAssertFalse(model.collapsedMediaVisible)
+        XCTAssertTrue(model.state.hasMedia)
+        XCTAssertNotNil(coordinator.activeActivity)
+        model.receive(sample())
+        XCTAssertTrue(model.collapsedMediaVisible)
+        model.receive(.init())
+        XCTAssertFalse(model.collapsedMediaVisible)
+        XCTAssertNil(coordinator.activeActivity)
+    }
     func testCollapsedGeometryReservesHardwareAndNeverExtrudes() {
         let geometry = CollapsedMediaGeometry(hardwareWidth: 179, hardwareHeight: 32)
         XCTAssertEqual(geometry.height, 32)
-        XCTAssertEqual(geometry.artworkSize, 20)
-        XCTAssertEqual(geometry.width, 379)
+        XCTAssertEqual(geometry.artworkSize, 24)
+        XCTAssertEqual(geometry.width, 259)
         XCTAssertEqual(geometry.leadingWidth, geometry.trailingWidth)
         let passive = NotchShape(width: 179, height: 32, centerX: 320, topCornerRadius: 0, bottomCornerRadius: 8)
         let shape = NotchShellSurface(width: geometry.width, height: geometry.height,
@@ -117,6 +146,6 @@ private actor HeldSeekProvider: MediaProviding {
         let bounds = shape.path(in: CGRect(x: 0, y: 0, width: 640, height: 210)).boundingRect
         XCTAssertEqual(bounds.minY, 0)
         XCTAssertEqual(bounds.maxY, 32)
-        XCTAssertEqual(bounds.width, 379)
+        XCTAssertEqual(bounds.width, 259)
     }
 }

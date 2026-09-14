@@ -2,7 +2,7 @@ import Foundation
 import NotchiumCore
 
 /// Approved public Spotify adapter. MusicKit.SystemMusicPlayer is unavailable on macOS.
-/// One polling task exists only while connected and subscribed; no audio is captured.
+/// One app-scoped polling task exists while authenticated, independent of subscribers.
 public actor RealMediaProvider: MediaProviding {
     public static let appleMusicLimitation = "Apple Music observation is unavailable: MusicKit.SystemMusicPlayer is marked unavailable on macOS."
     public let authorization: SpotifyAuthorization
@@ -42,6 +42,9 @@ public actor RealMediaProvider: MediaProviding {
         connected = true
         startPolling()
     }
+    public func shutdown() {
+        generation &+= 1; connected = false; pollTask?.cancel(); pollTask = nil
+    }
     public func disconnect() async throws {
         generation &+= 1; connected = false; pollTask?.cancel(); pollTask = nil
         publish(.init(availability: .unavailable(.permissionNotDetermined)))
@@ -49,14 +52,13 @@ public actor RealMediaProvider: MediaProviding {
     }
     private func remove(_ id: UUID) {
         subscribers.removeValue(forKey: id)
-        if subscribers.isEmpty { generation &+= 1; pollTask?.cancel(); pollTask = nil }
     }
     private func publish(_ value: MediaState) {
         if state != value { state = value }
         for continuation in subscribers.values { continuation.yield(value) }
     }
     private func startPolling() {
-        guard pollTask == nil, !subscribers.isEmpty else { return }
+        guard pollTask == nil, connected else { return }
         let generation = generation
         pollTask = Task { [weak self, clock] in
             while !Task.isCancelled {
@@ -67,29 +69,40 @@ public actor RealMediaProvider: MediaProviding {
     }
     private func poll(generation: Int) async -> Duration? {
         guard connected, self.generation == generation else { return nil }
-        if let retryAt, retryAt > (await clock.now()) { return .seconds(5) }
-        guard !commandInFlight else { return .seconds(5) }
+        if let retryAt {
+            let remaining = retryAt.timeIntervalSince(await clock.now())
+            if remaining > 0 { return .seconds(remaining) }
+            self.retryAt = nil
+        }
+        guard !commandInFlight else { return .milliseconds(500) }
         let revision = observationRevision
+        let refreshStarted = await clock.now()
         do {
             let value = try await api.state()
             guard !Task.isCancelled, self.generation == generation else { return nil }
-            guard revision == observationRevision else { return .seconds(5) }
+            guard revision == observationRevision else { return .milliseconds(500) }
             var next = value
             if next.trackID == state.trackID { next.queue = state.queue }
             publish(next)
         } catch {
             guard !Task.isCancelled, self.generation == generation else { return nil }
-            guard revision == observationRevision else { return .seconds(5) }
+            guard revision == observationRevision else { return .milliseconds(500) }
             if case MediaFailure.rateLimited(let seconds) = error {
                 retryAt = await clock.now().addingTimeInterval(Double(seconds))
             }
-            publish(.init(availability: .unavailable(.temporarilyUnavailable), issue: Self.message(error)))
+            var next = state
             if error as? MediaFailure == .authorization || error as? MediaFailure == .disconnected {
+                next = .init(availability: .unavailable(.temporarilyUnavailable))
+            }
+            next.issue = Self.message(error)
+            publish(next)
+            if error as? MediaFailure == .authorization {
                 connected = false; pollTask = nil; return nil
             }
-            return .seconds(30)
+            if let retryAt { return .seconds(max(0.5, retryAt.timeIntervalSince(await clock.now()))) }
+            return .milliseconds(500)
         }
-        return state.isPlaying ? .seconds(5) : .seconds(15)
+        return .seconds(max(0, 0.5 - (await clock.now()).timeIntervalSince(refreshStarted)))
     }
     public func perform(_ command: MediaCommand) async throws {
         guard !commandInFlight else { throw MediaFailure.busy }

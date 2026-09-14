@@ -36,7 +36,8 @@ struct NotchiumApp: App {
         .menuBarExtraStyle(.menu)
 
         Settings {
-            NotchiumSettingsView(environment: appDelegate.controller.environment)
+            NotchiumSettingsView(environment: appDelegate.controller.environment,
+                                 audioMeter: appDelegate.controller.mediaModel.audioMeter)
         }
 
 #if DEBUG

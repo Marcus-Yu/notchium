@@ -46,7 +46,7 @@ public struct MediaConnectionView: View {
             }
             Text(providerIssue ?? status).font(.caption).foregroundStyle(.secondary)
             Text(RealMediaProvider.appleMusicLimitation).font(.caption).foregroundStyle(.secondary)
-            Text("Other media sources are unsupported. The waveform is decorative; no audio is recorded.")
+            Text("Other media sources are unsupported. The waveform uses system audio when recording permission is granted. Audio is analyzed in memory and never saved.")
                 .font(.caption).foregroundStyle(.secondary)
         }
         .task {

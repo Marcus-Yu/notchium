@@ -5,9 +5,11 @@ import NotchiumServices
 
 public struct NotchiumSettingsView: View {
     private let environment: AppEnvironment
+    private let audioMeter: SystemAudioMeter?
 
-    public init(environment: AppEnvironment) {
+    public init(environment: AppEnvironment, audioMeter: SystemAudioMeter? = nil) {
         self.environment = environment
+        self.audioMeter = audioMeter
     }
 
     public var body: some View {
@@ -15,6 +17,7 @@ public struct NotchiumSettingsView: View {
             if let media = environment.services.media as? RealMediaProvider {
                 MediaConnectionView(provider: media)
             }
+            if let audioMeter { AudioMeterPermissionView(meter: audioMeter) }
             Section("Distribution") {
                 Text(environment.distributionProfile.rawValue)
             }

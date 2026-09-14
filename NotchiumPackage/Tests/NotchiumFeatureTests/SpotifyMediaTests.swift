@@ -117,7 +117,7 @@ private actor RacingMediaTransport: MediaHTTPTransport {
         try await provider.connect()
         let playing = await iterator.next(); XCTAssertTrue(playing!.isPlaying)
         await clock.waitForPendingSleeps()
-        let intervals = await clock.sleepHistory(); XCTAssertEqual(intervals, [.seconds(5)])
+        let intervals = await clock.sleepHistory(); XCTAssertEqual(intervals, [.milliseconds(500)])
         try await provider.perform(.playPause)
         let paused = await iterator.next(); XCTAssertEqual(paused!.playbackState, .paused)
         try await provider.perform(.seek(122))
@@ -154,6 +154,42 @@ private actor RacingMediaTransport: MediaHTTPTransport {
         let availability = await provider.availability()
         XCTAssertEqual(availability, .available)
         try await provider.disconnect()
+    }
+    func testPollingWithoutSubscribersAndRetryAfter() async throws {
+        let transport = ScriptedMediaTransport([
+            .init(data: playback(), status: 200),
+            .init(status: 429, retryAfter: 2),
+            .init(data: playback(playing: false), status: 200)
+        ])
+        let clock = TestAppClock(now: Date(timeIntervalSince1970: 0), automaticallyAdvances: false)
+        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
+                                         transport: transport, clock: clock)
+        try await provider.connect() // No UI or subscribers exist.
+        try await provider.connect() // Must not create a second poller.
+        await clock.waitForPendingSleeps()
+        var requests = await transport.requests
+        XCTAssertEqual(requests.count, 1)
+        await clock.advance(by: .milliseconds(499))
+        requests = await transport.requests
+        XCTAssertEqual(requests.count, 1)
+        await clock.advance(by: .milliseconds(1))
+        await clock.waitForPendingSleeps()
+        requests = await transport.requests
+        XCTAssertEqual(requests.count, 2)
+        var iterator = await provider.updates().makeAsyncIterator()
+        let preserved = await iterator.next()
+        XCTAssertTrue(preserved?.isPlaying == true) // A transient 429 cannot remove the flanks.
+        await clock.advance(by: .milliseconds(1999))
+        requests = await transport.requests
+        XCTAssertEqual(requests.count, 2)
+        await clock.advance(by: .milliseconds(1))
+        let paused = await iterator.next()
+        XCTAssertEqual(paused?.playbackState, .paused)
+        await clock.waitForPendingSleeps()
+        await provider.shutdown()
+        await clock.advance(by: .seconds(10))
+        requests = await transport.requests
+        XCTAssertEqual(requests.count, 3)
     }
     func testLoopbackReceivesRegisteredRedirectAndCloses() async throws {
         let receiver = SpotifyLoopbackCallback()

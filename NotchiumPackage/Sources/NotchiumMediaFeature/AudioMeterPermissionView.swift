@@ -1,0 +1,29 @@
+import AppKit
+import SwiftUI
+
+public struct AudioMeterPermissionView: View {
+    @ObservedObject private var meter: SystemAudioMeter
+    public init(meter: SystemAudioMeter) { self.meter = meter }
+    public var body: some View {
+        Section("Audio waveform") {
+            Text(message).font(.caption).foregroundStyle(.secondary)
+            if meter.status == .permissionRequired || meter.status == .unavailable || meter.status == .idle {
+                Button("Enable system audio waveform") { meter.requestPermission() }
+                Button("Open Recording Settings") {
+                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+            }
+        }
+    }
+    private var message: String {
+        switch meter.status {
+        case .idle: "System audio is analyzed only during playback. Audio is never saved."
+        case .starting: "Starting system audio analysis…"
+        case .capturing: "Waveform follows system audio, including sound from other apps."
+        case .permissionRequired: "Screen & System Audio Recording permission is required for an audio-reactive waveform. Bars remain static until access is granted."
+        case .unavailable: "System audio capture is unavailable. Waveform bars remain static."
+        }
+    }
+}

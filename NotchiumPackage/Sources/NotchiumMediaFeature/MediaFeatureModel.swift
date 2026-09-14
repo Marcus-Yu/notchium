@@ -3,9 +3,14 @@ import NotchiumCore
 import NotchiumDynamicIsland
 import NotchiumServices
 import Observation
+import SwiftUI
 
 @MainActor @Observable
-public final class MediaFeatureModel {
+public final class MediaSessionController {
+    public let audioMeter: SystemAudioMeter
+    public private(set) var collapsedMediaVisible = false
+    @ObservationIgnored private var mediaHideTask: Task<Void, Never>?
+    @ObservationIgnored private let visibilityClock: any AppClock
     public private(set) var state = MediaState()
     public private(set) var errorMessage: String?
     public private(set) var isBusy = false
@@ -17,10 +22,11 @@ public final class MediaFeatureModel {
     @ObservationIgnored private var generation = 0
     private let activityID = UUID()
 
-    public init(provider: any MediaProviding, coordinator: ActivityCoordinator) {
-        self.provider = provider; self.coordinator = coordinator
+    public init(provider: any MediaProviding, coordinator: ActivityCoordinator, visibilityClock: any AppClock = ContinuousAppClock(), audioMeter: SystemAudioMeter = SystemAudioMeter(captureEnabled: false)) {
+        self.audioMeter = audioMeter
+        self.provider = provider; self.coordinator = coordinator; self.visibilityClock = visibilityClock
     }
-    deinit { observation?.cancel(); commandTask?.cancel() }
+    deinit { observation?.cancel(); commandTask?.cancel(); mediaHideTask?.cancel() }
     public func start() {
         guard observation == nil else { return }
         let generation = generation
@@ -33,6 +39,8 @@ public final class MediaFeatureModel {
         }
     }
     public func stop() {
+        audioMeter.stop()
+        mediaHideTask?.cancel(); mediaHideTask = nil; collapsedMediaVisible = false
         generation &+= 1; observation?.cancel(); observation = nil
         commandTask?.cancel(); commandTask = nil; isBusy = false
         coordinator.dismiss(id: activityID)
@@ -44,12 +52,32 @@ public final class MediaFeatureModel {
     /// Provider snapshots are the only input; activity identity stays stable across progress/track changes.
     public func receive(_ value: MediaState) {
         if let pendingSeek, pendingSeek.accepts(value) { self.pendingSeek = nil }
+        audioMeter.setPlaying(value.hasMedia && value.isPlaying)
+        updateCollapsedVisibility(value)
         state = value
         errorMessage = value.issue
         if value.hasMedia {
             coordinator.present(.init(id: activityID, kind: .media, title: "Media",
                                       subtitle: nil, priority: 20, duration: nil))
         } else { coordinator.dismiss(id: activityID) }
+    }
+    private func updateCollapsedVisibility(_ value: MediaState) {
+        if value.hasMedia && value.isPlaying {
+            mediaHideTask?.cancel(); mediaHideTask = nil
+            withAnimation(.easeInOut(duration: 0.12)) { collapsedMediaVisible = true }
+        } else if !value.hasMedia {
+            audioMeter.stop()
+            mediaHideTask?.cancel(); mediaHideTask = nil
+            withAnimation(.easeInOut(duration: 0.12)) { collapsedMediaVisible = false }
+        } else if collapsedMediaVisible && mediaHideTask == nil {
+            mediaHideTask = Task { [weak self, visibilityClock] in
+                do { try await visibilityClock.sleep(for: .milliseconds(450)) } catch { return }
+                guard !Task.isCancelled, let self, !self.state.isPlaying else { return }
+                withAnimation(.easeInOut(duration: 0.12)) { self.collapsedMediaVisible = false }
+                self.audioMeter.stop()
+                self.mediaHideTask = nil
+            }
+        }
     }
     public func displayedPosition(at now: Date) -> Double {
         pendingSeek?.position ?? estimatedPlaybackPosition(at: now, state: state)
@@ -102,3 +130,6 @@ public struct PendingMediaSeek {
         return abs(update.elapsedTime - expected) <= 3 || delta >= 10
     }
 }
+
+/// Retains the existing feature-facing name for the app-owned session controller.
+public typealias MediaFeatureModel = MediaSessionController

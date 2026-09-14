@@ -1,6 +1,8 @@
 import NotchiumCore
 @testable import NotchiumDynamicIsland
 import XCTest
+@testable import NotchiumMediaFeature
+import NotchiumServices
 
 @MainActor
 private final class MockDisplaySource: NotchiumDisplaySnapshotting {
@@ -119,7 +121,7 @@ final class DisplayCoordinatorTests: XCTestCase {
         XCTAssertEqual(panel.layout, passiveLayout)
     }
 
-    func testSpaceChangeClearsActivitiesQueueAndPinWithoutMovingPanel() async {
+    func testSpaceChangePreservesActivitiesQueueAndUnpinsWithoutMovingPanel() async {
         let source = MockDisplaySource(displays: [builtInDisplay()])
         let panel = MockPanelController()
         let clock = TestAppClock(now: Date(timeIntervalSince1970: 0), automaticallyAdvances: false)
@@ -141,17 +143,53 @@ final class DisplayCoordinatorTests: XCTestCase {
         NSWorkspace.shared.notificationCenter.post(
             name: NSWorkspace.activeSpaceDidChangeNotification, object: nil
         )
-        XCTAssertEqual(model.presentationState, .passive)
+        XCTAssertEqual(model.presentationState, .activity)
         XCTAssertEqual(model.visualState, .collapsed)
-        XCTAssertNil(model.activityCoordinator.activeActivity)
-        XCTAssertEqual(model.activityCoordinator.queueCount, 0)
+        XCTAssertNotNil(model.activityCoordinator.activeActivity)
+        XCTAssertEqual(model.activityCoordinator.queueCount, 1)
         XCTAssertEqual(model.pageModel.selectedPage, .utilities)
-        await clock.advance(by: .seconds(100))
         await drainMainActorTasks()
-        XCTAssertEqual(model.presentationState, .passive)
+        XCTAssertEqual(model.presentationState, .activity)
         XCTAssertEqual(panel.layout?.panelFrame, frame)
         XCTAssertEqual(panel.hideCount, hides)
         XCTAssertEqual(panel.orderFrontRegardlessCount, 1)
+    }
+
+    func testMediaRemainsAcrossSpaceChangesAndPinnedCollapse() async throws {
+        let panel = MockPanelController()
+        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
+        let coordinator = makeCoordinator(source: MockDisplaySource(displays: [builtInDisplay()]), panel: panel, clock: clock)
+        coordinator.start()
+        defer { coordinator.stop() }
+        let provider = MockMediaProvider()
+        let capture = TestAudioCapture()
+        let meter = SystemAudioMeter(capture: capture, permissionGranted: { true })
+        let media = MediaSessionController(provider: provider,
+                                           coordinator: coordinator.presentationModel.activityCoordinator,
+                                           visibilityClock: clock, audioMeter: meter)
+        coordinator.presentationModel.mediaRenderer = media
+        media.start()
+        defer { media.stop() }
+        try await provider.apply(.play)
+        for _ in 0..<100 where !media.collapsedMediaVisible { await Task.yield() }
+        XCTAssertTrue(media.collapsedMediaVisible) // Never opened the notch.
+        let track = media.state.trackID
+        let activity = coordinator.presentationModel.activityCoordinator.activeActivity?.id
+        let hides = panel.hideCount
+        for pinned in [false, true, false] {
+            if pinned { coordinator.presentationModel.present(.expanded, animated: false) }
+            NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
+            XCTAssertEqual(coordinator.presentationModel.visualState, .collapsed)
+            XCTAssertTrue(coordinator.presentationModel.showsCollapsedMedia)
+            XCTAssertEqual(media.state.trackID, track)
+            XCTAssertEqual(coordinator.presentationModel.activityCoordinator.activeActivity?.id, activity)
+            XCTAssertEqual(panel.hideCount, hides)
+            await drainMainActorTasks()
+            XCTAssertEqual(capture.starts, 1)
+            XCTAssertEqual(capture.stops, 0)
+        }
+        // Fullscreen uses this same notification and the panel's fullScreenAuxiliary flag,
+        // separately verified in DisplayGeometryTests; physical continuity needs live QA.
     }
 
     func testSpaceChangeLeavesPassiveStateAndPanelUnchanged() {
