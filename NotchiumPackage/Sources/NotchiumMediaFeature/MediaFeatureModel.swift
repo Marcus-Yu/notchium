@@ -7,6 +7,8 @@ import SwiftUI
 
 @MainActor @Observable
 public final class MediaSessionController {
+    private static let previousTrackThreshold: TimeInterval = 3
+
     public let audioMeter: SystemAudioMeter
     public private(set) var collapsedMediaVisible = false
     @ObservationIgnored private var mediaHideTask: Task<Void, Never>?
@@ -16,6 +18,7 @@ public final class MediaSessionController {
     public private(set) var pendingControls: Set<String> = []
     public var isBusy: Bool { !pendingControls.isEmpty }
     public func isPending(_ command: MediaCommand) -> Bool { pendingControls.contains(command.controlID) }
+    public var isPreviousPending: Bool { isPending(.previous) || isPending(.seek(0)) }
     public private(set) var pendingSeek: PendingMediaSeek?
     @ObservationIgnored private var provider: any MediaProviding
     @ObservationIgnored private let coordinator: ActivityCoordinator
@@ -90,7 +93,40 @@ public final class MediaSessionController {
                                        requestedAt: now, origin: state)
         send(.seek(pendingSeek!.position))
     }
+    public func previous(at now: Date = Date()) {
+        guard !isPreviousPending, state.hasMedia, state.canSkipBackward else { return }
+        let position = displayedPosition(at: now)
+        #if DEBUG
+        print("[SpotifyControls] Previous pressed")
+        print("[SpotifyControls] Current position: \(String(format: "%.1f", position))s")
+        #endif
+        if position > Self.previousTrackThreshold {
+            guard state.canSeek else {
+                errorMessage = MediaFailure.unsupported.errorDescription
+                #if DEBUG
+                print("[SpotifyControls] Cannot restart current track because seeking is unavailable")
+                #endif
+                return
+            }
+            #if DEBUG
+            print("[SpotifyControls] Seeking current track to beginning")
+            #endif
+            seek(to: 0, at: now)
+        } else {
+            #if DEBUG
+            print("[SpotifyControls] Requesting previous track")
+            #endif
+            dispatch(.previous)
+        }
+    }
     public func send(_ command: MediaCommand) {
+        if command == .previous {
+            previous()
+            return
+        }
+        dispatch(command)
+    }
+    private func dispatch(_ command: MediaCommand) {
         guard !isPending(command), state.hasMedia, state.capabilities.supports(command) else { return }
         let id = command.controlID
         pendingControls.insert(id)
@@ -98,6 +134,16 @@ public final class MediaSessionController {
         let generation = generation
         // Resolve toggle intent at the tap, before any asynchronous provider work.
         let resolved: MediaCommand = command == .playPause ? (state.isPlaying ? .pause : .play) : command
+        #if DEBUG
+        switch resolved {
+        case .play: print("[SpotifyControls] Play")
+        case .pause: print("[SpotifyControls] Pause")
+        case .next: print("[SpotifyControls] Next pressed")
+        case .setShuffle(let enabled): print("[SpotifyControls] Shuffle → \(enabled ? "enabled" : "disabled")")
+        case .setRepeatMode(let mode): print("[SpotifyControls] Repeat → \(mode.rawValue)")
+        default: break
+        }
+        #endif
         commandTasks[id] = Task { [weak self] in
             defer {
                 if let self, self.generation == generation {

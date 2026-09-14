@@ -27,13 +27,14 @@ private actor HeldControlProvider: MediaProviding {
 }
 
 @MainActor final class MediaControlTests: XCTestCase {
-    private func model(_ provider: any MediaProviding, playing: Bool = false) -> MediaFeatureModel {
+    private func model(_ provider: any MediaProviding, playing: Bool = false, elapsed: Double = 0,
+                       timestamp: Date = Date()) -> MediaFeatureModel {
         let model = MediaFeatureModel(provider: provider, coordinator: ActivityCoordinator(
             clock: TestAppClock(now: Date(), automaticallyAdvances: false)))
-        model.receive(.init(playbackState: playing ? .playing : .paused, title: "Fixture", duration: 240,
+        model.receive(.init(playbackState: playing ? .playing : .paused, title: "Fixture", elapsed: elapsed, duration: 240,
                             capabilities: .init(canPlayPause: true, canSkipForward: true, canSkipBackward: true,
                                                 canSeek: true, canShuffle: true, canRepeat: true),
-                            shuffle: false, repeatMode: .off))
+                            shuffle: false, repeatMode: .off, timestamp: timestamp))
         return model
     }
     func testActualPlayPauseIntentAndIndependentDoubleTapProtection() async {
@@ -73,6 +74,51 @@ private actor HeldControlProvider: MediaProviding {
         while model.isBusy { await Task.yield() }
         XCTAssertNil(model.pendingSeek)
         model.stop()
+    }
+    func testPreviousRestartsThenMovesToPreviousTrack() async {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let provider = HeldControlProvider()
+        let model = model(provider, elapsed: 90, timestamp: now)
+
+        model.send(.previous)
+        await provider.waitFor(1)
+        var commands = await provider.commands
+        XCTAssertEqual(commands, [.seek(0)])
+        XCTAssertTrue(model.isPreviousPending)
+        await provider.finish(.seek(0))
+        while model.isBusy { await Task.yield() }
+
+        model.receive(.init(playbackState: .paused, title: "Fixture", elapsed: 0, duration: 240,
+                            capabilities: .init(canPlayPause: true, canSkipForward: true, canSkipBackward: true,
+                                                canSeek: true, canShuffle: true, canRepeat: true),
+                            shuffle: false, repeatMode: .off, timestamp: now))
+        model.send(.previous)
+        await provider.waitFor(2)
+        commands = await provider.commands
+        XCTAssertEqual(commands, [.seek(0), .previous])
+        await provider.finish(.previous)
+        while model.isBusy { await Task.yield() }
+        model.stop()
+    }
+    func testPreviousUsesThreeSecondThresholdAndInterpolatedPosition() async {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let cases: [(playing: Bool, elapsed: Double, offset: TimeInterval, expected: MediaCommand)] = [
+            (false, 1, 0, .previous),
+            (false, 3, 0, .previous),
+            (false, 3.01, 0, .seek(0)),
+            (true, 1.5, 1.6, .seek(0)),
+        ]
+        for (playing, elapsed, offset, expected) in cases {
+            let provider = HeldControlProvider()
+            let model = model(provider, playing: playing, elapsed: elapsed, timestamp: now)
+            model.previous(at: now.addingTimeInterval(offset))
+            await provider.waitFor(1)
+            let commands = await provider.commands
+            XCTAssertEqual(commands, [expected])
+            await provider.finish(expected)
+            while model.isBusy { await Task.yield() }
+            model.stop()
+        }
     }
     func testMockExplicitCommandsAndModes() async throws {
         let provider = MockMediaProvider()

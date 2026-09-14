@@ -74,27 +74,38 @@ public struct MediaPageView: View {
     private var controls: some View {
         HStack(spacing: 12) {
             control("Shuffle", symbol: "shuffle", command: .setShuffle(model.state.shuffle != true),
-                    enabled: model.state.canShuffle, active: model.state.shuffle == true)
-            control("Previous Track", symbol: "backward.fill", command: .previous, enabled: model.state.canSkipBackward)
+                    enabled: model.state.canShuffle, active: model.state.shuffle == true, inactiveOpacity: 0.6)
+            control("Previous Track", symbol: "backward.fill", command: .previous,
+                    enabled: model.state.canSkipBackward, pending: model.isPreviousPending)
             control(model.state.isPlaying ? "Pause" : "Play", symbol: model.state.isPlaying ? "pause.fill" : "play.fill",
                     command: .playPause, enabled: model.state.canPlayPause)
             control("Next Track", symbol: "forward.fill", command: .next, enabled: model.state.canSkipForward)
             control("Repeat", symbol: model.state.repeatMode == .track ? "repeat.1" : "repeat",
                     command: .setRepeatMode(model.state.repeatMode == .off ? .context : model.state.repeatMode == .context ? .track : .off),
-                    enabled: model.state.canRepeat, active: model.state.repeatMode != nil && model.state.repeatMode != .off)
+                    enabled: model.state.canRepeat, active: model.state.repeatMode != nil && model.state.repeatMode != .off,
+                    inactiveOpacity: 0.6)
         }
-        .buttonStyle(.plain).font(.system(size: 14))
+        .buttonStyle(MediaControlButtonStyle()).font(.system(size: 14))
         .frame(maxWidth: .infinity)
     }
-    private func control(_ label: String, symbol: String, command: MediaCommand, enabled: Bool, active: Bool = false) -> some View {
-        Button {
-            #if DEBUG
-            print("[MediaControl] \(label == "Play" ? "PLAY" : label == "Pause" ? "PAUSE" : label == "Next Track" ? "NEXT" : label == "Previous Track" ? "PREVIOUS" : label.uppercased()) tapped")
-            #endif
+    private func control(_ label: String, symbol: String, command: MediaCommand, enabled: Bool,
+                         active: Bool = false, pending: Bool? = nil, inactiveOpacity: Double = 1) -> some View {
+        let isAvailable = enabled && !(pending ?? model.isPending(command))
+        let foregroundOpacity = isAvailable ? (active ? 1 : inactiveOpacity) : 0.45
+        return Button {
+            guard isAvailable else { return }
             model.send(command)
-        } label: { Image(systemName: symbol).frame(width: 32, height: 32).contentShape(Rectangle()) }
-            .foregroundStyle(active ? Color.accentColor : .white)
-            .disabled(!enabled || model.isPending(command)).opacity(enabled ? 1 : 0.3)
+        } label: {
+            Image(systemName: symbol).frame(width: 32, height: 32).contentShape(Rectangle())
+        }
+            .foregroundStyle(.white.opacity(foregroundOpacity))
+            .accessibilityRespondsToUserInteraction(isAvailable)
             .help(label).accessibilityLabel(label)
+    }
+}
+
+private struct MediaControlButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.opacity(configuration.isPressed ? 0.7 : 1)
     }
 }
