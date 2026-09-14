@@ -12,7 +12,6 @@ public enum PermissionKind: String, CaseIterable, Codable, Hashable, Sendable {
     case screenCapture
     case safariExtension
     case chromiumExtension
-    case appleMusic
     case spotifyAccount
     case launchAtLogin
     case keychain

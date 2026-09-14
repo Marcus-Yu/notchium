@@ -26,10 +26,32 @@ final class TestAudioCapture: SystemAudioCapturing {
 
 @MainActor
 final class AudioMeterLifecycleTests: XCTestCase {
+    private final class PermissionGate {
+        var isGranted = false
+    }
+
     private func drain() async { for _ in 0..<30 { await Task.yield() } }
     private func state(_ playing: Bool) -> MediaState {
         .init(playbackState: playing ? .playing : .paused, title: "Track", trackID: "1", source: .spotify)
     }
+    func testPermissionGrantDuringContinuousPlaybackStartsExistingMeter() async {
+        let capture = TestAudioCapture()
+        let permission = PermissionGate()
+        let meter = SystemAudioMeter(capture: capture, permissionGranted: { permission.isGranted })
+        meter.setPlaying(true); await drain()
+        XCTAssertEqual(meter.status, .permissionRequired)
+        XCTAssertEqual(capture.starts, 0)
+        permission.isGranted = true
+        meter.requestPermission(); await drain()
+        XCTAssertTrue(meter.isRunning)
+        XCTAssertEqual(capture.starts, 1)
+        capture.levels?([0.2, 0.4, 0.6, 0.8, 1, 0.5, 0.3]); await drain()
+        XCTAssertNotEqual(meter.waveformLevels, SystemAudioMeter.staticLevels)
+        meter.setPlaying(true); await drain()
+        XCTAssertEqual(capture.starts, 1)
+        meter.stop(); await drain()
+    }
+
     func testPauseImmediatelyGatesSamplesAndStopsCaptureAt450Milliseconds() async {
         let capture = TestAudioCapture()
         let meter = SystemAudioMeter(capture: capture, permissionGranted: { true })

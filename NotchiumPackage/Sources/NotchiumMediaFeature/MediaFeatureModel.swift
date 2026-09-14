@@ -13,12 +13,14 @@ public final class MediaSessionController {
     @ObservationIgnored private let visibilityClock: any AppClock
     public private(set) var state = MediaState()
     public private(set) var errorMessage: String?
-    public private(set) var isBusy = false
+    public private(set) var pendingControls: Set<String> = []
+    public var isBusy: Bool { !pendingControls.isEmpty }
+    public func isPending(_ command: MediaCommand) -> Bool { pendingControls.contains(command.controlID) }
     public private(set) var pendingSeek: PendingMediaSeek?
     @ObservationIgnored private var provider: any MediaProviding
     @ObservationIgnored private let coordinator: ActivityCoordinator
     @ObservationIgnored private var observation: Task<Void, Never>?
-    @ObservationIgnored private var commandTask: Task<Void, Never>?
+    @ObservationIgnored private var commandTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var generation = 0
     private let activityID = UUID()
 
@@ -26,7 +28,7 @@ public final class MediaSessionController {
         self.audioMeter = audioMeter
         self.provider = provider; self.coordinator = coordinator; self.visibilityClock = visibilityClock
     }
-    deinit { observation?.cancel(); commandTask?.cancel(); mediaHideTask?.cancel() }
+    deinit { observation?.cancel(); commandTasks.values.forEach { $0.cancel() }; mediaHideTask?.cancel() }
     public func start() {
         guard observation == nil else { return }
         let generation = generation
@@ -42,7 +44,7 @@ public final class MediaSessionController {
         audioMeter.stop()
         mediaHideTask?.cancel(); mediaHideTask = nil; collapsedMediaVisible = false
         generation &+= 1; observation?.cancel(); observation = nil
-        commandTask?.cancel(); commandTask = nil; isBusy = false
+        commandTasks.values.forEach { $0.cancel() }; commandTasks.removeAll(); pendingControls.removeAll()
         coordinator.dismiss(id: activityID)
         state = .init(); pendingSeek = nil
     }
@@ -83,27 +85,48 @@ public final class MediaSessionController {
         pendingSeek?.position ?? estimatedPlaybackPosition(at: now, state: state)
     }
     public func seek(to position: Double, at now: Date = Date()) {
-        guard !isBusy, state.canSeek, position.isFinite else { return }
+        guard !isPending(.seek(position)), state.canSeek, position.isFinite else { return }
         pendingSeek = PendingMediaSeek(position: min(max(position, 0), state.validDuration ?? 0),
                                        requestedAt: now, origin: state)
         send(.seek(pendingSeek!.position))
     }
     public func send(_ command: MediaCommand) {
-        guard !isBusy, state.hasMedia, state.capabilities.supports(command) else { return }
-        isBusy = true
+        guard !isPending(command), state.hasMedia, state.capabilities.supports(command) else { return }
+        let id = command.controlID
+        pendingControls.insert(id)
         let provider = provider
         let generation = generation
-        commandTask = Task { [weak self] in
+        // Resolve toggle intent at the tap, before any asynchronous provider work.
+        let resolved: MediaCommand = command == .playPause ? (state.isPlaying ? .pause : .play) : command
+        commandTasks[id] = Task { [weak self] in
+            defer {
+                if let self, self.generation == generation {
+                    self.pendingControls.remove(id)
+                    self.commandTasks[id] = nil
+                }
+            }
             do {
-                if case .seek(let position) = command { try await provider.seek(to: position) }
-                else { try await provider.perform(command) }
+                switch resolved {
+                case .play: try await provider.play()
+                case .pause: try await provider.pause()
+                case .next: try await provider.nextTrack()
+                case .previous: try await provider.previousTrack()
+                case .seek(let position): try await provider.seek(to: position)
+                case .setShuffle(let enabled): try await provider.setShuffle(enabled)
+                case .setRepeatMode(let mode): try await provider.setRepeatMode(mode)
+                default: try await provider.perform(resolved)
+                }
                 guard let self, self.generation == generation else { return }
-                self.errorMessage = nil; self.isBusy = false
+                self.errorMessage = nil
             } catch {
                 guard let self, self.generation == generation else { return }
                 if case .seek = command { self.pendingSeek = nil }
-                self.errorMessage = (error as? MediaFailure)?.errorDescription ?? "Playback command failed."
-                self.isBusy = false
+                let message = (error as? MediaFailure)?.errorDescription ?? "Playback command failed."
+                self.errorMessage = message
+                #if DEBUG
+                print("Media command \(id): \(message)")
+                #endif
+                await provider.refresh()
             }
         }
     }

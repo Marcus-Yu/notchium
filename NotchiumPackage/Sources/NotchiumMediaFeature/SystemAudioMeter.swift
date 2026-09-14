@@ -1,3 +1,4 @@
+import Foundation
 import Combine
 import CoreGraphics
 
@@ -16,11 +17,15 @@ public final class SystemAudioMeter: ObservableObject {
     private var captureStarted = false
     private var captureFailed = false
     private var lifecycleTask: Task<Void, Never>?
+    public var isRunning: Bool { status == .capturing }
     private var generation = 0
+    #if DEBUG
+    private var lastDebugLevels = Date.distantPast
+    #endif
 
     public convenience init(captureEnabled: Bool = true) {
-        self.init(capture: ScreenCaptureAudioSource(), captureEnabled: captureEnabled,
-                  permissionGranted: { CGPreflightScreenCaptureAccess() })
+        self.init(capture: SpotifyAudioTap(), captureEnabled: captureEnabled,
+                  permissionGranted: { true })
     }
     init(capture: any SystemAudioCapturing, captureEnabled: Bool = true,
          permissionGranted: @escaping @MainActor () -> Bool) {
@@ -29,6 +34,12 @@ public final class SystemAudioMeter: ObservableObject {
     }
 
     public func setPlaying(_ playing: Bool) {
+        #if DEBUG
+        if playing != isPlaying {
+            print("[Waveform] media isPlaying=\(playing)")
+            print("[Waveform] meter running=\(isRunning) status=\(status)")
+        }
+        #endif
         if playing && !isPlaying { captureFailed = false }
         isPlaying = playing
         if !playing { waveformLevels = Self.staticLevels; return }
@@ -43,15 +54,17 @@ public final class SystemAudioMeter: ObservableObject {
         reconcile()
     }
 
-    /// Explicit user action: never prompt from a poll, view appearance, or Space change.
+    /// Explicit retry action. Core Audio owns the system-audio permission prompt and
+    /// doesn't expose a separate preflight/request API.
     public func requestPermission() {
         guard captureEnabled else { return }
-        if !CGPreflightScreenCaptureAccess() { _ = CGRequestScreenCaptureAccess() }
-        if CGPreflightScreenCaptureAccess() {
-            captureFailed = false
-            if isPlaying { wantsCapture = true; reconcile() }
-            else { status = .idle }
-        } else { status = .permissionRequired }
+        captureFailed = false
+        if isPlaying {
+            wantsCapture = true
+            reconcile()
+        } else {
+            status = .idle
+        }
     }
 
     private func reconcile() {
@@ -85,6 +98,13 @@ public final class SystemAudioMeter: ObservableObject {
                                   self.wantsCapture, self.isPlaying, !self.captureFailed,
                                   levels.count == 7 else { return }
                             self.waveformLevels = levels.map { $0.isFinite ? min(1, max(0.12, $0)) : 0.12 }
+                            #if DEBUG
+                            if Date().timeIntervalSince(self.lastDebugLevels) >= 5 {
+                                self.lastDebugLevels = Date()
+                                print("[Waveform] meter running=\(self.isRunning)")
+                                print("[Waveform] levels=\(self.waveformLevels)")
+                            }
+                            #endif
                         }
                     } failure: { [weak self] in
                         Task { @MainActor [weak self] in
@@ -101,7 +121,8 @@ public final class SystemAudioMeter: ObservableObject {
                     await self.capture.stop()
                     self.captureStarted = false
                     self.captureFailed = true
-                    self.status = self.permissionGranted() ? .unavailable : .permissionRequired
+                    self.status = error as? SystemAudioCaptureError == .permissionDenied
+                        ? .permissionRequired : .unavailable
                     self.waveformLevels = Self.staticLevels
                     return
                 }
