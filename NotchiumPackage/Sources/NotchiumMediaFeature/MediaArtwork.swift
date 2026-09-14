@@ -1,6 +1,7 @@
 import AppKit
 import ImageIO
 import SwiftUI
+import NotchiumDynamicIsland
 
 /// At most eight 160px thumbnails (~800KB decoded). Requests cancel with their view identity.
 @MainActor private final class MediaArtworkCache {
@@ -61,7 +62,7 @@ public struct MediaArtwork: View {
             }
         }
         .frame(width: size, height: size)
-        .clipShape(.rect(cornerRadius: size > 24 ? 8 : 4))
+        .clipShape(.rect(cornerRadius: size > 24 ? 13 : 4))
         .accessibilityHidden(true)
         .task(id: url) {
             image = nil
@@ -70,5 +71,21 @@ public struct MediaArtwork: View {
             guard !Task.isCancelled else { return }
             image = loaded
         }
+    }
+}
+
+struct MediaArtworkSlot: View {
+    let url: URL?
+    let size: CGFloat
+    let expanded: Bool
+    @Environment(\.notchSharedMediaArtwork) private var shared
+    @Environment(\.notchMediaExpanded) private var isExpanded
+    var body: some View {
+        if shared {
+            Color.clear.frame(width: size, height: size)
+                .anchorPreference(key: MediaArtworkAnchorKey.self, value: .bounds) {
+                    expanded == isExpanded ? $0 : nil
+                }
+        } else { MediaArtwork(url: url, size: size) }
     }
 }

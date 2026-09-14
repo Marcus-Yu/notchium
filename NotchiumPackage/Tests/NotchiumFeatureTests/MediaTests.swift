@@ -153,7 +153,7 @@ import NotchiumCore
         model.receive(await provider.snapshot)
         let expanded = ImageRenderer(content: MediaPageView(model: model).frame(width: 450, height: 140).background(.black))
         let collapsed = ImageRenderer(content: CollapsedMediaView(model: model, hardwareWidth: 180)
-            .frame(width: 360, height: 32).background(.black))
+            .frame(width: 380, height: 32).background(.black))
         for (name, renderer) in [("expanded", expanded.nsImage), ("collapsed", collapsed.nsImage)] {
             let image = try XCTUnwrap(renderer)
             let tiff = try XCTUnwrap(image.tiffRepresentation)

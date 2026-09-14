@@ -132,7 +132,7 @@ public final class DynamicIslandPresentationModel {
         _ expanded: Bool,
         target: NotchStableState = .expanded
     ) {
-        let animation = reduceMotion ? NotchMotion.reduced : NotchMotion.morph
+        let animation = reduceMotion ? NotchMotion.reduced : NotchMotion.morph(opening: expanded)
 
         withAnimation(animation) {
             transition(to: expanded ? target : .collapsed)

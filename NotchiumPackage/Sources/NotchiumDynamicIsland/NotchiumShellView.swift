@@ -1,11 +1,11 @@
 import SwiftUI
 
 enum NotchMotion {
-    static let morph = Animation.spring(
-        response: 0.60,
-        dampingFraction: 0.88,
-        blendDuration: 0.10
-    )
+    // User-specified Stage 4 opening and closing response/damping.
+    static let open = Animation.spring(response: 0.42, dampingFraction: 0.80, blendDuration: 0)
+    static let close = Animation.spring(response: 0.45, dampingFraction: 1.0, blendDuration: 0)
+
+    static func morph(opening: Bool) -> Animation { opening ? open : close }
 
     static let contentIn = Animation.easeOut(duration: 0.18)
 
@@ -98,9 +98,13 @@ private struct NotchShellOuterSurface: View {
                 )
             }
         )
+        let mediaGeometry = CollapsedMediaGeometry(
+            hardwareWidth: layout.hardwareNotchGeometry?.frame.width ?? 0,
+            hardwareHeight: layout.collapsedVisibleFrame.height
+        )
         let shape = NotchShellSurface(
-            width: layout.surfaceSize.width,
-            height: layout.surfaceSize.height,
+            width: model.showsCollapsedMedia ? mediaGeometry.width : layout.surfaceSize.width,
+            height: model.surfaceState == .collapsed ? layout.collapsedVisibleFrame.height : layout.expandedSize.height,
             centerX: layout.visibleSurfaceFrame.midX - layout.panelFrame.minX,
             bottomRadius: model.surfaceState == .collapsed ? passiveShape.bottomCornerRadius : 28,
             passiveShape: passiveShape
@@ -108,9 +112,9 @@ private struct NotchShellOuterSurface: View {
 
         ZStack(alignment: .top) {
             if model.showsCollapsedMedia, let renderer = model.mediaRenderer {
-                renderer.collapsedMedia(hardwareWidth: layout.hardwareNotchGeometry?.frame.width ?? 0)
-                    .frame(width: 360, height: layout.collapsedVisibleFrame.height)
-                    .background(.black, in: .rect(bottomLeadingRadius: 8, bottomTrailingRadius: 8))
+                renderer.collapsedMedia(hardwareWidth: mediaGeometry.hardwareWidth, hardwareHeight: mediaGeometry.height)
+                    .frame(width: mediaGeometry.width, height: mediaGeometry.height)
+                    .transition(.opacity)
                     .zIndex(2)
             }
 
@@ -128,14 +132,21 @@ private struct NotchShellOuterSurface: View {
             NotchShellStateMarker(state: model.surfaceState)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .mask {
-            if model.showsCollapsedMedia {
-                Rectangle().frame(width: 360, height: layout.collapsedVisibleFrame.height)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            } else { shape }
+        .overlayPreferenceValue(MediaArtworkAnchorKey.self) { anchor in
+            GeometryReader { proxy in
+                if let anchor, let renderer = model.mediaRenderer {
+                    let rect = proxy[anchor]
+                    renderer.mediaArtwork(size: rect.width)
+                        .position(x: rect.midX, y: rect.midY)
+                        .allowsHitTesting(false)
+                }
+            }
         }
+        .mask(shape)
         .contentShape(shape)
         .environment(\.notchMediaRenderer, model.mediaRenderer)
+        .environment(\.notchSharedMediaArtwork, true)
+        .environment(\.notchMediaExpanded, model.surfaceState != .collapsed)
         .foregroundStyle(.white)
     }
 
@@ -156,6 +167,7 @@ private struct NotchShellOuterSurface: View {
             .padding(.top, layout.collapsedVisibleFrame.height)
         }
         .opacity(contentVisible ? 1 : 0)
+        .blur(radius: contentVisible || model.reduceMotion ? 0 : 3)
         .allowsHitTesting(contentVisible && model.surfaceState != .collapsed)
         .accessibilityHidden(!contentVisible)
         .task(id: model.surfaceState != .collapsed) {

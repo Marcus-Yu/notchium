@@ -162,7 +162,7 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
             return
         }
 
-        withAnimation(model.reduceMotion ? NotchMotion.reduced : NotchMotion.morph) {
+        withAnimation(model.reduceMotion ? NotchMotion.reduced : NotchMotion.morph(opening: model.surfaceState != .collapsed)) {
             hostingView.rootView = rootView
         }
     }
