@@ -60,9 +60,6 @@ public struct MediaPageView: View {
                             .lineLimit(1).truncationMode(.tail)
                         MediaProgressView(model: model).padding(.top, 4)
                         controls.padding(.top, 4)
-                        if let error = model.errorMessage {
-                            Text(error).font(.system(size: 9)).foregroundStyle(.orange).lineLimit(1)
-                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -71,21 +68,33 @@ public struct MediaPageView: View {
         }
         .foregroundStyle(.white)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .allowsHitTesting(true)
         .accessibilityIdentifier("notchium.media.page")
     }
     private var controls: some View {
-        HStack(spacing: 24) {
-            control("Previous", symbol: "backward.end.fill", command: .previous, enabled: model.state.canSkipBackward)
+        HStack(spacing: 12) {
+            control("Shuffle", symbol: "shuffle", command: .setShuffle(model.state.shuffle != true),
+                    enabled: model.state.canShuffle, active: model.state.shuffle == true)
+            control("Previous Track", symbol: "backward.fill", command: .previous, enabled: model.state.canSkipBackward)
             control(model.state.isPlaying ? "Pause" : "Play", symbol: model.state.isPlaying ? "pause.fill" : "play.fill",
                     command: .playPause, enabled: model.state.canPlayPause)
-            control("Next", symbol: "forward.end.fill", command: .next, enabled: model.state.canSkipForward)
+            control("Next Track", symbol: "forward.fill", command: .next, enabled: model.state.canSkipForward)
+            control("Repeat", symbol: model.state.repeatMode == .track ? "repeat.1" : "repeat",
+                    command: .setRepeatMode(model.state.repeatMode == .off ? .context : model.state.repeatMode == .context ? .track : .off),
+                    enabled: model.state.canRepeat, active: model.state.repeatMode != nil && model.state.repeatMode != .off)
         }
         .buttonStyle(.plain).font(.system(size: 14))
         .frame(maxWidth: .infinity)
     }
-    private func control(_ label: String, symbol: String, command: MediaCommand, enabled: Bool) -> some View {
-        Button { model.send(command) } label: { Image(systemName: symbol).frame(width: 20, height: 24) }
-            .disabled(!enabled || model.isBusy).opacity(enabled ? 1 : 0.3)
+    private func control(_ label: String, symbol: String, command: MediaCommand, enabled: Bool, active: Bool = false) -> some View {
+        Button {
+            #if DEBUG
+            print("[MediaControl] \(label == "Play" ? "PLAY" : label == "Pause" ? "PAUSE" : label == "Next Track" ? "NEXT" : label == "Previous Track" ? "PREVIOUS" : label.uppercased()) tapped")
+            #endif
+            model.send(command)
+        } label: { Image(systemName: symbol).frame(width: 32, height: 32).contentShape(Rectangle()) }
+            .foregroundStyle(active ? Color.accentColor : .white)
+            .disabled(!enabled || model.isPending(command)).opacity(enabled ? 1 : 0.3)
             .help(label).accessibilityLabel(label)
     }
 }

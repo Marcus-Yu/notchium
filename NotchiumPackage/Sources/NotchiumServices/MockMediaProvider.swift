@@ -4,7 +4,7 @@ import NotchiumCore
 public enum MediaFixture: String, CaseIterable, Sendable {
     case play = "Play Mock Song", pause = "Pause", resume = "Resume"
     case next = "Next Track", previous = "Previous Track", longTitle = "Long Song Title"
-    case noArtwork = "No Artwork", spotify = "Spotify", appleMusic = "Apple Music"
+    case noArtwork = "No Artwork", spotify = "Spotify"
     case queue = "Queue", stop = "Stop Media"
 }
 
@@ -12,6 +12,8 @@ public actor MockMediaProvider: MediaProviding {
     public private(set) var snapshot: MediaState
     public private(set) var commands: [MediaCommand] = []
     private var subscribers: [UUID: AsyncStream<MediaState>.Continuation] = [:]
+    public private(set) var refreshCount = 0
+    public func refresh() { refreshCount += 1; publish(snapshot) }
     private var trackIndex = 0
     private static let tracks: [MediaQueueItem] = [
         .init(id: "midnight", title: "Midnight City", artist: "M83"),
@@ -39,9 +41,13 @@ public actor MockMediaProvider: MediaProviding {
         if commands.count > 32 { commands.removeFirst() }
         rebasePosition()
         switch command {
+        case .play: snapshot.playbackState = .playing
+        case .pause: snapshot.playbackState = .paused
+        case .setShuffle(let enabled): snapshot.shuffle = enabled
+        case .setRepeatMode(let mode): snapshot.repeatMode = mode
         case .playPause: snapshot.playbackState = snapshot.isPlaying ? .paused : .playing
-        case .next: loadTrack(offset: 1)
-        case .previous: loadTrack(offset: -1)
+        case .next: loadTrack(offset: 1); snapshot.elapsed = 0
+        case .previous: loadTrack(offset: -1); snapshot.elapsed = 0
         case .seek(let time):
             guard time.isFinite, let duration = snapshot.validDuration else { throw MediaFailure.unsupported }
             snapshot.elapsed = min(max(0, time), duration)
@@ -66,7 +72,6 @@ public actor MockMediaProvider: MediaProviding {
             snapshot.title = "A Walk Through the City at Midnight — " + String(repeating: "The Extended Live Session ", count: 8)
         case .noArtwork: loadTrack(offset: 0); snapshot.artwork = nil
         case .spotify: loadTrack(offset: 0); snapshot.source = .spotify
-        case .appleMusic: loadTrack(offset: 0); snapshot.source = .appleMusic
         case .queue:
             if !snapshot.hasMedia { loadTrack(offset: 0) }
             snapshot.queue = Array(Self.tracks.dropFirst()); snapshot.capabilities.canReadQueue = true

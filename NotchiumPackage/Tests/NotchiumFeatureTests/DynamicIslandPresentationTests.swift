@@ -171,6 +171,12 @@ final class DynamicIslandPresentationTests: XCTestCase {
         XCTAssertEqual(model.visualState, .expanded)
     }
 
+    func testSwipeOverlayNeverInterceptsPointerHitTesting() {
+        let view = NotchPageSwipeSurface.SwipeView(model: NotchPageModel())
+        view.frame = CGRect(x: 0, y: 0, width: 450, height: 140)
+        XCTAssertNil(view.hitTest(CGPoint(x: 200, y: 80)))
+    }
+
     func testPanelClickPinsTogglesAndDismissesOutside() {
         let model = DynamicIslandPresentationModel(clock: ControlledAppClock())
         let controller = NotchiumPanelController(model: model)
@@ -189,6 +195,8 @@ final class DynamicIslandPresentationTests: XCTestCase {
         controller.handleClick(at: point)
         XCTAssertEqual(model.visualState, .expanded)
         reconcile()
+        controller.handleClick(at: CGPoint(x: 756, y: 900))
+        XCTAssertEqual(model.visualState, .expanded) // Content clicks must reach buttons.
         controller.handleClick(at: point)
         XCTAssertEqual(model.visualState, .collapsed)
         reconcile()

@@ -42,7 +42,7 @@ public struct NotchiumShellView: View {
         )
 
         ZStack(alignment: .top) {
-            Color.clear
+            Color.clear.allowsHitTesting(false)
 
             NotchShellOuterSurface(
                 model: model,
@@ -119,6 +119,7 @@ private struct NotchShellOuterSurface: View {
             }
 
             shape.fill(Color.black)
+                .allowsHitTesting(false)
                 .zIndex(0)
 
             shellContent
@@ -127,9 +128,9 @@ private struct NotchShellOuterSurface: View {
                     height: layout.expandedSize.height,
                     alignment: .top
                 )
-                .zIndex(1)
+                .zIndex(10)
 
-            NotchShellStateMarker(state: model.surfaceState)
+            NotchShellStateMarker(state: model.surfaceState).allowsHitTesting(false)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .overlayPreferenceValue(MediaArtworkAnchorKey.self) { anchor in
@@ -141,6 +142,7 @@ private struct NotchShellOuterSurface: View {
                         .allowsHitTesting(false)
                 }
             }
+            .allowsHitTesting(false)
         }
         .mask(shape)
         .contentShape(shape)

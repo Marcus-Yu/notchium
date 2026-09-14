@@ -2,10 +2,23 @@ import Foundation
 import NotchiumCore
 
 public enum MediaPlaybackState: String, Sendable { case stopped, paused, playing }
-public enum MediaSource: String, CaseIterable, Sendable { case appleMusic = "Apple Music", spotify = "Spotify" }
+public enum MediaSource: String, CaseIterable, Sendable { case spotify = "Spotify" }
 public enum MediaRepeatMode: String, Sendable { case off, context, track }
 public enum MediaCommand: Equatable, Sendable {
-    case playPause, previous, next, seek(TimeInterval), setVolume(Double), toggleShuffle, cycleRepeat
+    case playPause, play, pause, previous, next, seek(TimeInterval), setVolume(Double), toggleShuffle, cycleRepeat
+    case setShuffle(Bool), setRepeatMode(MediaRepeatMode)
+
+    public var controlID: String {
+        switch self {
+        case .playPause, .play, .pause: "playPause"
+        case .previous: "previous"
+        case .next: "next"
+        case .seek: "seek"
+        case .toggleShuffle, .setShuffle: "shuffle"
+        case .cycleRepeat, .setRepeatMode: "repeat"
+        case .setVolume: "volume"
+        }
+    }
 }
 
 public struct MediaCapabilities: Equatable, Sendable {
@@ -25,12 +38,12 @@ public struct MediaCapabilities: Equatable, Sendable {
     }
     public func supports(_ command: MediaCommand) -> Bool {
         switch command {
-        case .playPause: canPlayPause
+        case .playPause, .play, .pause: canPlayPause
         case .previous: canSkipBackward
         case .next: canSkipForward
         case .seek: canSeek
-        case .toggleShuffle: canShuffle
-        case .cycleRepeat: canRepeat
+        case .toggleShuffle, .setShuffle: canShuffle
+        case .cycleRepeat, .setRepeatMode: canRepeat
         case .setVolume: false
         }
     }
@@ -99,6 +112,12 @@ public struct MediaState: Equatable, Sendable {
     public var canPlayPause: Bool { hasMedia && capabilities.canPlayPause }
     public var canSkipForward: Bool { hasMedia && capabilities.canSkipForward }
     public var canSkipBackward: Bool { hasMedia && capabilities.canSkipBackward }
+    public var canPlay: Bool { canPlayPause && !isPlaying }
+    public var canPause: Bool { canPlayPause && isPlaying }
+    public var canNext: Bool { canSkipForward }
+    public var canPrevious: Bool { canSkipBackward }
+    public var canShuffle: Bool { hasMedia && capabilities.canShuffle && shuffle != nil }
+    public var canRepeat: Bool { hasMedia && capabilities.canRepeat && repeatMode != nil }
     public var canSeek: Bool { hasMedia && validDuration != nil && capabilities.canSeek }
     /// A bounded, single-line presentation string; views also apply tail truncation to actual width.
     public var collapsedTitle: String {
@@ -126,9 +145,20 @@ public protocol MediaProviding: Sendable {
     func availability() async -> FeatureAvailability
     func updates() async -> AsyncStream<MediaState>
     func perform(_ command: MediaCommand) async throws
+    func refresh() async
 }
 
 public extension MediaProviding {
+    func play() async throws { try await perform(.play) }
+    func pause() async throws { try await perform(.pause) }
+    func togglePlayPause() async throws { try await perform(.playPause) }
+    func nextTrack() async throws { try await perform(.next) }
+    func previousTrack() async throws { try await perform(.previous) }
+    func setShuffle(_ enabled: Bool) async throws { try await perform(.setShuffle(enabled)) }
+    func setRepeatMode(_ mode: MediaRepeatMode) async throws { try await perform(.setRepeatMode(mode)) }
+    // Passive test adapters may have no external state to refresh.
+    func refresh() async {}
+
     func seek(to position: Double) async throws { try await perform(.seek(position)) }
 }
 

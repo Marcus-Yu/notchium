@@ -50,6 +50,20 @@ private actor RacingMediaTransport: MediaHTTPTransport {
     func failHeldPoll() { held?.resume(throwing: MediaFailure.invalidResponse); held = nil }
 }
 
+private actor HeldNextTransport: MediaHTTPTransport {
+    let playback: Data
+    private var next: CheckedContinuation<MediaHTTPResponse, any Error>?
+    init(playback: Data) { self.playback = playback }
+    func send(_ request: URLRequest) async throws -> MediaHTTPResponse {
+        if request.url?.path.hasSuffix("/next") == true {
+            return try await withCheckedThrowingContinuation { next = $0 }
+        }
+        return request.httpMethod == "GET" ? .init(data: playback, status: 200) : .init(status: 204)
+    }
+    func waitForNext() async { while next == nil { await Task.yield() } }
+    func finishNext() { next?.resume(returning: .init(status: 204)); next = nil }
+}
+
 @MainActor final class SpotifyMediaTests: XCTestCase {
     private func authorizedStore() -> MemorySpotifyStore {
         .init(data: Data(#"{"clientID":"fixture","accessToken":"fixture-access","refreshToken":"fixture-refresh","expiration":9999999999}"#.utf8))
@@ -216,5 +230,71 @@ private actor RacingMediaTransport: MediaHTTPTransport {
         let api = SpotifyPlaybackAPI(authorization: .init(store: authorizedStore(), transport: transport), transport: transport)
         let queue = try await api.queue()
         XCTAssertEqual(queue.count, 20); XCTAssertEqual(Set(queue.map(\.id)).count, 20)
+    }
+
+    func testEverySpotifyCommandImmediatelyRefreshesWithoutPolling() async throws {
+        let data = Data(String(decoding: playback(), as: UTF8.self)
+            .replacingOccurrences(of: "\"skipping_next\":true", with: "\"skipping_next\":false").utf8)
+        let commands: [MediaCommand] = [.pause, .play, .next, .previous, .seek(122),
+                                       .setShuffle(true), .setShuffle(false),
+                                       .setRepeatMode(.context), .setRepeatMode(.track), .setRepeatMode(.off)]
+        var responses: [MediaHTTPResponse] = [.init(data: data, status: 200)]
+        for _ in commands { responses += [.init(status: 204), .init(data: data, status: 200)] }
+        let transport = ScriptedMediaTransport(responses)
+        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
+        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
+                                         transport: transport, clock: clock)
+        try await provider.connect()
+        await clock.waitForPendingSleeps()
+        for command in commands { try await provider.perform(command) }
+        let requests = await transport.requests
+        XCTAssertEqual(requests.count, 21)
+        let paths = ["pause", "play", "next", "previous", "seek", "shuffle", "shuffle", "repeat", "repeat", "repeat"]
+        let queries: [String?] = [nil, nil, nil, nil, "position_ms=122000", "state=true", "state=false",
+                                 "state=context", "state=track", "state=off"]
+        for index in commands.indices {
+            XCTAssertEqual(requests[1 + index * 2].url?.path, "/v1/me/player/" + paths[index])
+            XCTAssertEqual(requests[1 + index * 2].httpMethod, (index == 2 || index == 3) ? "POST" : "PUT")
+            XCTAssertEqual(requests[1 + index * 2].url?.query, queries[index])
+            XCTAssertEqual(requests[2 + index * 2].httpMethod, "GET")
+            XCTAssertEqual(requests[2 + index * 2].url?.path, "/v1/me/player")
+        }
+        await provider.shutdown()
+    }
+    func testNoActiveDeviceFailureRecoversWithDisabledCapabilities() async throws {
+        let transport = ScriptedMediaTransport([.init(data: playback(), status: 200),
+                                                 .init(status: 404), .init(status: 404)])
+        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
+        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
+                                         transport: transport, clock: clock)
+        try await provider.connect()
+        await clock.waitForPendingSleeps()
+        do { try await provider.pause(); XCTFail("Missing device accepted") }
+        catch { XCTAssertEqual(error as? MediaFailure, .disconnected) }
+        await provider.refresh()
+        var iterator = await provider.updates().makeAsyncIterator()
+        let state = await iterator.next()
+        XCTAssertEqual(state?.title, "Midnight City")
+        XCTAssertFalse(state?.canPlayPause ?? true)
+        XCTAssertFalse(state?.canSeek ?? true)
+        await provider.shutdown()
+    }
+    func testRealProviderAllowsPauseWhileNextIsPendingAndRejectsDuplicateNext() async throws {
+        let data = Data(String(decoding: playback(), as: UTF8.self)
+            .replacingOccurrences(of: "\"skipping_next\":true", with: "\"skipping_next\":false").utf8)
+        let transport = HeldNextTransport(playback: data)
+        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
+        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
+                                         transport: transport, clock: clock)
+        try await provider.connect()
+        await clock.waitForPendingSleeps()
+        let next = Task { try await provider.nextTrack() }
+        await transport.waitForNext()
+        do { try await provider.nextTrack(); XCTFail("Duplicate next accepted") }
+        catch { XCTAssertEqual(error as? MediaFailure, .busy) }
+        try await provider.pause() // Must finish while Next is still held.
+        await transport.finishNext()
+        try await next.value
+        await provider.shutdown()
     }
 }

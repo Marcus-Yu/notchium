@@ -99,8 +99,6 @@ import NotchiumCore
         XCTAssertGreaterThan(state.title!.count, state.collapsedTitle.count)
         try await provider.apply(.spotify)
         state = await provider.snapshot; XCTAssertEqual(state.source, .spotify)
-        try await provider.apply(.appleMusic)
-        state = await provider.snapshot; XCTAssertEqual(state.source, .appleMusic)
         try await provider.apply(.queue)
         state = await provider.snapshot; XCTAssertEqual(state.queue?.count, 2)
         XCTAssertEqual(Set(state.queue!.map(\.id)).count, 2)
@@ -138,7 +136,7 @@ import NotchiumCore
         let paused = await iterator.next()
         XCTAssertEqual(paused?.playbackState, .paused)
         let commands = await provider.commands
-        XCTAssertEqual(commands, [.playPause])
+        XCTAssertEqual(commands, [.pause])
         model.stop()
     }
     func testStageFourEnablesOnlyMediaAndShell() {

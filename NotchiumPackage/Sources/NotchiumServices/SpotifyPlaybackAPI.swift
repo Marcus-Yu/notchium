@@ -83,6 +83,12 @@ struct SpotifyPlaybackAPI: Sendable {
         var method = "PUT"
         var query: [URLQueryItem] = []
         switch command {
+        case .play: path = "/play"
+        case .pause: path = "/pause"
+        case .setShuffle(let enabled):
+            path = "/shuffle"; query = [.init(name: "state", value: String(enabled))]
+        case .setRepeatMode(let mode):
+            path = "/repeat"; query = [.init(name: "state", value: mode.rawValue)]
         case .playPause: path = state.isPlaying ? "/pause" : "/play"
         case .previous: path = "/previous"; method = "POST"
         case .next: path = "/next"; method = "POST"

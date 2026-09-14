@@ -1,17 +1,16 @@
 import Foundation
 import NotchiumCore
 
-/// Approved public Spotify adapter. MusicKit.SystemMusicPlayer is unavailable on macOS.
+/// Approved public Spotify adapter.
 /// One app-scoped polling task exists while authenticated, independent of subscribers.
 public actor RealMediaProvider: MediaProviding {
-    public static let appleMusicLimitation = "Apple Music observation is unavailable: MusicKit.SystemMusicPlayer is marked unavailable on macOS."
     public let authorization: SpotifyAuthorization
     private let api: SpotifyPlaybackAPI
     private let clock: any AppClock
     private var state = MediaState(availability: .unavailable(.permissionNotDetermined))
     private var subscribers: [UUID: AsyncStream<MediaState>.Continuation] = [:]
     private var pollTask: Task<Void, Never>?
-    private var commandInFlight = false
+    private var pendingControls: Set<String> = []
     private var retryAt: Date?
     private var connected = false
     private var generation = 0
@@ -74,7 +73,7 @@ public actor RealMediaProvider: MediaProviding {
             if remaining > 0 { return .seconds(remaining) }
             self.retryAt = nil
         }
-        guard !commandInFlight else { return .milliseconds(500) }
+        guard pendingControls.isEmpty else { return .milliseconds(500) }
         let revision = observationRevision
         let refreshStarted = await clock.now()
         do {
@@ -105,22 +104,45 @@ public actor RealMediaProvider: MediaProviding {
         return .seconds(max(0, 0.5 - (await clock.now()).timeIntervalSince(refreshStarted)))
     }
     public func perform(_ command: MediaCommand) async throws {
-        guard !commandInFlight else { throw MediaFailure.busy }
+        guard !pendingControls.contains(command.controlID) else { throw MediaFailure.busy }
         if let retryAt, retryAt > (await clock.now()) { throw MediaFailure.rateLimited(30) }
-        commandInFlight = true
+        pendingControls.insert(command.controlID)
         observationRevision &+= 1
-        defer { commandInFlight = false }
+        defer { pendingControls.remove(command.controlID) }
         let generation = generation
         do {
             try await api.perform(command, state: state)
+            observationRevision &+= 1
+            let revision = observationRevision
             let next = try await api.state()
-            guard self.generation == generation else { return }
+            guard self.generation == generation, revision == observationRevision else { return }
             publish(next) // Never pretend a command or seek succeeded before confirmed observation.
         } catch {
             if case MediaFailure.rateLimited(let seconds) = error {
                 retryAt = await clock.now().addingTimeInterval(Double(seconds))
             }
             throw error
+        }
+    }
+    public func refresh() async {
+        if let retryAt, retryAt > (await clock.now()) { return }
+        let generation = generation
+        observationRevision &+= 1
+        let revision = observationRevision
+        do {
+            let next = try await api.state()
+            guard self.generation == generation, revision == observationRevision else { return }
+            publish(next)
+        } catch {
+            guard self.generation == generation, revision == observationRevision else { return }
+            if case MediaFailure.rateLimited(let seconds) = error {
+                retryAt = await clock.now().addingTimeInterval(Double(seconds))
+            }
+            if error as? MediaFailure == .disconnected || error as? MediaFailure == .authorization {
+                var next = state
+                next.capabilities = .init()
+                publish(next)
+            }
         }
     }
     public func loadQueue() async throws {

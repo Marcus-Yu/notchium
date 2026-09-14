@@ -12,6 +12,25 @@ struct NotchPageSwipeSurface: NSViewRepresentable {
         var model: NotchPageModel
         private var horizontalDistance: CGFloat = 0
         private var switched = false
+        // AppKit monitor token is installed on main and only released at teardown.
+        nonisolated(unsafe) private var scrollMonitor: Any?
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let scrollMonitor { NSEvent.removeMonitor(scrollMonitor); self.scrollMonitor = nil }
+            guard window != nil else { return }
+            scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+                guard let self, event.window === self.window,
+                      self.bounds.contains(self.convert(event.locationInWindow, from: nil)) else { return event }
+                self.scrollWheel(with: event)
+                return event
+            }
+        }
+
+        deinit { if let scrollMonitor { NSEvent.removeMonitor(scrollMonitor) } }
+
 
         init(model: NotchPageModel) {
             self.model = model

@@ -14,12 +14,15 @@ struct MediaProgressView: View {
             let position = isDragging ? draggedPosition : model.displayedPosition(at: timeline.date)
             VStack(spacing: 2) {
                 Slider(value: Binding(get: { position }, set: { draggedPosition = $0 }),
-                       in: 0...max(1, model.state.validDuration ?? 1)) { Text("Playback position") }
+                       in: 0...max(1, model.state.validDuration ?? 1)) { Text("Seek") }
                 onEditingChanged: { editing in
                     if editing {
                         draggedPosition = model.displayedPosition(at: timeline.date)
                         isDragging = true
                     } else {
+                        #if DEBUG
+                        print("[MediaControl] SEEK tapped")
+                        #endif
                         model.seek(to: draggedPosition)
                         isDragging = false
                     }
@@ -42,7 +45,7 @@ struct MediaProgressView: View {
                     .background(.black)
                     .allowsHitTesting(false).accessibilityHidden(true)
                 }
-                .disabled(!model.state.canSeek || (model.isBusy && !isDragging))
+                .disabled(!model.state.canSeek || (model.isPending(.seek(0)) && !isDragging))
                 .accessibilityValue(Self.time(position))
                 HStack {
                     Text(Self.time(position))

@@ -115,6 +115,9 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         panel.backgroundColor = .clear
         panel.hasShadow = false
         panel.ignoresMouseEvents = model.surfaceState == .collapsed
+        #if DEBUG
+        print("[MediaHitTest] expanded=\(model.surfaceState != .collapsed) ignoresMouseEvents=\(panel.ignoresMouseEvents)")
+        #endif
         installPointerMonitorsIfNeeded()
 
         if model.visualState == .expanded {
@@ -246,7 +249,7 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         if localPointerMonitor == nil {
             localPointerMonitor = NSEvent.addLocalMonitorForEvents(matching: eventMask) {
                 [weak self] event in
-                let location = NSEvent.mouseLocation
+                let location = event.window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation
                 Task { @MainActor [weak self] in
                     self?.handlePointerEvent(event.type, at: location)
                 }
@@ -270,8 +273,15 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         guard let currentLayout else { return }
         let region = model.surfaceState == .collapsed
             ? currentLayout.collapsedHoverFrame : currentLayout.visibleSurfaceFrame
+        #if DEBUG
+        print("[MediaHitTest] click=\(point) content=\(region)")
+        #endif
         if NotchHoverRegion.contains(point, in: region) {
-            model.toggleExpanded()
+            // The header owns pin/unpin; content clicks belong to native controls.
+            if model.surfaceState == .collapsed
+                || NotchHoverRegion.contains(point, in: currentLayout.collapsedHoverFrame) {
+                model.toggleExpanded()
+            }
         } else if model.visualState == .expanded {
             model.collapse()
         }
