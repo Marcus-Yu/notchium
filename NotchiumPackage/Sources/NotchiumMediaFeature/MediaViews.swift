@@ -2,31 +2,25 @@ import SwiftUI
 import NotchiumServices
 import NotchiumDynamicIsland
 
-/// Decorative playback motion, never audio-derived. No scheduler exists in the still branch.
+/// Seven bands of real system-audio energy. There is no view-owned timer.
 public struct MediaWaveform: View {
     public let isPlaying: Bool
+    @ObservedObject private var meter: SystemAudioMeter
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.isLuminanceReduced) private var reducedLuminance
-    public init(isPlaying: Bool) { self.isPlaying = isPlaying }
-    public var body: some View {
-        Group {
-            if isPlaying && !reduceMotion && !reducedLuminance && !ProcessInfo.processInfo.isLowPowerModeEnabled {
-                TimelineView(.animation(minimumInterval: 1 / 15)) { context in
-                    bars(time: context.date.timeIntervalSinceReferenceDate)
-                }
-            } else { bars(time: 0) }
-        }
-        .frame(width: 16, height: 12)
-        .accessibilityLabel(isPlaying ? "Playing" : "Paused")
+    public init(isPlaying: Bool, meter: SystemAudioMeter) {
+        self.isPlaying = isPlaying; self.meter = meter
     }
-    private func bars(time: Double) -> some View {
-        HStack(spacing: 1) {
-            ForEach(0..<5) { bar in
+    public var body: some View {
+        let levels = isPlaying && !reduceMotion ? meter.waveformLevels : SystemAudioMeter.staticLevels
+        HStack(spacing: 1.5) {
+            ForEach(0..<7) { band in
                 Capsule().fill(.white)
-                    .frame(width: 2, height: 3 + 9 * abs(sin(time * 2.4 + Double(bar) * 0.8)))
+                    .frame(width: 2, height: 16 * levels[band])
             }
         }
-        .animation(.linear(duration: 1 / 15), value: time)
+        .frame(width: 24, height: 16)
+        .transaction { $0.animation = nil }
+        .accessibilityLabel(isPlaying ? "Playing" : "Paused")
     }
 }
 
@@ -39,25 +33,10 @@ public struct CollapsedMediaView: View {
     }
     public var body: some View {
         HStack(spacing: 0) {
-            HStack(spacing: 6) {
-                MediaArtworkSlot(url: model.state.artwork, size: geometry.artworkSize, expanded: false)
-                Group {
-                    if geometry.height >= 30 {
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(model.state.collapsedTitle).font(.system(size: 10, weight: .semibold))
-                            Text(model.state.artist ?? "").font(.system(size: 9)).foregroundStyle(.gray)
-                        }
-                    } else {
-                        Text("\(model.state.collapsedTitle) · \(model.state.artist ?? "")")
-                            .font(.system(size: 10, weight: .semibold))
-                    }
-                }
-                .lineLimit(1).truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .padding(.horizontal, 6).frame(width: geometry.leadingWidth)
+            MediaArtworkSlot(url: model.state.artwork, size: geometry.artworkSize, expanded: false)
+                .frame(width: geometry.leadingWidth)
             Color.black.frame(width: geometry.hardwareWidth)
-            MediaWaveform(isPlaying: model.state.isPlaying).frame(width: geometry.trailingWidth)
+            MediaWaveform(isPlaying: model.state.isPlaying, meter: model.audioMeter).frame(width: geometry.trailingWidth)
         }
         .frame(width: geometry.width, height: geometry.height)
         .foregroundStyle(.white)
@@ -75,9 +54,9 @@ public struct MediaPageView: View {
                 HStack(spacing: 14) {
                     MediaArtworkSlot(url: model.state.artwork, size: 90, expanded: true)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(model.state.title ?? "").font(.system(size: 14, weight: .semibold))
+                        Text(model.state.title ?? "").font(.system(size: 17, weight: .semibold))
                             .lineLimit(1).truncationMode(.tail)
-                        Text(model.state.artist ?? "").font(.system(size: 12)).foregroundStyle(.gray)
+                        Text(model.state.artist ?? "").font(.system(size: 13, weight: .regular)).foregroundStyle(.gray)
                             .lineLimit(1).truncationMode(.tail)
                         MediaProgressView(model: model).padding(.top, 4)
                         controls.padding(.top, 4)

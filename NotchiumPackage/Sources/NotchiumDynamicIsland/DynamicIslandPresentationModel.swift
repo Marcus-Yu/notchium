@@ -55,7 +55,7 @@ public final class DynamicIslandPresentationModel {
 
     public var showsCollapsedMedia: Bool {
         _ = activityRevision
-        return mediaRenderer != nil && activityCoordinator.activeActivity?.kind == .media && visualState == .collapsed
+        return mediaRenderer?.collapsedMediaVisible == true && activityCoordinator.activeActivity?.kind == .media && visualState == .collapsed
     }
     private var activityRevision = 0
     @ObservationIgnored private var activityObservation: AnyCancellable?
@@ -72,7 +72,8 @@ public final class DynamicIslandPresentationModel {
 
     /// Activities reuse the existing open shell geometry without becoming pinned.
     public var surfaceState: NotchStableState {
-        showsCollapsedMedia ? .collapsed : (presentationState == .activity ? .hovered : visualState)
+        (mediaRenderer != nil && activityCoordinator.activeActivity?.kind == .media && visualState == .collapsed)
+            ? .collapsed : (presentationState == .activity ? .hovered : visualState)
     }
 
     public var visualState: NotchStableState {

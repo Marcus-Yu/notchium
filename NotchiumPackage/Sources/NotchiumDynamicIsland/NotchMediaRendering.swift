@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Content injection keeps services and media feature state outside the frozen shell engine.
 @MainActor public protocol NotchMediaRendering: AnyObject {
+    var collapsedMediaVisible: Bool { get }
     func collapsedMedia(hardwareWidth: CGFloat, hardwareHeight: CGFloat) -> AnyView
     func expandedMedia() -> AnyView
     func mediaArtwork(size: CGFloat) -> AnyView
@@ -27,12 +28,12 @@ public struct CollapsedMediaGeometry: Equatable {
     public let leadingWidth: CGFloat
     public let trailingWidth: CGFloat
     public var width: CGFloat { leadingWidth + hardwareWidth + trailingWidth }
-    public var artworkSize: CGFloat { max(0, height - 12) }
+    public var artworkSize: CGFloat { max(0, min(24, height - 8)) }
     public init(hardwareWidth: CGFloat, hardwareHeight: CGFloat) {
         self.hardwareWidth = hardwareWidth
         height = hardwareHeight
         // Equal flank allocations keep the camera exactly centered, including its blank right gutter.
-        leadingWidth = max(0, min(100, (380 - hardwareWidth) / 2))
+        leadingWidth = max(0, min(24, hardwareHeight - 8)) + 16
         trailingWidth = leadingWidth
     }
 }

@@ -49,7 +49,7 @@ public struct MediaArtwork: View {
     public init(url: URL?, size: CGFloat) { self.url = url; self.size = size }
     public var body: some View {
         ZStack {
-            if let image { Image(nsImage: image).resizable().scaledToFill() }
+            if let image { Image(nsImage: image).resizable().scaledToFill().id(image).transition(.opacity) }
             else if url?.scheme == "notchium-fixture" {
                 // Local, deterministic fixture artwork; no external requests in mocks.
                 Color(red: 0.15, green: 0.25, blue: 0.32)
@@ -65,11 +65,13 @@ public struct MediaArtwork: View {
         .clipShape(.rect(cornerRadius: size > 24 ? 13 : 4))
         .accessibilityHidden(true)
         .task(id: url) {
-            image = nil
-            guard let url, url.scheme == "https" else { return }
+            guard let url, url.scheme == "https" else {
+                withAnimation(.easeInOut(duration: 0.18)) { image = nil }
+                return
+            }
             let loaded = try? await MediaArtworkCache.shared.load(url)
             guard !Task.isCancelled else { return }
-            image = loaded
+            withAnimation(.easeInOut(duration: 0.18)) { image = loaded }
         }
     }
 }

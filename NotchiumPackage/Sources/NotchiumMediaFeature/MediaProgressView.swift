@@ -49,7 +49,7 @@ struct MediaProgressView: View {
                     Spacer()
                     Text(model.state.validDuration.map(Self.time) ?? "–:––")
                 }
-                .font(.system(size: 9, design: .monospaced)).foregroundStyle(.gray)
+                .font(.system(size: 11, weight: .medium)).monospacedDigit().foregroundStyle(.gray)
             }
             // A transport update must never implicitly animate the slider backward through a track change.
             .transaction { $0.animation = nil }
