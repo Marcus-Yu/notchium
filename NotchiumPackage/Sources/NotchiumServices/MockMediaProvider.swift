@@ -37,6 +37,7 @@ public actor MockMediaProvider: MediaProviding {
         guard snapshot.hasMedia, snapshot.capabilities.supports(command) else { throw MediaFailure.unsupported }
         commands.append(command)
         if commands.count > 32 { commands.removeFirst() }
+        rebasePosition()
         switch command {
         case .playPause: snapshot.playbackState = snapshot.isPlaying ? .paused : .playing
         case .next: loadTrack(offset: 1)
@@ -49,9 +50,11 @@ public actor MockMediaProvider: MediaProviding {
             snapshot.repeatMode = snapshot.repeatMode == .off ? .context : snapshot.repeatMode == .context ? .track : .off
         case .setVolume: throw MediaFailure.unsupported
         }
+        snapshot.playbackRate = snapshot.isPlaying ? 1 : 0
         publish(snapshot)
     }
     public func apply(_ fixture: MediaFixture) throws {
+        rebasePosition()
         switch fixture {
         case .play: loadTrack(offset: 0)
         case .pause: if snapshot.hasMedia { snapshot.playbackState = .paused }
@@ -69,7 +72,13 @@ public actor MockMediaProvider: MediaProviding {
             snapshot.queue = Array(Self.tracks.dropFirst()); snapshot.capabilities.canReadQueue = true
         case .stop: snapshot = .init()
         }
+        snapshot.playbackRate = snapshot.isPlaying ? 1 : 0
         publish(snapshot)
+    }
+    private func rebasePosition() {
+        let now = Date()
+        snapshot.elapsed = estimatedPlaybackPosition(at: now, state: snapshot)
+        snapshot.timestamp = now
     }
     private func loadTrack(offset: Int) {
         trackIndex = (trackIndex + offset + Self.tracks.count) % Self.tracks.count

@@ -57,6 +57,8 @@ public struct MediaState: Equatable, Sendable {
     public var source: MediaSource?
     public var elapsed: TimeInterval
     public var duration: TimeInterval?
+    public var timestamp: Date
+    public var playbackRate: Double
     public var capabilities: MediaCapabilities
     public var shuffle: Bool?
     public var repeatMode: MediaRepeatMode?
@@ -68,12 +70,15 @@ public struct MediaState: Equatable, Sendable {
                 artist: String? = nil, elapsed: TimeInterval = 0, duration: TimeInterval? = nil,
                 trackID: String? = nil, artwork: URL? = nil, source: MediaSource? = nil,
                 capabilities: MediaCapabilities = .init(), shuffle: Bool? = nil,
-                repeatMode: MediaRepeatMode? = nil, queue: [MediaQueueItem]? = nil, issue: String? = nil) {
+                repeatMode: MediaRepeatMode? = nil, queue: [MediaQueueItem]? = nil, issue: String? = nil,
+                timestamp: Date = Date(), playbackRate: Double? = nil) {
         self.availability = availability; self.playbackState = playbackState
         self.title = title; self.artist = artist; self.elapsed = elapsed; self.duration = duration
         self.trackID = trackID; self.artwork = artwork; self.source = source
         self.capabilities = capabilities; self.shuffle = shuffle; self.repeatMode = repeatMode
         self.queue = queue; self.issue = issue
+        self.timestamp = timestamp
+        self.playbackRate = playbackRate ?? (playbackState == .playing ? 1 : 0)
     }
     public var isPlaying: Bool { playbackState == .playing }
     public var hasMedia: Bool { availability.isUsable && playbackState != .stopped && title != nil }
@@ -84,6 +89,11 @@ public struct MediaState: Equatable, Sendable {
     public var validDuration: TimeInterval? {
         guard let duration, duration.isFinite, duration > 0 else { return nil }
         return duration
+    }
+    /// Metadata changes also invalidate a pending seek when a provider reuses its track ID.
+    public func isSameTrack(as other: MediaState) -> Bool {
+        source == other.source && trackID == other.trackID && title == other.title
+            && artist == other.artist && artwork == other.artwork
     }
     public var progress: Double { validDuration.map { elapsedTime / $0 } ?? 0 }
     public var canPlayPause: Bool { hasMedia && capabilities.canPlayPause }
@@ -116,6 +126,22 @@ public protocol MediaProviding: Sendable {
     func availability() async -> FeatureAvailability
     func updates() async -> AsyncStream<MediaState>
     func perform(_ command: MediaCommand) async throws
+}
+
+public extension MediaProviding {
+    func seek(to position: Double) async throws { try await perform(.seek(position)) }
+}
+
+/// Interpolates a real observation; never accumulates timer ticks or mutates provider state.
+public func estimatedPlaybackPosition(at now: Date, state: MediaState) -> Double {
+    guard let duration = state.validDuration else { return 0 }
+    guard state.isPlaying, state.playbackRate.isFinite, state.playbackRate > 0 else {
+        return state.elapsedTime
+    }
+    let delta = now.timeIntervalSince(state.timestamp)
+    guard delta.isFinite else { return state.elapsedTime }
+    let estimated = state.elapsedTime + delta * state.playbackRate
+    return min(max(estimated, 0), duration)
 }
 
 // Preserve the Stage 1 names at existing injection sites.

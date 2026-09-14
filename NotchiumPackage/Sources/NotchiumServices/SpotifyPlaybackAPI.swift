@@ -22,7 +22,9 @@ struct SpotifyPlayback: Decodable {
     let shuffle_state: Bool?
     let repeat_state: String?
 
-    func mediaState() -> MediaState {
+    // Spotify's timestamp is the last transport change, not the sampling time of progress_ms.
+    // Pair the current progress with observation receipt to avoid counting playback twice.
+    func mediaState(observedAt: Date = Date()) -> MediaState {
         guard let item, item.type == nil || item.type == "track" else { return .init(source: .spotify) }
         let disallows = actions?.disallows ?? [:]
         let controllable = device != nil && device?.is_restricted != true
@@ -38,7 +40,8 @@ struct SpotifyPlayback: Decodable {
                                          canSeek: allows("seeking"), canShuffle: allows("toggling_shuffle"),
                                          canRepeat: allows("toggling_repeat_context") && allows("toggling_repeat_track"),
                                          canReadQueue: true),
-                     shuffle: shuffle_state, repeatMode: repeat_state.flatMap(MediaRepeatMode.init(rawValue:)))
+                     shuffle: shuffle_state, repeatMode: repeat_state.flatMap(MediaRepeatMode.init(rawValue:)),
+                     timestamp: observedAt, playbackRate: is_playing ? 1 : 0)
     }
 }
 
