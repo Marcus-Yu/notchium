@@ -10,6 +10,17 @@ import NotchiumCore
     private func presentation() -> DynamicIslandPresentationModel {
         .init(clock: TestAppClock(now: Date(timeIntervalSince1970: 0), automaticallyAdvances: false))
     }
+    func testMediaExperienceStatesKeepSpotifyPageRepresentableThroughoutColdLaunch() {
+        XCTAssertEqual(MediaState(connectionState: .initializing).experienceState, .initializing)
+        XCTAssertEqual(MediaState(connectionState: .authorizing).experienceState, .authorizing)
+        XCTAssertEqual(MediaState(connectionState: .unauthenticated).experienceState, .unauthenticated)
+        XCTAssertEqual(MediaState(connectionState: .authenticated).experienceState, .inactive)
+        XCTAssertEqual(MediaState(connectionState: .error).experienceState, .error)
+        XCTAssertEqual(MediaState(connectionState: .authenticated, playbackState: .playing,
+                                  title: "Track").experienceState, .playing)
+        XCTAssertEqual(MediaState(connectionState: .authenticated, playbackState: .paused,
+                                  title: "Track").experienceState, .paused)
+    }
     func testPassivePlayingPausedStoppedAndFrozenDimensions() async throws {
         let presentation = presentation()
         let provider = MockMediaProvider()
@@ -100,8 +111,8 @@ import NotchiumCore
         try await provider.apply(.spotify)
         state = await provider.snapshot; XCTAssertEqual(state.source, .spotify)
         try await provider.apply(.queue)
-        state = await provider.snapshot; XCTAssertEqual(state.queue?.count, 2)
-        XCTAssertEqual(Set(state.queue!.map(\.id)).count, 2)
+        state = await provider.snapshot; XCTAssertEqual(state.queue.count, 5)
+        XCTAssertEqual(Set(state.queue.map(\.id)).count, 5)
     }
     func testInvalidProgressAndUnsupportedCommands() async throws {
         for duration in [0.0, -1, .infinity, .nan] {
@@ -133,7 +144,8 @@ import NotchiumCore
         let initial = await iterator.next()
         model.receive(initial!)
         model.send(.playPause)
-        let paused = await iterator.next()
+        var paused = await iterator.next()
+        while paused?.playbackState != .paused { paused = await iterator.next() }
         XCTAssertEqual(paused?.playbackState, .paused)
         let commands = await provider.commands
         XCTAssertEqual(commands, [.pause])
@@ -147,15 +159,46 @@ import NotchiumCore
     func testArtworkAndExpandedContentRender() async throws {
         let provider = MockMediaProvider()
         try await provider.apply(.play)
+        try await provider.apply(.queue)
         let model = MediaFeatureModel(provider: provider, coordinator: presentation().activityCoordinator)
         model.receive(await provider.snapshot)
         let expanded = ImageRenderer(content: MediaPageView(model: model).frame(width: 450, height: 140).background(.black))
         let collapsed = ImageRenderer(content: CollapsedMediaView(model: model, hardwareWidth: 180)
             .frame(width: 380, height: 32).background(.black))
-        for (name, renderer) in [("expanded", expanded.nsImage), ("collapsed", collapsed.nsImage)] {
+        let upNext = ImageRenderer(content: UpNextView(state: model.state)
+            .frame(width: 402, height: 112).background(.black))
+        for (name, renderer) in [("expanded", expanded.nsImage), ("collapsed", collapsed.nsImage),
+                                 ("up-next", upNext.nsImage)] {
             let image = try XCTUnwrap(renderer)
             let tiff = try XCTUnwrap(image.tiffRepresentation)
             let png = try XCTUnwrap(NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]))
+            try png.write(to: URL(fileURLWithPath: "/private/tmp/notchium-media-\(name).png"))
+        }
+    }
+    func testColdLaunchSpotifyStatesRenderVisibleMediaContent() throws {
+        let model = MediaFeatureModel(provider: MockMediaProvider(),
+                                      coordinator: presentation().activityCoordinator)
+        let states: [(String, MediaState)] = [
+            ("initializing", .init(availability: .unavailable(.permissionNotDetermined),
+                                   connectionState: .initializing, source: .spotify)),
+            ("authorizing", .init(availability: .unavailable(.permissionNotDetermined),
+                                  connectionState: .authorizing, source: .spotify)),
+            ("unauthenticated", .init(availability: .unavailable(.permissionNotDetermined),
+                                      connectionState: .unauthenticated, source: .spotify)),
+            ("inactive", .init(connectionState: .authenticated, source: .spotify)),
+            ("error", .init(availability: .unavailable(.temporarilyUnavailable),
+                            connectionState: .error, source: .spotify,
+                            issue: "Spotify could not restore your session.")),
+        ]
+
+        for (name, state) in states {
+            model.receive(state)
+            let renderer = ImageRenderer(content: MediaPageView(model: model)
+                .frame(width: 450, height: 140).background(.black))
+            let image = try XCTUnwrap(renderer.nsImage)
+            let tiff = try XCTUnwrap(image.tiffRepresentation)
+            let png = try XCTUnwrap(NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]))
+            XCTAssertGreaterThan(png.count, 1_000)
             try png.write(to: URL(fileURLWithPath: "/private/tmp/notchium-media-\(name).png"))
         }
     }

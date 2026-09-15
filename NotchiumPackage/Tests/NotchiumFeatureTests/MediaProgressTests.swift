@@ -8,14 +8,18 @@ import NotchiumCore
 private actor HeldSeekProvider: MediaProviding {
     private var continuation: CheckedContinuation<Void, any Error>?
     private var waiters: [CheckedContinuation<Void, Never>] = []
+    private(set) var requestedPositions: [Double] = []
+    private(set) var refreshCount = 0
     func availability() -> FeatureAvailability { .available }
     func updates() -> AsyncStream<MediaState> { AsyncStream { $0.finish() } }
     func perform(_ command: MediaCommand) async throws {
+        if case .seek(let position) = command { requestedPositions.append(position) }
         try await withCheckedThrowingContinuation { continuation in
             self.continuation = continuation
             waiters.forEach { $0.resume() }; waiters.removeAll()
         }
     }
+    func refresh() async { refreshCount += 1 }
     func waitForSeek() async {
         if continuation != nil { return }
         await withCheckedContinuation { waiters.append($0) }
@@ -62,7 +66,7 @@ private actor HeldSeekProvider: MediaProviding {
         let provider = HeldSeekProvider()
         let model = MediaFeatureModel(provider: provider, coordinator: ActivityCoordinator(clock: TestAppClock(now: now, automaticallyAdvances: false)))
         model.receive(sample())
-        model.seek(to: 90, at: now)
+        let seek = Task { try await model.seek(to: 90, at: now) }
         await provider.waitForSeek()
         XCTAssertEqual(model.displayedPosition(at: now.addingTimeInterval(1)), 90)
         var stale = sample(elapsed: 31); stale.timestamp = now.addingTimeInterval(1)
@@ -73,13 +77,15 @@ private actor HeldSeekProvider: MediaProviding {
         XCTAssertNil(model.pendingSeek)
         XCTAssertEqual(model.displayedPosition(at: now.addingTimeInterval(3)), 93)
         await provider.finish()
+        try? await seek.value
     }
     func testMetadataChangeImmediatelyResetsPendingSeek() async {
         // Test metadata changes even when the source reuses its ID.
         for field in ["title", "artist", "artwork", "trackID"] {
             let provider = HeldSeekProvider()
             let model = MediaFeatureModel(provider: provider, coordinator: ActivityCoordinator(clock: TestAppClock(now: now, automaticallyAdvances: false)))
-            model.receive(sample()); model.seek(to: 90, at: now)
+            model.receive(sample())
+            let seek = Task { try await model.seek(to: 90, at: now) }
             await provider.waitForSeek()
             var next = sample(elapsed: 2)
             switch field {
@@ -92,18 +98,43 @@ private actor HeldSeekProvider: MediaProviding {
             XCTAssertNil(model.pendingSeek)
             XCTAssertEqual(model.displayedPosition(at: now), 2)
             await provider.finish()
+            try? await seek.value
         }
     }
     func testFailedSeekReleasesOptimisticPosition() async {
         let provider = HeldSeekProvider()
         let model = MediaFeatureModel(provider: provider, coordinator: ActivityCoordinator(clock: TestAppClock(now: now, automaticallyAdvances: false)))
-        model.receive(sample()); model.seek(to: 90, at: now)
+        model.receive(sample())
+        let seek = Task { try await model.seek(to: 90, at: now) }
         await provider.waitForSeek(); await provider.finish(failing: true)
+        do { try await seek.value; XCTFail("Failed seek succeeded") } catch {}
         for _ in 0..<20 where model.isBusy { await Task.yield() }
         XCTAssertFalse(model.isBusy)
         XCTAssertNil(model.pendingSeek)
         XCTAssertNotNil(model.errorMessage)
         XCTAssertEqual(model.displayedPosition(at: now), 30)
+    }
+    func testSeekCallsProviderOnceWithoutRedundantRefresh() async throws {
+        let provider = HeldSeekProvider()
+        let model = MediaFeatureModel(provider: provider, coordinator: ActivityCoordinator(
+            clock: TestAppClock(now: now, automaticallyAdvances: false)))
+        model.receive(sample(elapsed: 120))
+        let seek = Task { try await model.seek(to: 60, at: now) }
+        await provider.waitForSeek()
+        XCTAssertTrue(model.seekInFlight)
+        XCTAssertEqual(model.lastSeekTarget, 60)
+        let requestedPositions = await provider.requestedPositions
+        XCTAssertEqual(requestedPositions, [60])
+        await provider.finish()
+        try await seek.value
+        let refreshCount = await provider.refreshCount
+        XCTAssertEqual(refreshCount, 0)
+    }
+    func testTimelineDisplayKeepsSeekPositionWhileDragging() {
+        XCTAssertEqual(mediaSliderDisplayPosition(isSeeking: true, seekPosition: 60,
+                                                  estimatedPosition: 120), 60)
+        XCTAssertEqual(mediaSliderDisplayPosition(isSeeking: false, seekPosition: 60,
+                                                  estimatedPosition: 120), 120)
     }
     func testCollapsedVisibilityDelayCancellationAndPausedSession() async {
         let clock = TestAppClock(now: now, automaticallyAdvances: false)

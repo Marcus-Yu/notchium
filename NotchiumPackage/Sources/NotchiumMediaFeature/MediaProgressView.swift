@@ -4,27 +4,39 @@ import NotchiumDynamicIsland
 
 struct MediaProgressView: View {
     let model: MediaFeatureModel
-    @State private var isDragging = false
-    @State private var draggedPosition = 0.0
+    @State private var isSeeking = false
+    @State private var seekPosition = 0.0
     @Environment(\.notchMediaExpanded) private var isVisible
 
     var body: some View {
         TimelineView(.animation(minimumInterval: model.state.isPlaying ? 0.1 : nil,
-                                paused: !model.state.isPlaying || !isVisible || isDragging)) { timeline in
-            let position = isDragging ? draggedPosition : model.displayedPosition(at: timeline.date)
+                                paused: !model.state.isPlaying || !isVisible || isSeeking)) { timeline in
+            let position = mediaSliderDisplayPosition(
+                isSeeking: isSeeking,
+                seekPosition: seekPosition,
+                estimatedPosition: model.displayedPosition(at: timeline.date)
+            )
             VStack(spacing: 2) {
-                Slider(value: Binding(get: { position }, set: { draggedPosition = $0 }),
+                Slider(value: Binding(get: { position }, set: { seekPosition = $0 }),
                        in: 0...max(1, model.state.validDuration ?? 1)) { Text("Seek") }
                 onEditingChanged: { editing in
                     if editing {
-                        draggedPosition = model.displayedPosition(at: timeline.date)
-                        isDragging = true
+                        isSeeking = true
+                        seekPosition = model.displayedPosition(at: timeline.date)
                     } else {
                         #if DEBUG
                         print("[MediaControl] SEEK tapped")
                         #endif
-                        model.seek(to: draggedPosition)
-                        isDragging = false
+                        let target = seekPosition
+                        Task {
+                            do {
+                                try await model.seek(to: target)
+                                seekPosition = target
+                            } catch {
+                                // The session controller publishes the command failure.
+                            }
+                            isSeeking = false
+                        }
                     }
                 }
                 .labelsHidden().controlSize(.mini).tint(.white)
@@ -45,7 +57,7 @@ struct MediaProgressView: View {
                     .background(.black)
                     .allowsHitTesting(false).accessibilityHidden(true)
                 }
-                .disabled(!model.state.canSeek || (model.isPending(.seek(0)) && !isDragging))
+                .disabled(!model.state.canSeek || (model.isPending(.seek(0)) && !isSeeking))
                 .accessibilityValue(Self.time(position))
                 HStack {
                     Text(Self.time(position))
@@ -58,11 +70,16 @@ struct MediaProgressView: View {
             .transaction { $0.animation = nil }
         }
         .onChange(of: model.state) { old, new in
-            if !new.isSameTrack(as: old) || !new.hasMedia { isDragging = false }
+            if !new.isSameTrack(as: old) || !new.hasMedia { isSeeking = false }
         }
     }
     private static func time(_ seconds: Double) -> String {
         let value = seconds.isFinite ? Int(min(max(0, seconds), 86_400)) : 0
         return String(format: "%d:%02d", value / 60, value % 60)
     }
+}
+
+func mediaSliderDisplayPosition(isSeeking: Bool, seekPosition: Double,
+                                estimatedPosition: Double) -> Double {
+    isSeeking ? seekPosition : estimatedPosition
 }
