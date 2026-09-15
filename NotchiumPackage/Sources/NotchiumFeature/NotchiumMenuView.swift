@@ -4,6 +4,7 @@ import SwiftUI
 
 public struct NotchiumMenuView: View {
     @Bindable private var controller: NotchiumApplicationController
+    @Environment(\.openSettings) private var openSettings
 #if DEBUG
     @Environment(\.openWindow) private var openWindow
 #endif
@@ -20,7 +21,10 @@ public struct NotchiumMenuView: View {
 
             Divider()
 
-            SettingsLink {
+            Button {
+                NSApp.activate(ignoringOtherApps: true)
+                openSettings()
+            } label: {
                 Label("Settings", systemImage: "gearshape")
             }
 

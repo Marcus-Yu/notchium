@@ -14,6 +14,7 @@ public struct MediaConnectionView: View {
         Section("Media Center") {
             TextField("Spotify client ID", text: $clientID)
                 .textContentType(.none).disabled(connectionTask != nil)
+                .accessibilityIdentifier("notchium.settings.spotifyClientID")
             Text("Register \(SpotifyAuthorization.redirectURI) as a redirect URI in your Spotify developer app.")
                 .font(.caption).textSelection(.enabled)
             HStack {

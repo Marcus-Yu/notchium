@@ -130,6 +130,14 @@ private struct NotchShellOuterSurface: View {
                 )
                 .zIndex(10)
 
+            if model.surfaceState != .collapsed {
+                NotchSettingsButton()
+                    .padding(.trailing, 18)
+                    .padding(.top, 2)
+                    .frame(width: layout.expandedSize.width, alignment: .trailing)
+                    .zIndex(11)
+            }
+
             NotchShellStateMarker(state: model.surfaceState).allowsHitTesting(false)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
