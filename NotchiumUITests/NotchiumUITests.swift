@@ -2,6 +2,30 @@ import XCTest
 
 @MainActor
 final class NotchiumUITests: XCTestCase {
+    func testExpandedGearReopensExistingSettingsScene() throws {
+        let app = XCUIApplication()
+        defer { app.terminate() }
+        launch(app, display: "builtInMock", surface: "physical")
+        XCTAssertTrue(waitForState("collapsed", in: app, timeout: 5))
+        XCTAssertFalse(shellElement("notchium.shell.settings", in: app).exists)
+
+        let settings = app.windows["com_apple_SwiftUI_Settings_window"]
+        for attempt in 0..<3 {
+            shellElement("notchium.shell", in: app)
+                .coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.07)).click()
+            let gear = shellElement("notchium.shell.settings", in: app)
+            XCTAssertTrue(gear.waitForExistence(timeout: 5))
+            gear.click()
+            XCTAssertTrue(settings.waitForExistence(timeout: 5))
+            XCTAssertEqual(app.windows.matching(identifier: "com_apple_SwiftUI_Settings_window").count, 1)
+            XCTAssertTrue(settings.descendants(matching: .any)["notchium.settings.spotifyClientID"]
+                .waitForExistence(timeout: 5), settings.debugDescription)
+            // The second click must focus the existing window; the third reopens it.
+            if attempt > 0 { settings.buttons[XCUIIdentifierCloseWindow].click() }
+            XCTAssertTrue(waitForState("collapsed", in: app, timeout: 5))
+        }
+    }
+
     override nonisolated func setUpWithError() throws {
         continueAfterFailure = false
     }
