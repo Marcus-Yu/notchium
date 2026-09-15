@@ -11,16 +11,33 @@ public enum MediaFixture: String, CaseIterable, Sendable {
 public actor MockMediaProvider: MediaProviding {
     public private(set) var snapshot: MediaState
     public private(set) var commands: [MediaCommand] = []
+    public private(set) var requestedSeekPosition: Double?
+    public private(set) var queueRefreshCount = 0
+    public private(set) var queuedURIs: [String] = []
     private var subscribers: [UUID: AsyncStream<MediaState>.Continuation] = [:]
     public private(set) var refreshCount = 0
-    public func refresh() { refreshCount += 1; publish(snapshot) }
+    public func refresh() async { refreshCount += 1; publish(snapshot) }
     private var trackIndex = 0
-    private static let tracks: [MediaQueueItem] = [
-        .init(id: "midnight", title: "Midnight City", artist: "M83"),
-        .init(id: "awake", title: "Awake", artist: "Tycho"),
-        .init(id: "intro", title: "Intro", artist: "The xx")
+    private var addedTracks: [QueueTrack] = []
+    private let queueFailure: MediaFailure?
+    public nonisolated static let tracks: [QueueTrack] = [
+        .init(id: "midnight", uri: "spotify:track:midnight", title: "Midnight City", artist: "M83",
+              artworkURL: URL(string: "notchium-fixture://artwork/midnight"), duration: 244),
+        .init(id: "awake", uri: "spotify:track:awake", title: "Awake", artist: "Tycho",
+              artworkURL: URL(string: "notchium-fixture://artwork/awake"), duration: 216),
+        .init(id: "intro", uri: "spotify:track:intro", title: "Intro", artist: "The xx",
+              artworkURL: URL(string: "notchium-fixture://artwork/intro"), duration: 128),
+        .init(id: "long", uri: "spotify:track:long", title: String(repeating: "A Very Long Queue Title ", count: 5),
+              artist: "Fixture Artist", artworkURL: nil, duration: 301),
+        .init(id: "nightdrive", uri: "spotify:track:nightdrive", title: "Night Drive", artist: "Chromatics",
+              artworkURL: URL(string: "notchium-fixture://artwork/nightdrive"), duration: 282),
+        .init(id: "hours", uri: "spotify:track:hours", title: "Hours", artist: "Tycho",
+              artworkURL: URL(string: "notchium-fixture://artwork/hours"), duration: 198)
     ]
-    public init(snapshot: MediaState = .init()) { self.snapshot = snapshot }
+    public init(snapshot: MediaState = .init(), queueFailure: MediaFailure? = nil) {
+        self.snapshot = snapshot
+        self.queueFailure = queueFailure
+    }
     public func availability() -> FeatureAvailability { snapshot.availability }
     public func updates() -> AsyncStream<MediaState> {
         let id = UUID()
@@ -50,6 +67,7 @@ public actor MockMediaProvider: MediaProviding {
         case .previous: loadTrack(offset: -1); snapshot.elapsed = 0
         case .seek(let time):
             guard time.isFinite, let duration = snapshot.validDuration else { throw MediaFailure.unsupported }
+            requestedSeekPosition = time
             snapshot.elapsed = min(max(0, time), duration)
         case .toggleShuffle: snapshot.shuffle = !(snapshot.shuffle ?? false)
         case .cycleRepeat:
@@ -74,7 +92,9 @@ public actor MockMediaProvider: MediaProviding {
         case .spotify: loadTrack(offset: 0); snapshot.source = .spotify
         case .queue:
             if !snapshot.hasMedia { loadTrack(offset: 0) }
-            snapshot.queue = Array(Self.tracks.dropFirst()); snapshot.capabilities.canReadQueue = true
+            snapshot.queue = queueFollowingCurrentTrack()
+            snapshot.queueIssue = nil
+            snapshot.capabilities.canReadQueue = true
         case .stop: snapshot = .init()
         }
         snapshot.playbackRate = snapshot.isPlaying ? 1 : 0
@@ -96,5 +116,32 @@ public actor MockMediaProvider: MediaProviding {
                                                   canSkipBackward: true, canSeek: true,
                                                   canShuffle: true, canRepeat: true, canReadQueue: true),
                               shuffle: false, repeatMode: .off)
+    }
+
+    public func loadQueue() async throws {
+        queueRefreshCount += 1
+        if let queueFailure {
+            snapshot.queue = []
+            snapshot.queueIssue = "Unavailable"
+            publish(snapshot)
+            throw queueFailure
+        }
+        snapshot.queue = queueFollowingCurrentTrack()
+        snapshot.queueIssue = nil
+        snapshot.capabilities.canReadQueue = true
+        publish(snapshot)
+    }
+
+    public func addToQueue(uri: String) async throws {
+        guard !uri.isEmpty else { throw MediaFailure.unsupported }
+        queuedURIs.append(uri)
+        if let track = Self.tracks.first(where: { $0.uri == uri }) {
+            addedTracks.append(track)
+        }
+        try await loadQueue()
+    }
+
+    private func queueFollowingCurrentTrack() -> [QueueTrack] {
+        Array(((1...5).map { Self.tracks[(trackIndex + $0) % Self.tracks.count] } + addedTracks).prefix(20))
     }
 }

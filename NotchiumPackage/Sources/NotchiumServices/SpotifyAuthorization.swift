@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import OSLog
 import Security
 
 public protocol SpotifyTokenStoring: Sendable {
@@ -73,6 +74,7 @@ public struct URLSessionMediaTransport: MediaHTTPTransport {
 /// PKCE secrets live only for an authorization attempt. Persisted tokens live only in Keychain.
 public actor SpotifyAuthorization {
     public static let redirectURI = "http://127.0.0.1:8888/callback"
+    private static let logger = Logger(subsystem: "com.marcusyu.notchium", category: "spotify")
     private struct Credentials: Codable {
         var clientID: String
         var accessToken: String
@@ -96,6 +98,9 @@ public actor SpotifyAuthorization {
     private var generation = 0
     private var credentials: Credentials?
     private var refreshing: Task<String, any Error>?
+    #if DEBUG
+    private var requestCount = 0
+    #endif
     public init(store: any SpotifyTokenStoring = SpotifyKeychainStore(),
                 transport: any MediaHTTPTransport = URLSessionMediaTransport()) {
         self.store = store; self.transport = transport
@@ -103,6 +108,8 @@ public actor SpotifyAuthorization {
     public func begin(clientID: String) throws -> URL {
         guard clientID.count == 32, clientID.allSatisfy(\.isHexDigit) else { throw MediaFailure.authorization }
         generation &+= 1
+        refreshing?.cancel()
+        refreshing = nil
         let verifier = try Self.randomString()
         let state = try Self.randomString()
         attempt = Attempt(clientID: clientID, verifier: verifier, state: state, started: Date())
@@ -117,6 +124,7 @@ public actor SpotifyAuthorization {
         return components.url!
     }
     public func complete(callback: URL) async throws {
+        Self.logger.info("[Spotify] OAuth callback received")
         let generation = generation
         guard let attempt else { throw MediaFailure.authorization }
         self.attempt = nil
@@ -133,37 +141,67 @@ public actor SpotifyAuthorization {
               items.filter({ $0.name == "code" }).count == 1,
               let code = items.first(where: { $0.name == "code" })?.value, !code.isEmpty,
               !items.contains(where: { $0.name == "error" }) else { throw MediaFailure.authorization }
+        Self.logger.info("[Spotify] Authorization code accepted")
         let token = try await exchange([
             "client_id": attempt.clientID, "grant_type": "authorization_code", "code": code,
             "redirect_uri": Self.redirectURI, "code_verifier": attempt.verifier
         ])
+        Self.logger.info("[Spotify] Token exchange succeeded")
         try Task.checkCancellation()
         guard self.generation == generation else { throw MediaFailure.authorization }
         guard let refresh = token.refresh_token else { throw MediaFailure.authorization }
         try save(.init(clientID: attempt.clientID, accessToken: token.access_token,
                        refreshToken: refresh, expiration: Date().addingTimeInterval(token.expires_in)))
+        Self.logger.info("[Spotify] Credentials persisted")
     }
     public func accessToken() async throws -> String {
         if let refreshing { return try await refreshing.value }
-        if credentials == nil, let data = try store.read() {
-            credentials = try JSONDecoder().decode(Credentials.self, from: data)
+        if credentials == nil {
+            Self.logger.info("[Spotify] Loading stored credentials")
+            guard let data = try store.read() else {
+                Self.logger.info("[Spotify] No existing session")
+                throw MediaFailure.disconnected
+            }
+            do {
+                credentials = try JSONDecoder().decode(Credentials.self, from: data)
+                Self.logger.info("[Spotify] Existing session found")
+            } catch {
+                Self.logger.error("[Spotify] Stored session could not be decoded")
+                throw MediaFailure.authorization
+            }
         }
         guard let current = credentials else { throw MediaFailure.disconnected }
         if current.expiration.timeIntervalSinceNow > 60 { return current.accessToken }
-        let task = Task { try await self.refresh(current) }
+        Self.logger.info("[Spotify] Access token expired")
+        Self.logger.info("[Spotify] Refreshing token")
+        let generation = generation
+        let task = Task { try await self.refresh(current, generation: generation) }
         refreshing = task
-        defer { refreshing = nil }
-        return try await task.value
+        do {
+            let token = try await task.value
+            if self.generation == generation { refreshing = nil }
+            return token
+        } catch {
+            if self.generation == generation { refreshing = nil }
+            throw error
+        }
+    }
+    public func cancelAuthorizationAttempt() {
+        generation &+= 1
+        refreshing?.cancel()
+        refreshing = nil
+        attempt = nil
     }
     public func disconnect() throws {
         generation &+= 1
         refreshing?.cancel(); refreshing = nil; attempt = nil; credentials = nil
         try store.remove()
     }
-    private func refresh(_ current: Credentials) async throws -> String {
+    private func refresh(_ current: Credentials, generation: Int) async throws -> String {
         let token = try await exchange(["grant_type": "refresh_token", "client_id": current.clientID,
                                         "refresh_token": current.refreshToken])
         try Task.checkCancellation()
+        guard self.generation == generation else { throw CancellationError() }
         try save(.init(clientID: current.clientID, accessToken: token.access_token,
                        refreshToken: token.refresh_token ?? current.refreshToken,
                        expiration: Date().addingTimeInterval(token.expires_in)))
@@ -177,7 +215,16 @@ public actor SpotifyAuthorization {
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.httpBody = Self.form(fields)
+        #if DEBUG
+        requestCount += 1
+        let number = requestCount
+        let reason = fields["grant_type"] == "refresh_token" ? "refresh" : "oauth"
+        Self.logger.debug("[SpotifyAPI] tokenRequest=\(number) reason=\(reason, privacy: .public) POST /api/token")
+        #endif
         let response = try await transport.send(request)
+        #if DEBUG
+        Self.logger.debug("[SpotifyAPI] tokenRequest=\(number) status=\(response.status) retryAfter=\(response.retryAfter ?? 0)")
+        #endif
         if response.status == 429 { throw MediaFailure.rateLimited(max(1, response.retryAfter ?? 30)) }
         guard response.status == 200 else { throw MediaFailure.authorization }
         let token = try JSONDecoder().decode(TokenResponse.self, from: response.data)

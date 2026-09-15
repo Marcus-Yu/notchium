@@ -4,6 +4,12 @@ import NotchiumCore
 public enum MediaPlaybackState: String, Sendable { case stopped, paused, playing }
 public enum MediaSource: String, CaseIterable, Sendable { case spotify = "Spotify" }
 public enum MediaRepeatMode: String, Sendable { case off, context, track }
+public enum MediaConnectionState: String, Equatable, Sendable {
+    case initializing, authorizing, authenticated, unauthenticated, error
+}
+public enum MediaExperienceState: String, Equatable, Sendable {
+    case initializing, authorizing, unauthenticated, inactive, playing, paused, error
+}
 public enum MediaCommand: Equatable, Sendable {
     case playPause, play, pause, previous, next, seek(TimeInterval), setVolume(Double), toggleShuffle, cycleRepeat
     case setShuffle(Bool), setRepeatMode(MediaRepeatMode)
@@ -49,21 +55,30 @@ public struct MediaCapabilities: Equatable, Sendable {
     }
 }
 
-public struct MediaQueueItem: Identifiable, Equatable, Sendable {
+public struct QueueTrack: Identifiable, Equatable, Sendable {
     public let id: String
+    public let uri: String
     public let title: String
     public let artist: String
-    public init(id: String, title: String, artist: String) {
-        self.id = id; self.title = title; self.artist = artist
+    public let artworkURL: URL?
+    public let duration: Double
+    public init(id: String, uri: String = "", title: String, artist: String,
+                artworkURL: URL? = nil, duration: Double = 0) {
+        self.id = id; self.uri = uri; self.title = title; self.artist = artist
+        self.artworkURL = artworkURL; self.duration = duration
     }
 }
+
+public typealias MediaQueueItem = QueueTrack
 
 /// The sole provider snapshot. Artwork is a URL identity; decoded images never enter activity queues.
 /// Licensed lyrics can later be supplied by a separate provider keyed by trackID and source.
 public struct MediaState: Equatable, Sendable {
     public var availability: FeatureAvailability
+    public var connectionState: MediaConnectionState
     public var playbackState: MediaPlaybackState
     public var trackID: String?
+    public var activeDeviceID: String?
     public var title: String?
     public var artist: String?
     public var artwork: URL?
@@ -75,26 +90,49 @@ public struct MediaState: Equatable, Sendable {
     public var capabilities: MediaCapabilities
     public var shuffle: Bool?
     public var repeatMode: MediaRepeatMode?
-    public var queue: [MediaQueueItem]?
+    public var queue: [QueueTrack]
+    public var queueIssue: String?
     public var issue: String?
+    public var rateLimitedUntil: Date? = nil
 
     public init(availability: FeatureAvailability = .available,
+                connectionState: MediaConnectionState = .authenticated,
                 playbackState: MediaPlaybackState = .stopped, title: String? = nil,
                 artist: String? = nil, elapsed: TimeInterval = 0, duration: TimeInterval? = nil,
-                trackID: String? = nil, artwork: URL? = nil, source: MediaSource? = nil,
+                trackID: String? = nil, activeDeviceID: String? = nil,
+                artwork: URL? = nil, source: MediaSource? = nil,
                 capabilities: MediaCapabilities = .init(), shuffle: Bool? = nil,
-                repeatMode: MediaRepeatMode? = nil, queue: [MediaQueueItem]? = nil, issue: String? = nil,
+                repeatMode: MediaRepeatMode? = nil, queue: [QueueTrack] = [], queueIssue: String? = nil,
+                issue: String? = nil,
                 timestamp: Date = Date(), playbackRate: Double? = nil) {
-        self.availability = availability; self.playbackState = playbackState
+        self.availability = availability; self.connectionState = connectionState
+        self.playbackState = playbackState
         self.title = title; self.artist = artist; self.elapsed = elapsed; self.duration = duration
-        self.trackID = trackID; self.artwork = artwork; self.source = source
+        self.trackID = trackID; self.activeDeviceID = activeDeviceID
+        self.artwork = artwork; self.source = source
         self.capabilities = capabilities; self.shuffle = shuffle; self.repeatMode = repeatMode
-        self.queue = queue; self.issue = issue
+        self.queue = queue; self.queueIssue = queueIssue; self.issue = issue
         self.timestamp = timestamp
         self.playbackRate = playbackRate ?? (playbackState == .playing ? 1 : 0)
     }
     public var isPlaying: Bool { playbackState == .playing }
     public var hasMedia: Bool { availability.isUsable && playbackState != .stopped && title != nil }
+    public var experienceState: MediaExperienceState {
+        switch connectionState {
+        case .initializing:
+            .initializing
+        case .authorizing:
+            .authorizing
+        case .unauthenticated:
+            .unauthenticated
+        case .error:
+            .error
+        case .authenticated:
+            if !hasMedia { .inactive }
+            else if isPlaying { .playing }
+            else { .paused }
+        }
+    }
     public var elapsedTime: TimeInterval {
         guard elapsed.isFinite else { return 0 }
         return min(max(0, elapsed), validDuration ?? max(0, elapsed))
@@ -146,6 +184,9 @@ public protocol MediaProviding: Sendable {
     func updates() async -> AsyncStream<MediaState>
     func perform(_ command: MediaCommand) async throws
     func refresh() async
+    func seek(to seconds: Double) async throws
+    func loadQueue() async throws
+    func addToQueue(uri: String) async throws
 }
 
 public extension MediaProviding {
@@ -160,6 +201,8 @@ public extension MediaProviding {
     func refresh() async {}
 
     func seek(to position: Double) async throws { try await perform(.seek(position)) }
+    func loadQueue() async throws { throw MediaFailure.unsupported }
+    func addToQueue(uri: String) async throws { throw MediaFailure.unsupported }
 }
 
 /// Interpolates a real observation; never accumulates timer ticks or mutates provider state.
