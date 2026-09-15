@@ -25,9 +25,9 @@ final class SpotifyProcessFinder: NSObject {
                            name: NSWorkspace.didTerminateApplicationNotification, object: nil)
         processIdentifier = runningSpotify()?.processIdentifier
         if let processIdentifier {
-            NSLog("[SpotifyAudioTap] Spotify process found: PID %d", processIdentifier)
+            NSLog("[AudioTap] Spotify process found: PID %d", processIdentifier)
         } else {
-            NSLog("[SpotifyAudioTap] Spotify is not running")
+            NSLog("[AudioTap] Spotify is not running; waiting for launch")
         }
         return processIdentifier
     }
@@ -59,9 +59,9 @@ final class SpotifyProcessFinder: NSObject {
         guard processIdentifier != self.processIdentifier else { return }
         self.processIdentifier = processIdentifier
         if let processIdentifier {
-            NSLog("[SpotifyAudioTap] Spotify process found: PID %d", processIdentifier)
+            NSLog("[AudioTap] Spotify process found: PID %d", processIdentifier)
         } else {
-            NSLog("[SpotifyAudioTap] Spotify terminated or is not running")
+            NSLog("[AudioTap] Spotify terminated; invalidating tap")
         }
         onChange?(processIdentifier)
     }

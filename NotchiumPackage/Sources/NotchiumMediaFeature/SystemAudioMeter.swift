@@ -101,8 +101,7 @@ public final class SystemAudioMeter: ObservableObject {
                             #if DEBUG
                             if Date().timeIntervalSince(self.lastDebugLevels) >= 5 {
                                 self.lastDebugLevels = Date()
-                                print("[Waveform] meter running=\(self.isRunning)")
-                                print("[Waveform] levels=\(self.waveformLevels)")
+                                NSLog("[Waveform] Updating levels")
                             }
                             #endif
                         }

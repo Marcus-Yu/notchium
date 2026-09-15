@@ -60,10 +60,12 @@ final class SpotifyAudioTap: SystemAudioCapturing {
 
     private func attach(to processIdentifier: pid_t) throws {
         guard tap == nil, let publish else { return }
+        NSLog("[AudioTap] Creating Spotify process tap for current PID %d", processIdentifier)
         let tap = CoreAudioProcessTap(publish: publish)
         do {
             try tap.start(processIdentifier: processIdentifier)
             self.tap = tap
+            NSLog("[AudioTap] Tap started")
         } catch {
             tap.stop()
             log(error, operation: "Create Spotify process tap")
@@ -105,7 +107,7 @@ private final class CoreAudioProcessTap: @unchecked Sendable {
         guard tapID == kAudioObjectUnknown else { return }
         let targets = try Self.processTargets(for: processIdentifier)
         for processObjectID in targets.objectIDs {
-            NSLog("[SpotifyAudioTap] Core Audio process object found: %u", processObjectID)
+            NSLog("[AudioTap] Spotify process found: object %u", processObjectID)
         }
         if targets.objectIDs.isEmpty {
             NSLog("[SpotifyAudioTap] Spotify has not registered audio yet; tap will restore by bundle ID")
@@ -131,6 +133,7 @@ private final class CoreAudioProcessTap: @unchecked Sendable {
                 kAudioAggregateDeviceNameKey: "Notchium Spotify Tap",
                 kAudioAggregateDeviceUIDKey: aggregateUID,
                 kAudioAggregateDeviceIsPrivateKey: true,
+                kAudioAggregateDeviceTapAutoStartKey: true,
                 kAudioAggregateDeviceTapListKey: [[kAudioSubTapUIDKey: description.uuid.uuidString]],
             ]
             try Self.check(AudioHardwareCreateAggregateDevice(aggregateDescription as CFDictionary,
@@ -238,6 +241,8 @@ private final class SpotifyPCMAnalyzer: @unchecked Sendable {
     private var pending: [[Float]] = []
     private var lastEmission: CFTimeInterval = 0
     private var didLogUnsupportedFormat = false
+    private var didLogSamples = false
+    private var didLogNonSilentSamples = false
 
     init(publish: @escaping @Sendable ([CGFloat]) -> Void) {
         self.publish = publish
@@ -271,6 +276,12 @@ private final class SpotifyPCMAnalyzer: @unchecked Sendable {
 
     private func consume(_ capture: CapturedPCM) {
         guard let channels = decode(capture), channels.count == pending.count else { return }
+        #if DEBUG
+        if !didLogSamples {
+            didLogSamples = true
+            NSLog("[AudioTap] Receiving samples")
+        }
+        #endif
         for index in channels.indices { pending[index].append(contentsOf: channels[index]) }
         let count = AudioSpectrumAnalyzer.sampleCount
         guard pending.allSatisfy({ $0.count >= count }) else { return }
@@ -278,7 +289,14 @@ private final class SpotifyPCMAnalyzer: @unchecked Sendable {
         let now = ProcessInfo.processInfo.systemUptime
         guard now - lastEmission >= 1.0 / 30 else { return }
         lastEmission = now
-        publish(spectrum.levels(channels: pending, sampleRate: format.mSampleRate))
+        let levels = spectrum.levels(channels: pending, sampleRate: format.mSampleRate)
+        #if DEBUG
+        if !didLogNonSilentSamples, levels.contains(where: { $0 > AudioSpectrumAnalyzer.minimum }) {
+            didLogNonSilentSamples = true
+            NSLog("[AudioTap] Non-silent Spotify samples detected")
+        }
+        #endif
+        publish(levels)
     }
 
     private func decode(_ capture: CapturedPCM) -> [[Float]]? {
