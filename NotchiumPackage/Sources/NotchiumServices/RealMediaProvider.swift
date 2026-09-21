@@ -9,6 +9,9 @@ public actor RealMediaProvider: MediaProviding {
     private static let playingPollInterval: TimeInterval = 5
     private static let inactivePollInterval: TimeInterval = 15
     private static let transientFailurePollInterval: TimeInterval = 30
+    private static let transitionRefreshDelays: [Duration] = [
+        .milliseconds(250), .milliseconds(500), .seconds(1),
+    ]
     public let authorization: SpotifyAuthorization
     private let api: SpotifyPlaybackAPI
     private let clock: any AppClock
@@ -16,6 +19,7 @@ public actor RealMediaProvider: MediaProviding {
                                    connectionState: .initializing, source: .spotify)
     private var subscribers: [UUID: AsyncStream<MediaState>.Continuation] = [:]
     private var pollTask: Task<Void, Never>?
+    private var transitionRefreshTask: Task<Void, Never>?
     private var pendingControls: Set<String> = []
     private var connecting = false
     private var playbackFetchInFlight = false
@@ -40,7 +44,10 @@ public actor RealMediaProvider: MediaProviding {
         self.clock = clock
         Self.logger.info("[Spotify] Manager initialized")
     }
-    deinit { pollTask?.cancel() }
+    deinit {
+        pollTask?.cancel()
+        transitionRefreshTask?.cancel()
+    }
     public func availability() -> FeatureAvailability { state.availability }
     public func updates() -> AsyncStream<MediaState> {
         let id = UUID()
@@ -91,6 +98,8 @@ public actor RealMediaProvider: MediaProviding {
         connected = false
         pollTask?.cancel()
         pollTask = nil
+        transitionRefreshTask?.cancel()
+        transitionRefreshTask = nil
         awaitingInitialPlaybackState = false
         await publish(.init(availability: .unavailable(.permissionNotDetermined),
                       connectionState: .authorizing, source: .spotify))
@@ -128,6 +137,8 @@ public actor RealMediaProvider: MediaProviding {
         connected = false
         pollTask?.cancel()
         pollTask = nil
+        transitionRefreshTask?.cancel()
+        transitionRefreshTask = nil
         awaitingInitialPlaybackState = false
         await authorization.cancelAuthorizationAttempt()
         await publish(.init(availability: .unavailable(.permissionNotDetermined),
@@ -158,10 +169,12 @@ public actor RealMediaProvider: MediaProviding {
     }
     public func shutdown() async {
         generation &+= 1; connected = false; pollTask?.cancel(); pollTask = nil
+        transitionRefreshTask?.cancel(); transitionRefreshTask = nil
         awaitingInitialPlaybackState = false
     }
     public func disconnect() async throws {
         generation &+= 1; connected = false; pollTask?.cancel(); pollTask = nil
+        transitionRefreshTask?.cancel(); transitionRefreshTask = nil
         awaitingInitialPlaybackState = false
         await publish(.init(availability: .unavailable(.permissionNotDetermined),
                       connectionState: .unauthenticated, source: .spotify))
@@ -293,13 +306,22 @@ public actor RealMediaProvider: MediaProviding {
             guard self.generation == generation, connected else { return }
             observationRevision &+= 1
             let revision = observationRevision
+            let origin = state
             var next = try await api.state(reason: "control-confirmation")
             guard self.generation == generation, revision == observationRevision else { return }
-            if next.isSameTrack(as: state) {
+            let isTrackTransition = command == .next || command == .previous
+            if isTrackTransition, (!next.hasMedia || next.isSameTrack(as: origin)) {
+                // Spotify can briefly expose no item (or the old item) after a skip. Keep the
+                // last valid snapshot published while a few bounded, action-triggered refreshes
+                // look for the new track. Normal polling remains unchanged.
+                next = origin
+                scheduleTransitionRefresh(origin: origin, generation: generation,
+                                          revision: revision)
+            } else if next.isSameTrack(as: state) {
                 next.queue = state.queue
                 next.queueIssue = state.queueIssue
             }
-            await publish(next) // Never pretend a command or seek succeeded before confirmed observation.
+            await publish(next)
             if case .seek = command {
                 #if DEBUG
                 print("[SpotifySeek] refreshed position \(next.elapsedTime)s")
@@ -338,6 +360,12 @@ public actor RealMediaProvider: MediaProviding {
         }
     }
     public func loadQueue() async throws {
+        try await fetchQueue(force: false)
+    }
+    public func refreshQueue() async throws {
+        try await fetchQueue(force: true)
+    }
+    private func fetchQueue(force: Bool) async throws {
         guard state.capabilities.canReadQueue else { throw MediaFailure.unsupported }
         guard connected else { throw MediaFailure.disconnected }
         guard !queueFetchInFlight else { return }
@@ -349,7 +377,7 @@ public actor RealMediaProvider: MediaProviding {
         for _ in 0..<2 {
             let id = state.trackID
             let revision = queueRevision
-            if queueTrackID == id, let queueFetchedAt,
+            if !force, queueTrackID == id, let queueFetchedAt,
                (await clock.now()).timeIntervalSince(queueFetchedAt) < 15 { return }
             do {
                 let queue = try await api.queue()
@@ -371,6 +399,40 @@ public actor RealMediaProvider: MediaProviding {
                 throw error
             }
         }
+    }
+
+    private func scheduleTransitionRefresh(origin: MediaState, generation: Int, revision: Int) {
+        transitionRefreshTask?.cancel()
+        transitionRefreshTask = Task { [weak self] in
+            await self?.runTransitionRefresh(origin: origin, generation: generation,
+                                             revision: revision)
+        }
+    }
+
+    private func runTransitionRefresh(origin: MediaState, generation: Int, revision: Int) async {
+        for delay in Self.transitionRefreshDelays {
+            do { try await clock.sleep(for: delay) } catch { return }
+            guard !Task.isCancelled, self.generation == generation,
+                  observationRevision == revision else { return }
+            do {
+                var next = try await api.state(reason: "transition")
+                guard self.generation == generation, observationRevision == revision else { return }
+                guard next.hasMedia, !next.isSameTrack(as: origin) else { continue }
+                if next.isSameTrack(as: state) {
+                    next.queue = state.queue
+                    next.queueIssue = state.queueIssue
+                }
+                await publish(next)
+                transitionRefreshTask = nil
+                return
+            } catch {
+                guard self.generation == generation else { return }
+                if await api.cooldownUntil() != nil { await publish(state) }
+                return
+            }
+        }
+        guard self.generation == generation, observationRevision == revision else { return }
+        transitionRefreshTask = nil
     }
     public func addToQueue(uri: String) async throws {
         guard connected else { throw MediaFailure.disconnected }

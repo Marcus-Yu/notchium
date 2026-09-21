@@ -68,10 +68,10 @@ private actor HeldSeekProvider: MediaProviding {
         model.receive(sample())
         let seek = Task { try await model.seek(to: 90, at: now) }
         await provider.waitForSeek()
-        XCTAssertEqual(model.displayedPosition(at: now.addingTimeInterval(1)), 90)
+        XCTAssertEqual(model.displayedPosition(at: now.addingTimeInterval(1)), 91)
         var stale = sample(elapsed: 31); stale.timestamp = now.addingTimeInterval(1)
         model.receive(stale)
-        XCTAssertEqual(model.displayedPosition(at: now.addingTimeInterval(2)), 90)
+        XCTAssertEqual(model.displayedPosition(at: now.addingTimeInterval(2)), 92)
         var confirmed = sample(elapsed: 92); confirmed.timestamp = now.addingTimeInterval(2)
         model.receive(confirmed)
         XCTAssertNil(model.pendingSeek)
@@ -129,6 +129,45 @@ private actor HeldSeekProvider: MediaProviding {
         try await seek.value
         let refreshCount = await provider.refreshCount
         XCTAssertEqual(refreshCount, 0)
+    }
+    func testSeekDispatchPublishesOptimisticPositionSynchronously() async {
+        let provider = HeldSeekProvider()
+        let model = MediaFeatureModel(provider: provider, coordinator: ActivityCoordinator(
+            clock: TestAppClock(now: now, automaticallyAdvances: false)))
+        model.receive(sample(elapsed: 30))
+
+        model.send(.seek(90))
+        XCTAssertEqual(model.lastSeekTarget, 90)
+        XCTAssertEqual(model.displayedPosition(at: Date()), 90, accuracy: 0.1)
+
+        await provider.waitForSeek()
+        await provider.finish()
+        while model.isBusy { await Task.yield() }
+        model.stop()
+    }
+    func testRestartImmediatelyRebasesAndContinuesLocalClock() async {
+        let provider = HeldSeekProvider()
+        let model = MediaFeatureModel(provider: provider, coordinator: ActivityCoordinator(
+            clock: TestAppClock(now: now, automaticallyAdvances: false)))
+        model.receive(sample(elapsed: 120))
+
+        let seek = Task { try await model.seek(to: 0, at: now) }
+        await provider.waitForSeek()
+        XCTAssertEqual(model.state.elapsed, 0)
+        XCTAssertEqual(model.state.timestamp, now)
+        XCTAssertEqual(model.displayedPosition(at: now), 0)
+        XCTAssertEqual(model.displayedPosition(at: now.addingTimeInterval(1.5)), 1.5)
+
+        var stale = sample(elapsed: 122)
+        stale.timestamp = now.addingTimeInterval(2)
+        model.receive(stale)
+        XCTAssertEqual(model.state.elapsed, 0)
+        XCTAssertEqual(model.state.timestamp, now)
+        XCTAssertEqual(model.displayedPosition(at: now.addingTimeInterval(2)), 2)
+
+        await provider.finish()
+        try? await seek.value
+        model.stop()
     }
     func testTimelineDisplayKeepsSeekPositionWhileDragging() {
         XCTAssertEqual(mediaSliderDisplayPosition(isSeeking: true, seekPosition: 60,

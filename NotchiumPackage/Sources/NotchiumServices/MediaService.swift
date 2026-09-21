@@ -186,6 +186,7 @@ public protocol MediaProviding: Sendable {
     func refresh() async
     func seek(to seconds: Double) async throws
     func loadQueue() async throws
+    func refreshQueue() async throws
     func addToQueue(uri: String) async throws
 }
 
@@ -202,6 +203,7 @@ public extension MediaProviding {
 
     func seek(to position: Double) async throws { try await perform(.seek(position)) }
     func loadQueue() async throws { throw MediaFailure.unsupported }
+    func refreshQueue() async throws { try await loadQueue() }
     func addToQueue(uri: String) async throws { throw MediaFailure.unsupported }
 }
 

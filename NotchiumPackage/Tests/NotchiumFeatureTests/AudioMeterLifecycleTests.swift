@@ -52,7 +52,7 @@ final class AudioMeterLifecycleTests: XCTestCase {
         meter.stop(); await drain()
     }
 
-    func testPauseImmediatelyGatesSamplesAndStopsCaptureAt450Milliseconds() async {
+    func testPauseImmediatelyGatesSamplesButKeepsActivityMonitorWarm() async {
         let capture = TestAudioCapture()
         let meter = SystemAudioMeter(capture: capture, permissionGranted: { true })
         let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
@@ -71,10 +71,12 @@ final class AudioMeterLifecycleTests: XCTestCase {
         XCTAssertEqual(capture.starts, 1); XCTAssertEqual(capture.stops, 0)
         await clock.advance(by: .milliseconds(1)); await drain()
         XCTAssertFalse(model.collapsedMediaVisible)
-        XCTAssertEqual(capture.stops, 1)
+        XCTAssertEqual(capture.stops, 0)
         XCTAssertTrue(model.state.hasMedia)
-        XCTAssertEqual(meter.status, .idle)
+        XCTAssertEqual(meter.status, .capturing)
         model.stop()
+        await drain()
+        XCTAssertEqual(capture.stops, 1)
     }
     func testResumeBeforeHideReusesCaptureAndCancelsHide() async {
         let capture = TestAudioCapture()
@@ -90,7 +92,7 @@ final class AudioMeterLifecycleTests: XCTestCase {
         XCTAssertEqual(meter.waveformLevels, Array(repeating: 0.7, count: 7))
         XCTAssertTrue(model.collapsedMediaVisible)
         XCTAssertEqual(capture.starts, 1); XCTAssertEqual(capture.stops, 0)
-        model.receive(.init()); await drain()
+        model.receive(.init(connectionState: .unauthenticated)); await drain()
         XCTAssertEqual(capture.stops, 1)
         model.stop()
     }
@@ -124,5 +126,35 @@ final class AudioMeterLifecycleTests: XCTestCase {
         meter.setPlaying(false); meter.setPlaying(true); await drain()
         XCTAssertEqual(capture.starts, 2)
         meter.stop(); await drain()
+    }
+
+    func testNonSilentSpotifyActivityRefreshesInactivePlaybackWithCooldown() async {
+        let capture = TestAudioCapture()
+        let meter = SystemAudioMeter(capture: capture, permissionGranted: { true })
+        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
+        let provider = MockMediaProvider()
+        let model = MediaSessionController(provider: provider, coordinator: ActivityCoordinator(clock: clock),
+                                           visibilityClock: clock, audioMeter: meter)
+        model.receive(.init(connectionState: .authenticated, source: .spotify))
+        await drain()
+        XCTAssertEqual(capture.starts, 1)
+
+        capture.levels?(Array(repeating: 0.8, count: 7))
+        await drain()
+        var refreshCount = await provider.refreshCount
+        XCTAssertEqual(refreshCount, 1)
+        capture.levels?(Array(repeating: 0.9, count: 7))
+        await drain()
+        refreshCount = await provider.refreshCount
+        XCTAssertEqual(refreshCount, 1)
+
+        await clock.waitForPendingSleeps()
+        await clock.advance(by: .seconds(2))
+        await drain()
+        capture.levels?(Array(repeating: 0.8, count: 7))
+        await drain()
+        refreshCount = await provider.refreshCount
+        XCTAssertEqual(refreshCount, 2)
+        model.stop()
     }
 }

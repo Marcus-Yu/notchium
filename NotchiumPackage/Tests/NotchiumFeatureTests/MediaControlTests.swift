@@ -52,7 +52,7 @@ private actor HeldControlProvider: MediaProviding {
             let commands = await provider.commands
             XCTAssertEqual(commands.filter { $0 == .next }.count, 1)
             XCTAssertEqual(commands.filter { $0 == (playing ? .pause : .play) }.count, 1)
-            XCTAssertEqual(model.state.isPlaying, playing)
+            XCTAssertEqual(model.state.isPlaying, !playing)
             XCTAssertTrue(model.isPending(.next))
             XCTAssertTrue(model.isPending(.playPause))
             await provider.finish(.next)
@@ -73,7 +73,8 @@ private actor HeldControlProvider: MediaProviding {
         await provider.finish(.previous, failing: true)
         while model.isPending(.previous) { await Task.yield() }
         XCTAssertTrue(model.isPending(.seek(0)))
-        XCTAssertEqual(model.state, original)
+        XCTAssertEqual(model.state.playbackState, original.playbackState)
+        XCTAssertEqual(model.displayedPosition(at: Date()), 120, accuracy: 0.1)
         let refreshes = await provider.refreshCount
         XCTAssertEqual(refreshes, 1)
         await provider.finish(.seek(0), failing: true)
@@ -156,9 +157,13 @@ private actor HeldControlProvider: MediaProviding {
     func testPreviousRestartsThenMovesToPreviousTrack() async {
         let now = Date(timeIntervalSince1970: 1_000)
         let provider = HeldControlProvider()
-        let model = model(provider, elapsed: 90, timestamp: now)
+        let model = model(provider, playing: true, elapsed: 90, timestamp: now)
 
-        model.send(.previous)
+        model.previous(at: now)
+        XCTAssertEqual(model.state.elapsed, 0)
+        XCTAssertEqual(model.state.timestamp, now)
+        XCTAssertEqual(model.displayedPosition(at: now), 0)
+        XCTAssertEqual(model.displayedPosition(at: now.addingTimeInterval(1)), 1)
         await provider.waitFor(1)
         var commands = await provider.commands
         XCTAssertEqual(commands, [.seek(0)])
@@ -197,6 +202,76 @@ private actor HeldControlProvider: MediaProviding {
             while model.isBusy { await Task.yield() }
             model.stop()
         }
+    }
+    func testOptimisticModesAndPlaybackIgnoreOlderSnapshots() async {
+        let provider = HeldControlProvider()
+        let model = model(provider, playing: false)
+        let stale = model.state
+
+        model.send(.play)
+        model.send(.setShuffle(true))
+        model.send(.setRepeatMode(.track))
+        XCTAssertTrue(model.state.isPlaying)
+        XCTAssertEqual(model.state.shuffle, true)
+        XCTAssertEqual(model.state.repeatMode, .track)
+
+        model.receive(stale)
+        XCTAssertTrue(model.state.isPlaying)
+        XCTAssertEqual(model.state.shuffle, true)
+        XCTAssertEqual(model.state.repeatMode, .track)
+
+        await provider.waitFor(3)
+        await provider.finish(.play)
+        await provider.finish(.setShuffle(true))
+        await provider.finish(.setRepeatMode(.track))
+        while model.isBusy { await Task.yield() }
+        model.stop()
+    }
+    func testTrackTransitionKeepsLastValidTrackUntilReplacementArrives() async {
+        let provider = HeldControlProvider()
+        let model = model(provider, playing: true, elapsed: 42)
+        let original = model.state
+        model.send(.next)
+        await provider.waitFor(1)
+
+        model.receive(.init(connectionState: .authenticated, source: .spotify))
+        XCTAssertTrue(model.state.hasMedia)
+        XCTAssertEqual(model.state.title, original.title)
+        XCTAssertEqual(model.state.elapsed, original.elapsed)
+
+        var replacement = original
+        replacement.trackID = "replacement"
+        replacement.title = "Replacement"
+        replacement.elapsed = 0
+        replacement.timestamp = Date()
+        model.receive(replacement)
+        XCTAssertEqual(model.state.title, "Replacement")
+        XCTAssertEqual(model.state.elapsed, 0)
+
+        await provider.finish(.next)
+        while model.isBusy { await Task.yield() }
+        model.stop()
+    }
+    func testVisibleUpNextRefreshesImmediatelyAndAtFiveSecondCadence() async {
+        let provider = HeldControlProvider()
+        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
+        let model = MediaFeatureModel(provider: provider, coordinator: ActivityCoordinator(clock: clock),
+                                      visibilityClock: clock)
+        model.receive(.init(playbackState: .playing, title: "Fixture", trackID: "fixture",
+                            source: .spotify, capabilities: .init(canReadQueue: true)))
+
+        model.setUpNextVisible(true)
+        await provider.waitForQueueRefresh(1)
+        await clock.waitForPendingSleeps()
+        await clock.advance(by: .seconds(5))
+        await provider.waitForQueueRefresh(2)
+        model.setUpNextVisible(false)
+        let count = await provider.queueRefreshCount
+        await clock.advance(by: .seconds(10))
+        for _ in 0..<10 { await Task.yield() }
+        let countAfterClosing = await provider.queueRefreshCount
+        XCTAssertEqual(countAfterClosing, count)
+        model.stop()
     }
     func testMockExplicitCommandsAndModes() async throws {
         let provider = MockMediaProvider()

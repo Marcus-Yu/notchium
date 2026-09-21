@@ -588,17 +588,20 @@ private actor HeldQueueTransport: MediaHTTPTransport {
         }
     }
 
-    func testQueueRequestsAreCachedAcrossRepeatedOpenEvents() async throws {
+    func testOrdinaryQueueReadsAreCachedButExplicitRefreshBypassesCache() async throws {
         let queue = MediaHTTPResponse(data: Data(#"{"queue":[]}"#.utf8), status: 200)
-        let transport = ScriptedMediaTransport([.init(data: playback(), status: 200), queue])
+        let transport = ScriptedMediaTransport([.init(data: playback(), status: 200), queue, queue])
         let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
         let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
                                          transport: transport, clock: clock)
         try await provider.connect()
         await clock.waitForPendingSleeps()
         for _ in 0..<20 { try await provider.loadQueue() }
-        let requests = await transport.requests
+        var requests = await transport.requests
         XCTAssertEqual(requests.filter { $0.url?.path == "/v1/me/player/queue" }.count, 1)
+        try await provider.refreshQueue()
+        requests = await transport.requests
+        XCTAssertEqual(requests.filter { $0.url?.path == "/v1/me/player/queue" }.count, 2)
         await provider.shutdown()
     }
 
@@ -871,6 +874,40 @@ private actor HeldQueueTransport: MediaHTTPTransport {
             XCTAssertEqual(requests[2 + index * 2].httpMethod, "GET")
             XCTAssertEqual(requests[2 + index * 2].url?.path, "/v1/me/player")
         }
+        await provider.shutdown()
+    }
+    func testNextKeepsLastTrackThroughEmptyConfirmationAndFindsReplacementPromptly() async throws {
+        let initial = Data(String(decoding: playback(), as: UTF8.self)
+            .replacingOccurrences(of: "\"skipping_next\":true", with: "\"skipping_next\":false").utf8)
+        let replacement = Data(String(decoding: playback(elapsed: 0), as: UTF8.self)
+            .replacingOccurrences(of: "\"skipping_next\":true", with: "\"skipping_next\":false")
+            .replacingOccurrences(of: "track-1", with: "track-2")
+            .replacingOccurrences(of: "Midnight City", with: "Next Track").utf8)
+        let transport = ScriptedMediaTransport([
+            .init(data: initial, status: 200),
+            .init(status: 204),
+            .init(status: 204),
+            .init(data: replacement, status: 200),
+        ])
+        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
+        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
+                                         transport: transport, clock: clock)
+        try await provider.connect()
+        await clock.waitForPendingSleeps()
+        try await provider.nextTrack()
+
+        var current = await provider.updates().makeAsyncIterator()
+        let held = await current.next()
+        XCTAssertEqual(held?.trackID, "track-1")
+        XCTAssertTrue(held?.hasMedia == true)
+
+        await clock.waitForPendingSleeps(2)
+        await clock.advance(by: .milliseconds(250))
+        for _ in 0..<50 where await transport.requests.count < 4 { await Task.yield() }
+        var replaced = await provider.updates().makeAsyncIterator()
+        let next = await replaced.next()
+        XCTAssertEqual(next?.trackID, "track-2")
+        XCTAssertEqual(next?.title, "Next Track")
         await provider.shutdown()
     }
     func testNoActiveDeviceFailureRecoversWithDisabledCapabilities() async throws {

@@ -13,10 +13,12 @@ public final class SystemAudioMeter: ObservableObject {
     private let captureEnabled: Bool
     private let permissionGranted: @MainActor () -> Bool
     private var wantsCapture = false
+    private var monitorsPlaybackActivity = false
     private var isPlaying = false
     private var captureStarted = false
     private var captureFailed = false
     private var lifecycleTask: Task<Void, Never>?
+    private var playbackActivityHandler: (@MainActor @Sendable () -> Void)?
     public var isRunning: Bool { status == .capturing }
     private var generation = 0
     #if DEBUG
@@ -42,13 +44,23 @@ public final class SystemAudioMeter: ObservableObject {
         #endif
         if playing && !isPlaying { captureFailed = false }
         isPlaying = playing
-        if !playing { waveformLevels = Self.staticLevels; return }
-        guard !wantsCapture, !captureFailed else { return }
-        wantsCapture = true
-        reconcile()
+        if !playing { waveformLevels = Self.staticLevels }
+        updateCaptureIntent()
+    }
+
+    /// Keeps the Spotify-only tap available as a wake-up signal while playback metadata is
+    /// inactive or paused. Audio remains a signal only; Spotify is still the metadata source.
+    public func setMonitoringPlaybackActivity(_ monitoring: Bool) {
+        monitorsPlaybackActivity = monitoring
+        updateCaptureIntent()
+    }
+
+    public func setPlaybackActivityHandler(_ handler: (@MainActor @Sendable () -> Void)?) {
+        playbackActivityHandler = handler
     }
 
     public func stop() {
+        monitorsPlaybackActivity = false
         wantsCapture = false; isPlaying = false
         waveformLevels = Self.staticLevels
         reconcile()
@@ -59,12 +71,20 @@ public final class SystemAudioMeter: ObservableObject {
     public func requestPermission() {
         guard captureEnabled else { return }
         captureFailed = false
-        if isPlaying {
+        if isPlaying || monitorsPlaybackActivity {
             wantsCapture = true
             reconcile()
         } else {
             status = .idle
         }
+    }
+
+    private func updateCaptureIntent() {
+        let shouldCapture = isPlaying || monitorsPlaybackActivity
+        guard !shouldCapture || !captureFailed else { return }
+        guard shouldCapture != wantsCapture else { return }
+        wantsCapture = shouldCapture
+        reconcile()
     }
 
     private func reconcile() {
@@ -95,8 +115,13 @@ public final class SystemAudioMeter: ObservableObject {
                     try await self.capture.start { [weak self] levels in
                         Task { @MainActor [weak self] in
                             guard let self, self.generation == generation,
-                                  self.wantsCapture, self.isPlaying, !self.captureFailed,
+                                  self.wantsCapture, !self.captureFailed,
                                   levels.count == 7 else { return }
+                            if !self.isPlaying,
+                               levels.contains(where: { $0 > AudioSpectrumAnalyzer.minimum + 0.02 }) {
+                                self.playbackActivityHandler?()
+                            }
+                            guard self.isPlaying else { return }
                             self.waveformLevels = levels.map { $0.isFinite ? min(1, max(0.12, $0)) : 0.12 }
                             #if DEBUG
                             if Date().timeIntervalSince(self.lastDebugLevels) >= 5 {
