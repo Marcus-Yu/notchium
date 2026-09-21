@@ -31,6 +31,14 @@ The existing transport row now contains shuffle, previous, play/pause, next, and
 
 Spotify is the sole media source and real provider in Stage 4. All transport operations use the existing MediaProviding path and authenticated Web API session.
 
+## Spotify Connect devices and playback volume
+
+The expanded player includes one compact secondary row for Spotify volume and the active Spotify Connect device. Opening the device popover performs a single `GET /me/player/devices` refresh; the list has no timer or second polling loop. Active devices are marked, restricted devices remain visible but disabled, and selecting another available device transfers playback through `PUT /me/player` while preserving the current play/pause state.
+
+The active device name, type, volume, and `supports_volume` capability come from Spotify's playback snapshot. The slider is disabled with explanatory help when the active device is restricted or does not support remote volume. Dragging is local and immediate, shows a temporary percentage, and commits one `PUT /me/player/volume` request when the drag ends. The existing playback confirmation and shared Retry-After gate reconcile the optimistic value.
+
+Spotify may omit devices it does not support, return a nullable device ID or volume, and reject Connect transfer or volume endpoints for non-Premium accounts. Device IDs are treated as refresh-scoped values because Spotify does not guarantee that they remain stable. The expanded surface remains 450 points wide and grows from 190 to 222 points high; its host panel grows from 210 to 242 points. Collapsed geometry is unchanged.
+
 ## Lifecycle and performance
 
 `NotchiumApplicationController` is the composition root and owns one persistent `MediaSessionController`. The app delegate starts its subscription at launch, independent of any view. The session owns `SystemAudioMeter`; playback starts capture, pause immediately settles all bars to minimum, the 450 ms hide stops capture, and no media or shutdown also stops capture. A resume during the hide delay reuses the stream. Expansion and Space changes never restart it.
