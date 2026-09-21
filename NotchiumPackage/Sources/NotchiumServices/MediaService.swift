@@ -35,12 +35,15 @@ public struct MediaCapabilities: Equatable, Sendable {
     public var canShuffle: Bool
     public var canRepeat: Bool
     public var canReadQueue: Bool
+    public var canSetVolume: Bool
     public init(canPlayPause: Bool = false, canSkipForward: Bool = false,
                 canSkipBackward: Bool = false, canSeek: Bool = false,
-                canShuffle: Bool = false, canRepeat: Bool = false, canReadQueue: Bool = false) {
+                canShuffle: Bool = false, canRepeat: Bool = false, canReadQueue: Bool = false,
+                canSetVolume: Bool = false) {
         self.canPlayPause = canPlayPause; self.canSkipForward = canSkipForward
         self.canSkipBackward = canSkipBackward; self.canSeek = canSeek
         self.canShuffle = canShuffle; self.canRepeat = canRepeat; self.canReadQueue = canReadQueue
+        self.canSetVolume = canSetVolume
     }
     public func supports(_ command: MediaCommand) -> Bool {
         switch command {
@@ -50,8 +53,25 @@ public struct MediaCapabilities: Equatable, Sendable {
         case .seek: canSeek
         case .toggleShuffle, .setShuffle: canShuffle
         case .cycleRepeat, .setRepeatMode: canRepeat
-        case .setVolume: false
+        case .setVolume: canSetVolume
         }
+    }
+}
+
+public struct SpotifyDevice: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let name: String
+    public let type: String
+    public let isActive: Bool
+    public let isRestricted: Bool
+    public let volumePercent: Int?
+    public let supportsVolume: Bool
+
+    public init(id: String, name: String, type: String, isActive: Bool,
+                isRestricted: Bool, volumePercent: Int?, supportsVolume: Bool) {
+        self.id = id; self.name = name; self.type = type; self.isActive = isActive
+        self.isRestricted = isRestricted; self.volumePercent = volumePercent
+        self.supportsVolume = supportsVolume
     }
 }
 
@@ -79,6 +99,9 @@ public struct MediaState: Equatable, Sendable {
     public var playbackState: MediaPlaybackState
     public var trackID: String?
     public var activeDeviceID: String?
+    public var activeDeviceName: String?
+    public var activeDeviceType: String?
+    public var volumePercent: Int?
     public var title: String?
     public var artist: String?
     public var artwork: URL?
@@ -100,6 +123,8 @@ public struct MediaState: Equatable, Sendable {
                 playbackState: MediaPlaybackState = .stopped, title: String? = nil,
                 artist: String? = nil, elapsed: TimeInterval = 0, duration: TimeInterval? = nil,
                 trackID: String? = nil, activeDeviceID: String? = nil,
+                activeDeviceName: String? = nil, activeDeviceType: String? = nil,
+                volumePercent: Int? = nil,
                 artwork: URL? = nil, source: MediaSource? = nil,
                 capabilities: MediaCapabilities = .init(), shuffle: Bool? = nil,
                 repeatMode: MediaRepeatMode? = nil, queue: [QueueTrack] = [], queueIssue: String? = nil,
@@ -109,6 +134,8 @@ public struct MediaState: Equatable, Sendable {
         self.playbackState = playbackState
         self.title = title; self.artist = artist; self.elapsed = elapsed; self.duration = duration
         self.trackID = trackID; self.activeDeviceID = activeDeviceID
+        self.activeDeviceName = activeDeviceName; self.activeDeviceType = activeDeviceType
+        self.volumePercent = volumePercent
         self.artwork = artwork; self.source = source
         self.capabilities = capabilities; self.shuffle = shuffle; self.repeatMode = repeatMode
         self.queue = queue; self.queueIssue = queueIssue; self.issue = issue
@@ -188,6 +215,8 @@ public protocol MediaProviding: Sendable {
     func loadQueue() async throws
     func refreshQueue() async throws
     func addToQueue(uri: String) async throws
+    func devices() async throws -> [SpotifyDevice]
+    func transferPlayback(to deviceID: String) async throws
 }
 
 public extension MediaProviding {
@@ -205,6 +234,8 @@ public extension MediaProviding {
     func loadQueue() async throws { throw MediaFailure.unsupported }
     func refreshQueue() async throws { try await loadQueue() }
     func addToQueue(uri: String) async throws { throw MediaFailure.unsupported }
+    func devices() async throws -> [SpotifyDevice] { throw MediaFailure.unsupported }
+    func transferPlayback(to deviceID: String) async throws { throw MediaFailure.unsupported }
 }
 
 /// Interpolates a real observation; never accumulates timer ticks or mutates provider state.

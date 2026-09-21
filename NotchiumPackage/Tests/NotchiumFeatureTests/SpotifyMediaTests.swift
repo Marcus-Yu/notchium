@@ -147,6 +147,23 @@ private actor HeldQueueTransport: MediaHTTPTransport {
         let restricted = try JSONDecoder().decode(SpotifyPlayback.self, from: playback(restricted: true)).mediaState()
         XCTAssertFalse(restricted.canPlayPause); XCTAssertFalse(restricted.canSeek)
     }
+    func testSpotifyMappingIncludesActiveDeviceAndRemoteVolumeSupport() throws {
+        let data = Data(#"""
+        {
+        "is_playing":true,"progress_ms":1000,
+        "device":{"id":"mac","is_active":true,"is_restricted":false,"name":"This Mac",
+        "type":"Computer","volume_percent":64,"supports_volume":true},
+        "item":{"id":"track","name":"Track","type":"track","duration_ms":100000,
+        "artists":[{"name":"Artist"}],"album":{"images":[]}}
+        }
+        """#.utf8)
+        let state = try JSONDecoder().decode(SpotifyPlayback.self, from: data).mediaState()
+        XCTAssertEqual(state.activeDeviceID, "mac")
+        XCTAssertEqual(state.activeDeviceName, "This Mac")
+        XCTAssertEqual(state.activeDeviceType, "Computer")
+        XCTAssertEqual(state.volumePercent, 64)
+        XCTAssertTrue(state.capabilities.canSetVolume)
+    }
     func testPKCEStateValidationAndSingleUseCallback() async throws {
         let store = MemorySpotifyStore()
         let transport = ScriptedMediaTransport([.init(data: Data(#"{"access_token":"fixture","refresh_token":"refresh","expires_in":3600}"#.utf8), status: 200)])
@@ -818,6 +835,44 @@ private actor HeldQueueTransport: MediaHTTPTransport {
         XCTAssertEqual(request.url?.path, "/v1/me/player/queue")
         XCTAssertEqual(URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems,
                        [.init(name: "uri", value: "spotify:track:awake")])
+    }
+
+    func testDevicesTransferAndVolumeUseSpotifyPlayerEndpoints() async throws {
+        let deviceData = Data(#"""
+        {"devices":[
+        {"id":"mac","is_active":true,"is_restricted":false,"name":"This Mac",
+         "type":"Computer","volume_percent":64,"supports_volume":true},
+        {"id":"speaker","is_active":false,"is_restricted":true,"name":"Kitchen",
+         "type":"Speaker","volume_percent":null,"supports_volume":false}
+        ]}
+        """#.utf8)
+        let transport = ScriptedMediaTransport([
+            .init(data: deviceData, status: 200), .init(status: 204), .init(status: 204),
+        ])
+        let api = SpotifyPlaybackAPI(authorization: .init(store: authorizedStore(), transport: transport),
+                                     transport: transport)
+
+        let devices = try await api.devices()
+        XCTAssertEqual(devices.count, 2)
+        XCTAssertEqual(devices.first?.name, "This Mac")
+        XCTAssertTrue(devices[1].isRestricted)
+
+        try await api.transferPlayback(to: "mac")
+        let state = MediaState(playbackState: .playing, title: "Track", activeDeviceID: "mac",
+                               capabilities: .init(canSetVolume: true))
+        try await api.perform(.setVolume(0.73), state: state)
+
+        let requests = await transport.requests
+        XCTAssertEqual(requests.map(\.url?.path), [
+            "/v1/me/player/devices", "/v1/me/player", "/v1/me/player/volume",
+        ])
+        XCTAssertEqual(requests.map(\.httpMethod), ["GET", "PUT", "PUT"])
+        let body = try XCTUnwrap(requests[1].httpBody)
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: [String]])
+        XCTAssertEqual(payload["device_ids"], ["mac"])
+        XCTAssertEqual(URLComponents(url: requests[2].url!, resolvingAgainstBaseURL: false)?.queryItems,
+                       [.init(name: "volume_percent", value: "73"),
+                        .init(name: "device_id", value: "mac")])
     }
 
     func testRealProviderAddToQueueImmediatelyRefreshesQueue() async throws {

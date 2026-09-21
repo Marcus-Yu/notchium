@@ -41,7 +41,7 @@ import NotchiumCore
         presentation.present(.hovered, animated: false)
         XCTAssertEqual(presentation.surfaceState, .hovered)
         XCTAssertFalse(presentation.showsCollapsedMedia)
-        XCTAssertEqual(NotchGeometryResolver.expandedNotchSize, CGSize(width: 450, height: 190))
+        XCTAssertEqual(NotchGeometryResolver.expandedNotchSize, CGSize(width: 450, height: 222))
         presentation.present(.collapsed, animated: false)
         try await provider.apply(.stop)
         model.receive(await provider.snapshot)

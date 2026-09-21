@@ -38,7 +38,8 @@ private actor HeldControlProvider: MediaProviding {
             clock: TestAppClock(now: Date(), automaticallyAdvances: false)))
         model.receive(.init(playbackState: playing ? .playing : .paused, title: "Fixture", elapsed: elapsed, duration: 240,
                             capabilities: .init(canPlayPause: true, canSkipForward: true, canSkipBackward: true,
-                                                canSeek: true, canShuffle: true, canRepeat: true),
+                                                canSeek: true, canShuffle: true, canRepeat: true,
+                                                canSetVolume: true),
                             shuffle: false, repeatMode: .off, timestamp: timestamp))
         return model
     }
@@ -60,6 +61,94 @@ private actor HeldControlProvider: MediaProviding {
             while model.isBusy { await Task.yield() }
             model.stop()
         }
+    }
+    func testVolumeIsOptimisticAndFinalRequestsAreSerialized() async {
+        let provider = HeldControlProvider()
+        let model = model(provider)
+        model.send(.setVolume(0.73))
+        model.send(.setVolume(0.20))
+        await provider.waitFor(1)
+        XCTAssertEqual(model.state.volumePercent, 20)
+        var commands = await provider.commands
+        XCTAssertEqual(commands, [.setVolume(0.73)])
+        await provider.finish(.setVolume(0.73))
+        await provider.waitFor(2)
+        commands = await provider.commands
+        XCTAssertEqual(commands, [.setVolume(0.73), .setVolume(0.20)])
+        await provider.finish(.setVolume(0.20))
+        while model.isBusy { await Task.yield() }
+        model.stop()
+    }
+
+    func testVolumeDragThrottlesIntermediateUpdatesAndSendsFinalValue() async {
+        let provider = HeldControlProvider()
+        let clock = TestAppClock(now: Date(timeIntervalSince1970: 1_000), automaticallyAdvances: false)
+        let model = MediaFeatureModel(
+            provider: provider,
+            coordinator: ActivityCoordinator(clock: clock),
+            controlClock: clock
+        )
+        model.receive(.init(
+            playbackState: .playing,
+            title: "Fixture",
+            volumePercent: 50,
+            capabilities: .init(canSetVolume: true)
+        ))
+
+        model.setVolume(0.10, final: false)
+        model.setVolume(0.24, final: false)
+        model.setVolume(0.42, final: false)
+        XCTAssertEqual(model.state.volumePercent, 42)
+        var commands = await provider.commands
+        XCTAssertTrue(commands.isEmpty)
+
+        await clock.waitForPendingSleeps()
+        await clock.advance(by: .milliseconds(120))
+        await provider.waitFor(1)
+        commands = await provider.commands
+        XCTAssertEqual(commands, [.setVolume(0.42)])
+
+        model.setVolume(0.40, final: false)
+        model.setVolume(0.421, final: true)
+        XCTAssertEqual(model.state.volumePercent, 42)
+        commands = await provider.commands
+        XCTAssertEqual(commands.count, 1)
+
+        await provider.finish(.setVolume(0.42))
+        await provider.waitFor(2)
+        commands = await provider.commands
+        XCTAssertEqual(commands, [.setVolume(0.42), .setVolume(0.421)])
+        await provider.finish(.setVolume(0.421))
+        while model.isBusy { await Task.yield() }
+        model.stop()
+    }
+
+    func testDeviceRefreshAndTransferUpdateActiveDeviceWithoutPolling() async {
+        let devices = [
+            SpotifyDevice(id: "mac", name: "This Mac", type: "Computer", isActive: true,
+                          isRestricted: false, volumePercent: 60, supportsVolume: true),
+            SpotifyDevice(id: "speaker", name: "Kitchen", type: "Speaker", isActive: false,
+                          isRestricted: false, volumePercent: 35, supportsVolume: true),
+        ]
+        let snapshot = MediaState(playbackState: .playing, title: "Fixture", activeDeviceID: "mac",
+                                  activeDeviceName: "This Mac", activeDeviceType: "Computer",
+                                  volumePercent: 60, capabilities: .init(canSetVolume: true))
+        let provider = MockMediaProvider(snapshot: snapshot, devices: devices)
+        let model = MediaFeatureModel(provider: provider, coordinator: ActivityCoordinator(
+            clock: TestAppClock(now: Date(), automaticallyAdvances: false)))
+        model.receive(snapshot)
+
+        model.refreshDevices()
+        while model.devicesLoading { await Task.yield() }
+        XCTAssertEqual(model.devices, devices)
+
+        model.transferPlayback(to: devices[1])
+        while model.devicesLoading { await Task.yield() }
+        XCTAssertEqual(model.state.activeDeviceID, "speaker")
+        XCTAssertEqual(model.state.activeDeviceName, "Kitchen")
+        XCTAssertEqual(model.state.volumePercent, 35)
+        XCTAssertEqual(model.devices.filter(\.isActive).map(\.id), ["speaker"])
+        model.stop()
     }
     func testFailureRefreshesAndClearsOnlyFailedControl() async {
         let provider = HeldControlProvider()

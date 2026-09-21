@@ -448,6 +448,25 @@ public actor RealMediaProvider: MediaProviding {
             throw error
         }
     }
+    public func devices() async throws -> [SpotifyDevice] {
+        guard connected else { throw MediaFailure.disconnected }
+        return try await api.devices()
+    }
+    public func transferPlayback(to deviceID: String) async throws {
+        guard connected else { throw MediaFailure.disconnected }
+        let available = try await api.devices()
+        guard let device = available.first(where: { $0.id == deviceID }), !device.isRestricted else {
+            throw MediaFailure.unsupported
+        }
+        try await api.transferPlayback(to: deviceID)
+        var next = state
+        next.activeDeviceID = device.id
+        next.activeDeviceName = device.name
+        next.activeDeviceType = device.type
+        next.volumePercent = device.volumePercent
+        next.capabilities.canSetVolume = device.supportsVolume
+        await publish(next)
+    }
     private static func message(_ error: any Error) -> String {
         (error as? MediaFailure)?.errorDescription ?? "Spotify could not refresh playback."
     }

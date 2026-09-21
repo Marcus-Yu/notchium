@@ -11,16 +11,21 @@ public final class MediaSessionController {
     private static let reconciliationGrace: TimeInterval = 10
     private static let visibleQueueRefreshInterval = Duration.seconds(5)
     private static let playbackActivityRefreshCooldown = Duration.seconds(2)
+    private static let volumeThrottleInterval = Duration.milliseconds(120)
 
     public let audioMeter: SystemAudioMeter
     public private(set) var collapsedMediaVisible = false
     @ObservationIgnored private var mediaHideTask: Task<Void, Never>?
     @ObservationIgnored private let visibilityClock: any AppClock
+    @ObservationIgnored private let controlClock: any AppClock
     public private(set) var state = MediaState(availability: .unavailable(.permissionNotDetermined),
                                                connectionState: .initializing, source: .spotify)
     private var authoritativeState = MediaState(availability: .unavailable(.permissionNotDetermined),
                                                 connectionState: .initializing, source: .spotify)
     public private(set) var errorMessage: String?
+    public private(set) var devices: [SpotifyDevice] = []
+    public private(set) var devicesLoading = false
+    public private(set) var deviceIssue: String?
     public private(set) var pendingControls: Set<String> = []
     public var isBusy: Bool { !pendingControls.isEmpty }
     public func isPending(_ command: MediaCommand) -> Bool { pendingControls.contains(command.controlID) }
@@ -35,18 +40,32 @@ public final class MediaSessionController {
     @ObservationIgnored private var queueTask: Task<Void, Never>?
     @ObservationIgnored private var visibleQueueTask: Task<Void, Never>?
     @ObservationIgnored private var playbackActivityRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var devicesTask: Task<Void, Never>?
+    @ObservationIgnored private var volumeThrottleTask: Task<Void, Never>?
+    @ObservationIgnored private var volumeCommandTask: Task<Void, Never>?
+    @ObservationIgnored private var queuedVolumeRequest: VolumeRequest?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var intentRevision = 0
     private var pendingPlaybackIntent: PendingMediaValue<MediaPlaybackState>?
     private var pendingShuffleIntent: PendingMediaValue<Bool>?
     private var pendingRepeatIntent: PendingMediaValue<MediaRepeatMode>?
+    private var pendingVolumeIntent: PendingMediaValue<Int>?
     private var pendingTrackTransition: PendingTrackTransition?
     private var isUpNextVisible = false
     private let activityID = UUID()
 
-    public init(provider: any MediaProviding, coordinator: ActivityCoordinator, visibilityClock: any AppClock = ContinuousAppClock(), audioMeter: SystemAudioMeter = SystemAudioMeter(captureEnabled: false)) {
+    public init(
+        provider: any MediaProviding,
+        coordinator: ActivityCoordinator,
+        visibilityClock: any AppClock = ContinuousAppClock(),
+        controlClock: any AppClock = ContinuousAppClock(),
+        audioMeter: SystemAudioMeter = SystemAudioMeter(captureEnabled: false)
+    ) {
         self.audioMeter = audioMeter
-        self.provider = provider; self.coordinator = coordinator; self.visibilityClock = visibilityClock
+        self.provider = provider
+        self.coordinator = coordinator
+        self.visibilityClock = visibilityClock
+        self.controlClock = controlClock
         audioMeter.setPlaybackActivityHandler { [weak self] in self?.spotifyAudioBecameActive() }
     }
     deinit {
@@ -55,6 +74,9 @@ public final class MediaSessionController {
         queueTask?.cancel()
         visibleQueueTask?.cancel()
         playbackActivityRefreshTask?.cancel()
+        devicesTask?.cancel()
+        volumeThrottleTask?.cancel()
+        volumeCommandTask?.cancel()
         mediaHideTask?.cancel()
     }
     public func start() {
@@ -76,6 +98,9 @@ public final class MediaSessionController {
         queueTask?.cancel(); queueTask = nil
         visibleQueueTask?.cancel(); visibleQueueTask = nil; isUpNextVisible = false
         playbackActivityRefreshTask?.cancel(); playbackActivityRefreshTask = nil
+        devicesTask?.cancel(); devicesTask = nil; devices = []; devicesLoading = false; deviceIssue = nil
+        volumeThrottleTask?.cancel(); volumeThrottleTask = nil
+        volumeCommandTask?.cancel(); volumeCommandTask = nil; queuedVolumeRequest = nil
         coordinator.dismiss(id: activityID)
         authoritativeState = .init()
         state = .init(); clearPendingSeek(); clearOptimisticIntents()
@@ -148,6 +173,15 @@ public final class MediaSessionController {
                 next.repeatMode = intent.value
             } else {
                 pendingRepeatIntent = nil
+            }
+        }
+        if let intent = pendingVolumeIntent {
+            if value.volumePercent == intent.value {
+                pendingVolumeIntent = nil
+            } else if intent.shouldHold(value.timestamp, grace: Self.reconciliationGrace) {
+                next.volumePercent = intent.value
+            } else {
+                pendingVolumeIntent = nil
             }
         }
         return next
@@ -223,7 +257,81 @@ public final class MediaSessionController {
             startSeek(to: position)
             return
         }
+        if case .setVolume(let value) = command {
+            setVolume(value, final: true)
+            return
+        }
         dispatch(command)
+    }
+
+    /// Applies volume locally for every pointer update while serializing Spotify requests.
+    public func setVolume(_ value: Double, final: Bool) {
+        guard state.hasMedia, state.capabilities.canSetVolume, value.isFinite else { return }
+        let target = min(max(value, 0), 1)
+        intentRevision &+= 1
+        let request = VolumeRequest(value: target, revision: intentRevision, final: final)
+        applyOptimistic(.setVolume(target), revision: request.revision, at: Date())
+        queuedVolumeRequest = request
+
+        if final {
+            volumeThrottleTask?.cancel()
+            volumeThrottleTask = nil
+            flushVolumeIfPossible()
+        } else {
+            scheduleVolumeFlush()
+        }
+    }
+
+    private func scheduleVolumeFlush() {
+        guard queuedVolumeRequest != nil, volumeCommandTask == nil, volumeThrottleTask == nil else { return }
+        let clock = controlClock
+        let generation = generation
+        volumeThrottleTask = Task { [weak self] in
+            do { try await clock.sleep(for: Self.volumeThrottleInterval) }
+            catch { return }
+            guard let self, self.generation == generation, !Task.isCancelled else { return }
+            self.volumeThrottleTask = nil
+            self.flushVolumeIfPossible()
+        }
+    }
+
+    private func flushVolumeIfPossible() {
+        guard volumeCommandTask == nil, let request = queuedVolumeRequest else { return }
+        queuedVolumeRequest = nil
+        pendingControls.insert(MediaCommand.setVolume(request.value).controlID)
+        let provider = provider
+        let generation = generation
+
+        volumeCommandTask = Task { [weak self] in
+            do {
+                try await provider.perform(.setVolume(request.value))
+                guard let self, self.generation == generation, !Task.isCancelled else { return }
+                self.errorMessage = nil
+                self.completeVolumeRequest(request)
+            } catch {
+                await provider.refresh()
+                guard let self, self.generation == generation, !Task.isCancelled else { return }
+                self.clearOptimisticIntent(for: .setVolume(request.value), revision: request.revision)
+                let reconciled = self.reconcile(self.authoritativeState, against: self.state)
+                self.applyPresentation(reconciled)
+                self.errorMessage = (error as? MediaFailure)?.errorDescription ?? "Playback command failed."
+                self.completeVolumeRequest(request)
+            }
+        }
+    }
+
+    private func completeVolumeRequest(_ request: VolumeRequest) {
+        volumeCommandTask = nil
+
+        if let queuedVolumeRequest {
+            if queuedVolumeRequest.final {
+                flushVolumeIfPossible()
+            } else {
+                scheduleVolumeFlush()
+            }
+        } else {
+            pendingControls.remove(MediaCommand.setVolume(request.value).controlID)
+        }
     }
     private func dispatch(_ command: MediaCommand) {
         guard !isPending(command), state.hasMedia, state.capabilities.supports(command) else { return }
@@ -306,6 +414,10 @@ public final class MediaSessionController {
         case .setRepeatMode(let mode):
             next.repeatMode = mode
             pendingRepeatIntent = .init(value: mode, requestedAt: now, revision: revision)
+        case .setVolume(let value):
+            let percent = Int((min(max(value, 0), 1) * 100).rounded())
+            next.volumePercent = percent
+            pendingVolumeIntent = .init(value: percent, requestedAt: now, revision: revision)
         case .next, .previous:
             pendingTrackTransition = .init(origin: authoritativeState.hasMedia ? authoritativeState : state,
                                            requestedAt: now, revision: revision)
@@ -323,6 +435,8 @@ public final class MediaSessionController {
             if pendingShuffleIntent?.revision == revision { pendingShuffleIntent = nil }
         case .setRepeatMode, .cycleRepeat:
             if pendingRepeatIntent?.revision == revision { pendingRepeatIntent = nil }
+        case .setVolume:
+            if pendingVolumeIntent?.revision == revision { pendingVolumeIntent = nil }
         case .next, .previous:
             if pendingTrackTransition?.revision == revision { pendingTrackTransition = nil }
         default:
@@ -341,6 +455,69 @@ public final class MediaSessionController {
     }
     public func refreshPlaybackState() async {
         await provider.refresh()
+    }
+
+    public func refreshDevices() {
+        devicesTask?.cancel()
+        devicesLoading = true
+        deviceIssue = nil
+        let provider = provider
+        let generation = generation
+        devicesTask = Task { [weak self] in
+            do {
+                let devices = try await provider.devices()
+                guard let self, self.generation == generation, !Task.isCancelled else { return }
+                self.devices = devices
+                self.devicesLoading = false
+                self.devicesTask = nil
+            } catch {
+                guard let self, self.generation == generation, !Task.isCancelled else { return }
+                self.devices = []
+                self.devicesLoading = false
+                self.deviceIssue = "Devices unavailable"
+                self.devicesTask = nil
+            }
+        }
+    }
+
+    public func transferPlayback(to device: SpotifyDevice) {
+        guard !device.isRestricted, device.id != state.activeDeviceID else { return }
+        let provider = provider
+        let generation = generation
+        devicesLoading = true
+        deviceIssue = nil
+        devicesTask?.cancel()
+        devicesTask = Task { [weak self] in
+            do {
+                try await provider.transferPlayback(to: device.id)
+                guard let self, self.generation == generation, !Task.isCancelled else { return }
+                self.devices = self.devices.map {
+                    .init(id: $0.id, name: $0.name, type: $0.type,
+                          isActive: $0.id == device.id, isRestricted: $0.isRestricted,
+                          volumePercent: $0.volumePercent, supportsVolume: $0.supportsVolume)
+                }
+                var next = self.state
+                next.activeDeviceID = device.id
+                next.activeDeviceName = device.name
+                next.activeDeviceType = device.type
+                next.volumePercent = device.volumePercent
+                next.capabilities.canSetVolume = device.supportsVolume
+                self.applyPresentation(next)
+                self.devicesLoading = false
+                self.devicesTask = nil
+            } catch {
+                guard let self, self.generation == generation, !Task.isCancelled else { return }
+                self.devicesLoading = false
+                self.deviceIssue = "Couldn’t connect to that device"
+                self.devicesTask = nil
+            }
+        }
+    }
+
+    private struct VolumeRequest {
+        let value: Double
+        let revision: Int
+        let final: Bool
     }
 
     private struct SeekRequest {
@@ -463,6 +640,7 @@ public final class MediaSessionController {
         pendingPlaybackIntent = nil
         pendingShuffleIntent = nil
         pendingRepeatIntent = nil
+        pendingVolumeIntent = nil
         pendingTrackTransition = nil
     }
 }
@@ -517,6 +695,9 @@ private extension MediaState {
         merged.playbackState = previous.playbackState
         merged.trackID = previous.trackID
         merged.activeDeviceID = previous.activeDeviceID
+        merged.activeDeviceName = previous.activeDeviceName
+        merged.activeDeviceType = previous.activeDeviceType
+        merged.volumePercent = previous.volumePercent
         merged.title = previous.title
         merged.artist = previous.artist
         merged.artwork = previous.artwork

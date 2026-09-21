@@ -15,7 +15,15 @@ struct SpotifyPlayback: Decodable {
         let album: Album?
         let type: String?
     }
-    struct Device: Decodable { let id: String?; let is_restricted: Bool? }
+    struct Device: Decodable {
+        let id: String?
+        let is_active: Bool?
+        let is_restricted: Bool?
+        let name: String?
+        let type: String?
+        let volume_percent: Int?
+        let supports_volume: Bool?
+    }
     struct Actions: Decodable { let disallows: [String: Bool]? }
     let is_playing: Bool
     let progress_ms: Double?
@@ -36,14 +44,18 @@ struct SpotifyPlayback: Decodable {
                      playbackState: is_playing ? .playing : .paused, title: item.name,
                      artist: item.artists?.map(\.name).joined(separator: ", "),
                      elapsed: (progress_ms ?? 0) / 1000, duration: item.duration_ms.map { $0 / 1000 },
-                     trackID: item.id, activeDeviceID: device?.id, artwork: item.album?.images.min {
+                     trackID: item.id, activeDeviceID: device?.id,
+                     activeDeviceName: device?.name, activeDeviceType: device?.type,
+                     volumePercent: device?.volume_percent,
+                     artwork: item.album?.images.min {
                          abs(($0.width ?? 300) - 300) < abs(($1.width ?? 300) - 300)
                      }?.url, source: .spotify,
                      capabilities: .init(canPlayPause: allows(is_playing ? "pausing" : "resuming"),
                                          canSkipForward: allows("skipping_next"), canSkipBackward: allows("skipping_prev"),
                                          canSeek: allows("seeking"), canShuffle: allows("toggling_shuffle"),
                                          canRepeat: allows("toggling_repeat_context") && allows("toggling_repeat_track"),
-                                         canReadQueue: true),
+                                         canReadQueue: true,
+                                         canSetVolume: controllable && device?.supports_volume == true),
                      shuffle: shuffle_state, repeatMode: repeat_state.flatMap(MediaRepeatMode.init(rawValue:)),
                      timestamp: observedAt, playbackRate: is_playing ? 1 : 0)
     }
@@ -77,13 +89,16 @@ actor SpotifyPlaybackAPI {
         }
     }
 
-    func request(path: String = "", method: String = "GET", query: [URLQueryItem] = [], reason: String = "direct") async throws -> MediaHTTPResponse {
+    func request(path: String = "", method: String = "GET", query: [URLQueryItem] = [],
+                 body: Data? = nil, reason: String = "direct") async throws -> MediaHTTPResponse {
         try Task.checkCancellation()
         try await checkCooldown()
         var components = URLComponents(string: "https://api.spotify.com/v1/me/player" + path)!
         if !query.isEmpty { components.queryItems = query }
         var request = URLRequest(url: components.url!)
         request.httpMethod = method
+        request.httpBody = body
+        if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         do {
             request.setValue("Bearer \(try await authorization.accessToken())", forHTTPHeaderField: "Authorization")
         } catch MediaFailure.rateLimited(let seconds) {
@@ -156,6 +171,24 @@ actor SpotifyPlaybackAPI {
                                          query: query, reason: "command")
         guard response.status == 204 else { throw MediaFailure.invalidResponse }
     }
+    func devices() async throws -> [SpotifyDevice] {
+        struct Payload: Decodable { let devices: [SpotifyPlayback.Device] }
+        let response = try await request(path: "/devices", reason: "devices")
+        return try JSONDecoder().decode(Payload.self, from: response.data).devices.compactMap { device in
+            guard let id = device.id, !id.isEmpty else { return nil }
+            return SpotifyDevice(id: id, name: device.name ?? "Spotify device",
+                                 type: device.type ?? "unknown", isActive: device.is_active == true,
+                                 isRestricted: device.is_restricted == true,
+                                 volumePercent: device.volume_percent,
+                                 supportsVolume: device.supports_volume == true)
+        }
+    }
+    func transferPlayback(to deviceID: String) async throws {
+        guard !deviceID.isEmpty else { throw MediaFailure.unsupported }
+        let body = try JSONEncoder().encode(["device_ids": [deviceID]])
+        let response = try await request(method: "PUT", body: body, reason: "transfer")
+        guard response.status == 204 else { throw MediaFailure.invalidResponse }
+    }
     func perform(_ command: MediaCommand, state: MediaState) async throws {
         guard state.hasMedia, state.capabilities.supports(command) else { throw MediaFailure.unsupported }
         let path: String
@@ -184,7 +217,14 @@ actor SpotifyPlaybackAPI {
             path = "/repeat"
             let next: MediaRepeatMode = state.repeatMode == .off ? .context : state.repeatMode == .context ? .track : .off
             query = [.init(name: "state", value: next.rawValue)]
-        case .setVolume: throw MediaFailure.unsupported
+        case .setVolume(let value):
+            guard value.isFinite, state.capabilities.canSetVolume else { throw MediaFailure.unsupported }
+            path = "/volume"
+            let percent = Int((min(max(value, 0), 1) * 100).rounded())
+            query = [.init(name: "volume_percent", value: String(percent))]
+            if let deviceID = state.activeDeviceID {
+                query.append(.init(name: "device_id", value: deviceID))
+            }
         }
         let response = try await request(path: path, method: method, query: query, reason: "command")
         if case .seek = command {
