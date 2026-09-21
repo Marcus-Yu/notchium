@@ -149,6 +149,8 @@ public struct MediaPageView: View {
                 .animation(MediaMotion.track(reduceMotion: reduceMotion), value: trackIdentity)
                 MediaProgressView(model: model).padding(.top, 3)
                 controls.padding(.top, 2)
+                SpotifySecondaryControls(model: model)
+                    .padding(.top, 1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -197,6 +199,183 @@ public struct MediaPageView: View {
             .animation(MediaMotion.control(reduceMotion: reduceMotion), value: active)
             .accessibilityRespondsToUserInteraction(isAvailable)
             .help(label).accessibilityLabel(label)
+    }
+}
+
+private struct SpotifySecondaryControls: View {
+    let model: MediaFeatureModel
+    @State private var showsDevices = false
+    @State private var isAdjustingVolume = false
+    @State private var volume = 0.5
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: volumeSymbol)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white.opacity(model.state.capabilities.canSetVolume ? 0.78 : 0.38))
+                .frame(width: 16)
+
+            NotchiumSlider(
+                value: Binding(
+                    get: { volume },
+                    set: { value in
+                        volume = value
+                        model.setVolume(value, final: false)
+                    }
+                ),
+                accessibilityLabel: "Spotify volume",
+                accessibilityStep: 0.05,
+                accessibilityValue: { "\(Int(($0 * 100).rounded())) percent" }
+            ) { editing in
+                if editing {
+                    isAdjustingVolume = true
+                    syncVolume()
+                } else {
+                    model.setVolume(volume, final: true)
+                    isAdjustingVolume = false
+                }
+            }
+            .frame(maxWidth: 118, minHeight: 20)
+            .disabled(!model.state.capabilities.canSetVolume)
+            .help(model.state.capabilities.canSetVolume
+                  ? "Spotify volume"
+                  : "This Spotify device doesn’t support remote volume")
+
+            if isAdjustingVolume {
+                Text("\(Int((volume * 100).rounded()))%")
+                    .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.72))
+                    .frame(width: 30, alignment: .trailing)
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            }
+
+            Spacer(minLength: 4)
+
+            Button {
+                showsDevices.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: deviceSymbol(model.state.activeDeviceType))
+                    Text(model.state.activeDeviceName ?? "Devices")
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.white.opacity(0.75))
+                .padding(.horizontal, 9)
+                .frame(height: 26)
+                .glassEffect(.clear.interactive(), in: .capsule)
+            }
+            .buttonStyle(MediaControlButtonStyle())
+            .help("Spotify Connect devices")
+            .accessibilityLabel("Spotify Connect device, \(model.state.activeDeviceName ?? "unknown")")
+            .popover(isPresented: $showsDevices, arrowEdge: .bottom) {
+                SpotifyDevicesPopover(model: model)
+            }
+        }
+        .frame(height: 28)
+        .animation(MediaMotion.control(reduceMotion: reduceMotion), value: isAdjustingVolume)
+        .onAppear { syncVolume() }
+        .onChange(of: model.state.volumePercent) { _, _ in
+            if !isAdjustingVolume { syncVolume() }
+        }
+        .onChange(of: model.state.capabilities.canSetVolume) { _, canSetVolume in
+            if !canSetVolume {
+                isAdjustingVolume = false
+                syncVolume()
+            }
+        }
+        .onChange(of: showsDevices) { _, isPresented in
+            if isPresented { model.refreshDevices() }
+        }
+    }
+
+    private var volumeSymbol: String {
+        if volume == 0 { return "speaker.slash.fill" }
+        if volume < 0.34 { return "speaker.wave.1.fill" }
+        if volume < 0.67 { return "speaker.wave.2.fill" }
+        return "speaker.wave.3.fill"
+    }
+
+    private func syncVolume() {
+        volume = Double(model.state.volumePercent ?? 50) / 100
+    }
+}
+
+private struct SpotifyDevicesPopover: View {
+    let model: MediaFeatureModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Spotify Connect")
+                .font(.system(size: 12, weight: .semibold))
+                .padding(.horizontal, 4)
+
+            if model.devicesLoading && model.devices.isEmpty {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Finding devices…")
+                }
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, minHeight: 46)
+            } else if let issue = model.deviceIssue, model.devices.isEmpty {
+                Text(issue)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 46)
+            } else if model.devices.isEmpty {
+                Text("No Spotify devices found")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 46)
+            } else {
+                ForEach(model.devices) { device in
+                    Button {
+                        model.transferPlayback(to: device)
+                    } label: {
+                        HStack(spacing: 9) {
+                            Image(systemName: deviceSymbol(device.type))
+                                .frame(width: 17)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(device.name).lineLimit(1)
+                                if device.isRestricted {
+                                    Text("Unavailable").font(.system(size: 9)).foregroundStyle(.secondary)
+                                }
+                            }
+                            Spacer(minLength: 8)
+                            if device.isActive || device.id == model.state.activeDeviceID {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                            }
+                        }
+                        .font(.system(size: 11, weight: .medium))
+                        .padding(.horizontal, 8)
+                        .frame(height: 34)
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(device.isRestricted || model.devicesLoading)
+                    .opacity(device.isRestricted ? 0.5 : 1)
+                    .accessibilityAddTraits(device.isActive ? .isSelected : [])
+                }
+            }
+        }
+        .padding(10)
+        .frame(width: 228)
+    }
+}
+
+private func deviceSymbol(_ type: String?) -> String {
+    switch type?.lowercased() {
+    case "computer": "desktopcomputer"
+    case "smartphone": "iphone"
+    case "tablet": "ipad"
+    case "speaker": "hifispeaker.fill"
+    case "tv": "tv.fill"
+    case "avr": "av.receiver"
+    case "automobile": "car.fill"
+    default: "airplayaudio"
     }
 }
 

@@ -134,7 +134,7 @@ private struct NotchShellOuterSurface: View {
                 .zIndex(10)
 
             if model.surfaceState != .collapsed {
-                NotchSettingsButton()
+                NotchUtilityControls(close: model.collapse)
                     .padding(.trailing, 18)
                     .padding(.top, 2)
                     .frame(width: layout.expandedSize.width, alignment: .trailing)
@@ -174,7 +174,7 @@ private struct NotchShellOuterSurface: View {
                         NotchActivityView(activity: activity)
                     }
                 } else {
-                    NotchExpandedPlaceholderContainer(close: model.collapse, pageModel: model.pageModel)
+                    NotchExpandedPlaceholderContainer(pageModel: model.pageModel)
                 }
             }
             .padding(.top, layout.collapsedVisibleFrame.height)

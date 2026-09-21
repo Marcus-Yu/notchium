@@ -43,8 +43,8 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
             contentRect: NSRect(
                 x: 0,
                 y: 0,
-                width: 640,
-                height: 210
+                width: NotchGeometryResolver.panelSize.width,
+                height: NotchGeometryResolver.panelSize.height
             ),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
