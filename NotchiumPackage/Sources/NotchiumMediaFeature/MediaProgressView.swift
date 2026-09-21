@@ -5,8 +5,10 @@ import NotchiumDynamicIsland
 struct MediaProgressView: View {
     let model: MediaFeatureModel
     @State private var isSeeking = false
+    @State private var isHovered = false
     @State private var seekPosition = 0.0
     @Environment(\.notchMediaExpanded) private var isVisible
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         TimelineView(.animation(minimumInterval: model.state.isPlaying ? 0.1 : nil,
@@ -28,15 +30,9 @@ struct MediaProgressView: View {
                         print("[MediaControl] SEEK tapped")
                         #endif
                         let target = seekPosition
-                        Task {
-                            do {
-                                try await model.seek(to: target)
-                                seekPosition = target
-                            } catch {
-                                // The session controller publishes the command failure.
-                            }
-                            isSeeking = false
-                        }
+                        model.send(.seek(target))
+                        seekPosition = target
+                        isSeeking = false
                     }
                 }
                 .labelsHidden().controlSize(.mini).tint(.white)
@@ -47,16 +43,32 @@ struct MediaProgressView: View {
                         let width = max(0, proxy.size.width - 12)
                         let fraction = model.state.validDuration.map { min(max(position / $0, 0), 1) } ?? 0
                         ZStack(alignment: .leading) {
-                            Capsule().fill(.white.opacity(0.22)).frame(width: width, height: 3)
-                            Capsule().fill(.white).frame(width: width * fraction, height: 3)
-                            Circle().fill(.white).frame(width: 8, height: 8)
-                                .offset(x: width * fraction - 4)
+                            Capsule()
+                                .fill(.white.opacity(isHovered || isSeeking ? 0.28 : 0.2))
+                                .frame(width: width, height: isSeeking ? 4 : 3)
+                            Capsule()
+                                .fill(.white.opacity(isHovered || isSeeking ? 1 : 0.9))
+                                .frame(width: width * fraction, height: isSeeking ? 4 : 3)
+                            Circle()
+                                .fill(.white)
+                                .frame(width: 9, height: 9)
+                                .glassEffect(.clear, in: .circle)
+                                .scaleEffect(isSeeking ? 1.22 : isHovered ? 1.1 : 1)
+                                .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
+                                .offset(x: width * fraction - 4.5)
                         }
-                        .frame(height: 12).padding(.horizontal, 6)
+                        .frame(height: 14)
+                        .padding(.horizontal, 6)
+                        .animation(reduceMotion ? .easeOut(duration: 0.1) : .smooth(duration: 0.16),
+                                   value: isHovered)
+                        .animation(reduceMotion ? .easeOut(duration: 0.1) : .smooth(duration: 0.16),
+                                   value: isSeeking)
                     }
                     .background(.black)
                     .allowsHitTesting(false).accessibilityHidden(true)
                 }
+                .contentShape(.rect)
+                .onHover { isHovered = $0 }
                 .disabled(!model.state.canSeek || (model.isPending(.seek(0)) && !isSeeking))
                 .accessibilityValue(Self.time(position))
                 HStack {
@@ -66,8 +78,6 @@ struct MediaProgressView: View {
                 }
                 .font(.system(size: 11, weight: .medium)).monospacedDigit().foregroundStyle(.gray)
             }
-            // A transport update must never implicitly animate the slider backward through a track change.
-            .transaction { $0.animation = nil }
         }
         .onChange(of: model.state) { old, new in
             if !new.isSameTrack(as: old) || !new.hasMedia { isSeeking = false }

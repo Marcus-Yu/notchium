@@ -95,7 +95,7 @@ final class DynamicIslandPresentationTests: XCTestCase {
 
         XCTAssertEqual(model.phase, .expanded)
         let history = await clock.sleepHistory()
-        XCTAssertEqual(history, [.milliseconds(600)])
+        XCTAssertEqual(history, [.milliseconds(340)])
     }
 
     func testHoverReentryCancelsPendingCollapse() async {
@@ -136,7 +136,7 @@ final class DynamicIslandPresentationTests: XCTestCase {
 
         XCTAssertEqual(model.phase, .expanded)
         let history = await clock.sleepHistory()
-        XCTAssertEqual(history, [.milliseconds(180)])
+        XCTAssertEqual(history, [.milliseconds(120)])
     }
 
     func testEveryStableStateCanBeCommandedWithoutAnimation() {

@@ -1,17 +1,20 @@
 import SwiftUI
 
 enum NotchMotion {
-    // User-specified Stage 4 opening and closing response/damping.
-    static let open = Animation.spring(response: 0.42, dampingFraction: 0.80, blendDuration: 0)
-    static let close = Animation.spring(response: 0.45, dampingFraction: 1.0, blendDuration: 0)
+    // Pointer/tap-driven motion is critically damped: responsive, interruptible, and bounce-free.
+    static let open = Animation.smooth(duration: 0.34)
+    static let close = Animation.smooth(duration: 0.30)
 
     static func morph(opening: Bool) -> Animation { opening ? open : close }
+    static func duration(opening: Bool) -> Duration {
+        opening ? .milliseconds(340) : .milliseconds(300)
+    }
 
-    static let contentIn = Animation.easeOut(duration: 0.18)
+    static let contentIn = Animation.smooth(duration: 0.22)
 
-    static let contentOut = Animation.easeOut(duration: 0.08)
+    static let contentOut = Animation.smooth(duration: 0.14)
 
-    static let reduced = Animation.easeInOut(duration: 0.18)
+    static let reduced = Animation.easeOut(duration: 0.12)
 }
 
 public struct NotchiumShellView: View {
@@ -186,7 +189,7 @@ private struct NotchShellOuterSurface: View {
                 return
             }
             do {
-                try await Task.sleep(for: .milliseconds(170))
+                try await Task.sleep(for: .milliseconds(70))
             } catch { return }
             guard !Task.isCancelled else { return }
             withAnimation(NotchMotion.contentIn) { contentVisible = true }

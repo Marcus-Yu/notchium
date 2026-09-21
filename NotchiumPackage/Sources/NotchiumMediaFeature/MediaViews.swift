@@ -50,6 +50,7 @@ public struct MediaPageView: View {
     @State private var selectedSurface = MediaSurface.player
     @Environment(\.notchMediaExpanded) private var isExpanded
     @Environment(\.openSettings) private var openSettings
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     public init(model: MediaFeatureModel) { self.model = model }
     public var body: some View {
         Group {
@@ -65,9 +66,12 @@ public struct MediaPageView: View {
                             UpNextView(state: model.state)
                         }
                     }
+                    .id(selectedSurface)
+                    .transition(.opacity.combined(with: .scale(scale: 0.985, anchor: .top)))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .padding(.horizontal, 24)
+                .animation(MediaMotion.surface(reduceMotion: reduceMotion), value: selectedSurface)
             case .initializing:
                 statusView(title: "Spotify", message: "Restoring your Spotify session…", showsProgress: true)
             case .authorizing:
@@ -87,12 +91,12 @@ public struct MediaPageView: View {
         .allowsHitTesting(true)
         .accessibilityIdentifier("notchium.media.page")
         .task(id: isExpanded && selectedSurface == .upNext) {
-            guard isExpanded, selectedSurface == .upNext else { return }
-            await model.loadQueue()
+            model.setUpNextVisible(isExpanded && selectedSurface == .upNext)
         }
         .onChange(of: isExpanded) { _, expanded in
             if !expanded { selectedSurface = .player }
         }
+        .onDisappear { model.setUpNextVisible(false) }
     }
     private func statusView(title: String, message: String, showsProgress: Bool = false,
                             actionTitle: String? = nil) -> some View {
@@ -112,7 +116,8 @@ public struct MediaPageView: View {
                 .lineLimit(2)
             if let actionTitle {
                 Button(actionTitle) { openSettings() }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.capsule)
                     .controlSize(.small)
             }
         }
@@ -122,20 +127,26 @@ public struct MediaPageView: View {
         .accessibilityIdentifier("notchium.media.status.\(model.state.experienceState.rawValue)")
     }
     private var player: some View {
-        HStack(spacing: 14) {
+        let trackIdentity = model.state.trackID ?? model.state.title ?? "unknown-track"
+        return HStack(spacing: 14) {
             MediaArtworkSlot(url: model.state.artwork, size: 88, expanded: true)
             VStack(alignment: .leading, spacing: 3) {
-                Text(model.state.title ?? "").font(.system(size: 17, weight: .semibold))
-                    .lineLimit(1).truncationMode(.tail)
-                HStack(spacing: 8) {
-                    Text(model.state.artist ?? "")
-                        .font(.system(size: 13, weight: .regular))
-                        .foregroundStyle(.gray)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    Spacer(minLength: 0)
-                    MediaWaveform(isPlaying: model.state.isPlaying, meter: model.audioMeter)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(model.state.title ?? "").font(.system(size: 17, weight: .semibold))
+                        .lineLimit(1).truncationMode(.tail)
+                    HStack(spacing: 8) {
+                        Text(model.state.artist ?? "")
+                            .font(.system(size: 13, weight: .regular))
+                            .foregroundStyle(.gray)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Spacer(minLength: 0)
+                        MediaWaveform(isPlaying: model.state.isPlaying, meter: model.audioMeter)
+                    }
                 }
+                .id(trackIdentity)
+                .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .leading)))
+                .animation(MediaMotion.track(reduceMotion: reduceMotion), value: trackIdentity)
                 MediaProgressView(model: model).padding(.top, 3)
                 controls.padding(.top, 2)
             }
@@ -143,18 +154,20 @@ public struct MediaPageView: View {
         }
     }
     private var controls: some View {
-        HStack(spacing: 12) {
-            control("Shuffle", symbol: "shuffle", command: .setShuffle(model.state.shuffle != true),
-                    enabled: model.state.canShuffle, active: model.state.shuffle == true, inactiveOpacity: 0.6)
-            control("Previous Track", symbol: "backward.fill", command: .previous,
-                    enabled: model.state.canSkipBackward, pending: model.isPreviousPending)
-            control(model.state.isPlaying ? "Pause" : "Play", symbol: model.state.isPlaying ? "pause.fill" : "play.fill",
-                    command: .playPause, enabled: model.state.canPlayPause)
-            control("Next Track", symbol: "forward.fill", command: .next, enabled: model.state.canSkipForward)
-            control("Repeat", symbol: model.state.repeatMode == .track ? "repeat.1" : "repeat",
-                    command: .setRepeatMode(model.state.repeatMode == .off ? .context : model.state.repeatMode == .context ? .track : .off),
-                    enabled: model.state.canRepeat, active: model.state.repeatMode != nil && model.state.repeatMode != .off,
-                    inactiveOpacity: 0.6)
+        GlassEffectContainer(spacing: 12) {
+            HStack(spacing: 12) {
+                control("Shuffle", symbol: "shuffle", command: .setShuffle(model.state.shuffle != true),
+                        enabled: model.state.canShuffle, active: model.state.shuffle == true, inactiveOpacity: 0.6)
+                control("Previous Track", symbol: "backward.fill", command: .previous,
+                        enabled: model.state.canSkipBackward, pending: model.isPreviousPending)
+                control(model.state.isPlaying ? "Pause" : "Play", symbol: model.state.isPlaying ? "pause.fill" : "play.fill",
+                        command: .playPause, enabled: model.state.canPlayPause)
+                control("Next Track", symbol: "forward.fill", command: .next, enabled: model.state.canSkipForward)
+                control("Repeat", symbol: model.state.repeatMode == .track ? "repeat.1" : "repeat",
+                        command: .setRepeatMode(model.state.repeatMode == .off ? .context : model.state.repeatMode == .context ? .track : .off),
+                        enabled: model.state.canRepeat, active: model.state.repeatMode != nil && model.state.repeatMode != .off,
+                        inactiveOpacity: 0.6)
+            }
         }
         .buttonStyle(MediaControlButtonStyle()).font(.system(size: 14))
         .frame(maxWidth: .infinity)
@@ -167,9 +180,21 @@ public struct MediaPageView: View {
             guard isAvailable else { return }
             model.send(command)
         } label: {
-            Image(systemName: symbol).frame(width: 32, height: 32).contentShape(Rectangle())
+            Image(systemName: symbol)
+                .contentTransition(.symbolEffect(.replace))
+                .frame(width: 32, height: 32)
+                .contentShape(.circle)
+                .glassEffect(
+                    active
+                        ? .regular.tint(.white.opacity(0.14)).interactive()
+                        : .clear.interactive(),
+                    in: .circle
+                )
         }
             .foregroundStyle(.white.opacity(foregroundOpacity))
+            .disabled(!isAvailable)
+            .animation(MediaMotion.control(reduceMotion: reduceMotion), value: symbol)
+            .animation(MediaMotion.control(reduceMotion: reduceMotion), value: active)
             .accessibilityRespondsToUserInteraction(isAvailable)
             .help(label).accessibilityLabel(label)
     }
@@ -183,18 +208,30 @@ private enum MediaSurface: String, CaseIterable, Identifiable {
 
 private struct MediaSurfacePicker: View {
     @Binding var selection: MediaSurface
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: 12) {
-            ForEach(MediaSurface.allCases) { surface in
-                Button(surface.rawValue) { selection = surface }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 11, weight: surface == selection ? .semibold : .medium))
-                    .foregroundStyle(.white.opacity(surface == selection ? 1 : 0.5))
-                    .accessibilityAddTraits(surface == selection ? .isSelected : [])
+        GlassEffectContainer(spacing: 4) {
+            HStack(spacing: 4) {
+                ForEach(MediaSurface.allCases) { surface in
+                    Button(surface.rawValue) { selection = surface }
+                        .buttonStyle(MediaControlButtonStyle())
+                        .font(.system(size: 11, weight: surface == selection ? .semibold : .medium))
+                        .foregroundStyle(.white.opacity(surface == selection ? 1 : 0.62))
+                        .padding(.horizontal, 9)
+                        .frame(height: 24)
+                        .glassEffect(
+                            surface == selection
+                                ? .regular.tint(.white.opacity(0.1)).interactive()
+                                : .clear.interactive(),
+                            in: .capsule
+                        )
+                        .accessibilityAddTraits(surface == selection ? .isSelected : [])
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
+        .animation(MediaMotion.control(reduceMotion: reduceMotion), value: selection)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Media view")
     }
@@ -202,6 +239,7 @@ private struct MediaSurfacePicker: View {
 
 struct UpNextView: View {
     let state: MediaState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -214,9 +252,11 @@ struct UpNextView: View {
             } else {
                 ForEach(state.queue.prefix(3)) { track in
                     QueueTrackRow(track: track)
+                        .transition(.opacity.combined(with: .offset(y: 4)))
                 }
             }
         }
+        .animation(MediaMotion.surface(reduceMotion: reduceMotion), value: state.queue.map(\.id))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .foregroundStyle(.white)
         .accessibilityIdentifier("notchium.media.up-next")
@@ -256,7 +296,27 @@ private struct QueueTrackRow: View {
 }
 
 private struct MediaControlButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.opacity(configuration.isPressed ? 0.7 : 1)
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.9 : 1)
+            .opacity(configuration.isPressed ? 0.78 : 1)
+            .brightness(configuration.isPressed ? 0.08 : 0)
+            .animation(MediaMotion.control(reduceMotion: reduceMotion), value: configuration.isPressed)
+    }
+}
+
+private enum MediaMotion {
+    static func control(reduceMotion: Bool) -> Animation {
+        reduceMotion ? .easeOut(duration: 0.1) : .smooth(duration: 0.16)
+    }
+
+    static func surface(reduceMotion: Bool) -> Animation {
+        reduceMotion ? .easeOut(duration: 0.12) : .smooth(duration: 0.26)
+    }
+
+    static func track(reduceMotion: Bool) -> Animation {
+        reduceMotion ? .easeOut(duration: 0.12) : .smooth(duration: 0.22)
     }
 }

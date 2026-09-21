@@ -253,9 +253,9 @@ public final class DynamicIslandPresentationModel {
         to target: NotchStableState
     ) -> Duration {
         if reduceMotion {
-            return .milliseconds(180)
+            return .milliseconds(120)
         }
-        return .milliseconds(600)
+        return NotchMotion.duration(opening: target != .collapsed)
     }
 
     private static func phase(for state: NotchStableState) -> NotchPresentationPhase {
