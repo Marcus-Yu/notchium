@@ -4,6 +4,26 @@ import XCTest
 
 @MainActor
 final class DynamicIslandPresentationTests: XCTestCase {
+    func testAudioHUDUpdatesInPlaceAndDoesNotTakeOverExpandedPage() async {
+        let clock = ControlledAppClock()
+        let model = DynamicIslandPresentationModel(clock: clock)
+        let first = NotchAudioHUD(kind: .volume, deviceName: "Speakers", volume: 0.4, isMuted: false)
+        let repeatEvent = NotchAudioHUD(kind: .volume, deviceName: "Speakers", volume: 0.5, isMuted: false)
+
+        model.showAudioHUD(first)
+        XCTAssertEqual(model.audioHUD, first)
+        model.showAudioHUD(repeatEvent)
+        XCTAssertEqual(model.audioHUD, repeatEvent)
+        await waitForPendingSleep(clock)
+        await clock.releaseAll()
+        await drainMainActorTasks()
+        XCTAssertNil(model.audioHUD)
+
+        model.present(.expanded, animated: false)
+        model.showAudioHUD(first)
+        XCTAssertNil(model.audioHUD)
+    }
+
     func testHoverEntryIsDelayedAndCompletesDeterministically() async {
         let clock = ControlledAppClock()
         let model = DynamicIslandPresentationModel(clock: clock)
