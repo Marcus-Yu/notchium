@@ -33,15 +33,17 @@ struct NotchShellSurface: Shape {
     var bottomRadius: CGFloat
     let passiveShape: NotchShape
     var reminderHeight: CGFloat = 0
+    var reminderWidth: CGFloat = 0
+    var reminderProgress: CGFloat = 1
 
     var animatableData: AnimatablePair<
         AnimatablePair<AnimatablePair<CGFloat, CGFloat>, AnimatablePair<CGFloat, CGFloat>>,
-        CGFloat
+        AnimatablePair<CGFloat, CGFloat>
     > {
         get {
             AnimatablePair(
                 AnimatablePair(AnimatablePair(width, height), AnimatablePair(centerX, bottomRadius)),
-                reminderHeight
+                AnimatablePair(reminderHeight, reminderProgress)
             )
         }
         set {
@@ -49,17 +51,20 @@ struct NotchShellSurface: Shape {
             height = newValue.first.first.second
             centerX = newValue.first.second.first
             bottomRadius = newValue.first.second.second
-            reminderHeight = newValue.second
+            reminderHeight = newValue.second.first
+            reminderProgress = newValue.second.second
         }
     }
 
     func path(in rect: CGRect) -> Path {
-        let totalHeight = height + max(0, reminderHeight)
-        let isExpanded = reminderHeight > 0 || width > passiveShape.width || totalHeight > passiveShape.height
+        let reveal = NotchReminderReveal(progress: reminderProgress)
+        let surfaceWidth = width + max(0, reminderWidth - width) * reveal.width
+        let totalHeight = height + max(0, reminderHeight) * reveal.height
+        let isExpanded = reminderHeight * reveal.height > 0 || surfaceWidth > passiveShape.width || totalHeight > passiveShape.height
         if isExpanded {
             return ExpandedTopSurface(bottomRadius: max(0, bottomRadius))
-                .path(in: CGRect(x: 0, y: 0, width: width, height: totalHeight))
-                .applying(CGAffineTransform(translationX: centerX - width / 2, y: rect.minY))
+                .path(in: CGRect(x: 0, y: 0, width: surfaceWidth, height: totalHeight))
+                .applying(CGAffineTransform(translationX: centerX - surfaceWidth / 2, y: rect.minY))
         } else {
             return passiveShape.path(in: rect)
         }
