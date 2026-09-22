@@ -2,6 +2,8 @@ import SwiftUI
 
 /// Opaque at rest, independent of the system's dark glass appearance.
 struct CalendarJoinButtonStyle: ButtonStyle {
+    var height: CGFloat = 28
+
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovered = false
 
@@ -10,7 +12,7 @@ struct CalendarJoinButtonStyle: ButtonStyle {
             .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(Color.black)
             .padding(.horizontal, 12)
-            .frame(height: 28)
+            .frame(height: height)
             .background(Color.white, in: Capsule())
             .fixedSize()
             .scaleEffect(reduceMotion ? 1 : (configuration.isPressed ? 0.96 : (isHovered ? 1.03 : 1)))
