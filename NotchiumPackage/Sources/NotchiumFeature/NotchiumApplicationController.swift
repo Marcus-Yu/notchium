@@ -1,5 +1,6 @@
 import NotchiumCore
 import NotchiumCalendarFeature
+import NotchiumAudioFeature
 #if DEBUG
 import NotchiumDebug
 #endif
@@ -17,6 +18,7 @@ public final class NotchiumApplicationController {
     public let displayCoordinator: NotchiumDisplayCoordinator
     public let mediaSessionController: MediaSessionController
     public let calendarModel: CalendarActivityModel
+    public let audioModel: AudioFeatureModel
     public var mediaModel: MediaSessionController { mediaSessionController }
 #if DEBUG
     public let mockMediaProvider = MockMediaProvider()
@@ -60,8 +62,14 @@ public final class NotchiumApplicationController {
                 presentation?.setExpanded(true)
                 presentation?.pageModel.selectedPage = .calendar
             })
+        audioModel = AudioFeatureModel(devices: environment.services.audioDevices,
+                                       processes: environment.services.audioProcesses)
+        audioModel.onHUD = { [weak presentation = displayCoordinator.presentationModel] hud in
+            presentation?.showAudioHUD(hud)
+        }
         displayCoordinator.presentationModel.mediaRenderer = mediaModel
         displayCoordinator.presentationModel.calendarRenderer = calendarModel
+        displayCoordinator.presentationModel.audioRenderer = audioModel
     }
 
     public static func production() -> NotchiumApplicationController {
@@ -73,6 +81,7 @@ public final class NotchiumApplicationController {
         isRunning = true
         displayCoordinator.start()
         if environment.featureFlags[.calendar] { calendarModel.start() }
+        if environment.featureFlags[.audioDevices] { audioModel.start() }
         if environment.featureFlags[.media] {
             mediaModel.start()
             if let real = environment.services.media as? RealMediaProvider {
@@ -89,6 +98,7 @@ public final class NotchiumApplicationController {
         mediaConnectionTask?.cancel(); mediaConnectionTask = nil
         mediaModel.stop()
         calendarModel.stop()
+        audioModel.stop()
         if let real = environment.services.media as? RealMediaProvider {
             Task { await real.shutdown() }
         }
