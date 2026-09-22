@@ -53,10 +53,15 @@ public final class DynamicIslandPresentationModel {
     public let pageModel: NotchPageModel
     public var mediaRenderer: (any NotchMediaRendering)?
     public var calendarRenderer: (any NotchCalendarRendering)?
+    public var audioRenderer: (any NotchAudioRendering)?
+    public private(set) var audioHUD: NotchAudioHUD?
+    // Measured at the banner's fixed target width; shared with AppKit hit testing.
+    var calendarReminderHeight: CGFloat = NotchReminderGeometry.minimumHeight
 
     public var showsCalendarReminder: Bool {
         _ = activityRevision
         return calendarRenderer?.reminderVisible == true
+            && audioHUD == nil
             && activityCoordinator.activeActivity?.kind == .calendar && visualState == .collapsed
     }
 
@@ -64,6 +69,7 @@ public final class DynamicIslandPresentationModel {
         _ = activityRevision
         let activity = activityCoordinator.activeActivity?.kind
         return mediaRenderer?.collapsedMediaVisible == true
+            && audioHUD == nil
             && (activity == .media || activity == .calendar)
             && visualState == .collapsed
     }
@@ -102,6 +108,7 @@ public final class DynamicIslandPresentationModel {
     @ObservationIgnored private var pendingHoverTask: Task<Void, Never>?
     @ObservationIgnored private var pendingCollapseTask: Task<Void, Never>?
     @ObservationIgnored private var transitionTask: Task<Void, Never>?
+    @ObservationIgnored private var audioHUDTask: Task<Void, Never>?
     @ObservationIgnored private var hoverGeneration = 0
     @ObservationIgnored private var transitionGeneration = 0
 
@@ -176,6 +183,8 @@ public final class DynamicIslandPresentationModel {
     }
 
     public func reset() {
+        audioHUDTask?.cancel()
+        audioHUD = nil
         activityCoordinator.clearAll()
         pendingHoverTask?.cancel()
         pendingCollapseTask?.cancel()
@@ -189,6 +198,26 @@ public final class DynamicIslandPresentationModel {
     public func setReduceMotion(_ reduceMotion: Bool) {
         guard self.reduceMotion != reduceMotion else { return }
         self.reduceMotion = reduceMotion
+    }
+
+    /// Repeated volume events update the same HUD instance and only extend its deadline.
+    public func showAudioHUD(_ hud: NotchAudioHUD) {
+        guard visualState == .collapsed else { return }
+        audioHUDTask?.cancel()
+        if audioHUD == nil {
+            withAnimation(reduceMotion ? NotchMotion.reduced : .smooth(duration: 0.24)) {
+                audioHUD = hud
+            }
+        } else {
+            audioHUD = hud
+        }
+        audioHUDTask = Task { [weak self, clock] in
+            do { try await clock.sleep(for: .milliseconds(1250)) } catch { return }
+            guard !Task.isCancelled, let self else { return }
+            withAnimation(self.reduceMotion ? NotchMotion.reduced : .smooth(duration: 0.22)) {
+                self.audioHUD = nil
+            }
+        }
     }
 
     private func selectPage(for activity: NotchActivity?) {
