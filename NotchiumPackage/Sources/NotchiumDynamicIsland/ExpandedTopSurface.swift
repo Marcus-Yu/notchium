@@ -32,22 +32,33 @@ struct NotchShellSurface: Shape {
     var centerX: CGFloat
     var bottomRadius: CGFloat
     let passiveShape: NotchShape
+    var reminderHeight: CGFloat = 0
 
-    var animatableData: AnimatablePair<AnimatablePair<CGFloat, CGFloat>, AnimatablePair<CGFloat, CGFloat>> {
-        get { AnimatablePair(AnimatablePair(width, height), AnimatablePair(centerX, bottomRadius)) }
+    var animatableData: AnimatablePair<
+        AnimatablePair<AnimatablePair<CGFloat, CGFloat>, AnimatablePair<CGFloat, CGFloat>>,
+        CGFloat
+    > {
+        get {
+            AnimatablePair(
+                AnimatablePair(AnimatablePair(width, height), AnimatablePair(centerX, bottomRadius)),
+                reminderHeight
+            )
+        }
         set {
-            width = newValue.first.first
-            height = newValue.first.second
-            centerX = newValue.second.first
-            bottomRadius = newValue.second.second
+            width = newValue.first.first.first
+            height = newValue.first.first.second
+            centerX = newValue.first.second.first
+            bottomRadius = newValue.first.second.second
+            reminderHeight = newValue.second
         }
     }
 
     func path(in rect: CGRect) -> Path {
-        let isExpanded = width > passiveShape.width || height > passiveShape.height
+        let totalHeight = height + max(0, reminderHeight)
+        let isExpanded = reminderHeight > 0 || width > passiveShape.width || totalHeight > passiveShape.height
         if isExpanded {
             return ExpandedTopSurface(bottomRadius: max(0, bottomRadius))
-                .path(in: CGRect(x: 0, y: 0, width: width, height: height))
+                .path(in: CGRect(x: 0, y: 0, width: width, height: totalHeight))
                 .applying(CGAffineTransform(translationX: centerX - width / 2, y: rect.minY))
         } else {
             return passiveShape.path(in: rect)

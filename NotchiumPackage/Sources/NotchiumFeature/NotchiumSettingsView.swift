@@ -1,4 +1,5 @@
 import NotchiumCore
+import NotchiumCalendarFeature
 import SwiftUI
 import NotchiumMediaFeature
 import NotchiumServices
@@ -6,12 +7,15 @@ import NotchiumServices
 public struct NotchiumSettingsView: View {
     private let environment: AppEnvironment
     private let audioMeter: SystemAudioMeter?
+    private let calendarModel: CalendarActivityModel?
     private let menuBarInsertion: Binding<Bool>?
 
     public init(environment: AppEnvironment, audioMeter: SystemAudioMeter? = nil,
+                calendarModel: CalendarActivityModel? = nil,
                 menuBarInsertion: Binding<Bool>? = nil) {
         self.environment = environment
         self.audioMeter = audioMeter
+        self.calendarModel = calendarModel
         self.menuBarInsertion = menuBarInsertion
     }
 
@@ -28,11 +32,12 @@ public struct NotchiumSettingsView: View {
                 MediaConnectionView(provider: media)
             }
             if let audioMeter { AudioMeterPermissionView(meter: audioMeter) }
+            if let calendarModel { CalendarSettingsSection(model: calendarModel) }
             Section("Distribution") {
                 Text(environment.distributionProfile.rawValue)
             }
         }
         .formStyle(.grouped)
-        .frame(width: 520, height: 480)
+        .frame(width: 520, height: 540)
     }
 }

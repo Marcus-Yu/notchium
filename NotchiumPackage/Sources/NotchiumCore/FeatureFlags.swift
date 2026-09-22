@@ -46,4 +46,7 @@ public struct FeatureFlags: Equatable, Sendable {
     public static let stageTwoShell = stageOne
 
     public static let stageFourMedia = FeatureFlags(values: [.notchShell: true, .media: true])
+    public static let stageFiveCalendar = FeatureFlags(values: [
+        .notchShell: true, .media: true, .calendar: true
+    ])
 }

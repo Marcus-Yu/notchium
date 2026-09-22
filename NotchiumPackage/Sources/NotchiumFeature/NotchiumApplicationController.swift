@@ -1,4 +1,5 @@
 import NotchiumCore
+import NotchiumCalendarFeature
 #if DEBUG
 import NotchiumDebug
 #endif
@@ -6,6 +7,7 @@ import NotchiumDiagnostics
 import NotchiumDynamicIsland
 import Observation
 import NotchiumMediaFeature
+import NotchiumPersistence
 import NotchiumServices
 
 @MainActor
@@ -14,6 +16,7 @@ public final class NotchiumApplicationController {
     public let environment: AppEnvironment
     public let displayCoordinator: NotchiumDisplayCoordinator
     public let mediaSessionController: MediaSessionController
+    public let calendarModel: CalendarActivityModel
     public var mediaModel: MediaSessionController { mediaSessionController }
 #if DEBUG
     public let mockMediaProvider = MockMediaProvider()
@@ -47,8 +50,18 @@ public final class NotchiumApplicationController {
 #endif
         mediaSessionController = MediaSessionController(provider: environment.services.media,
                                        coordinator: displayCoordinator.presentationModel.activityCoordinator,
-                                       visibilityClock: environment.clock, audioMeter: SystemAudioMeter())
+                                       visibilityClock: environment.clock,
+                                       snapshotStore: environment.persistence,
+                                       audioMeter: SystemAudioMeter(activityClock: environment.clock))
+        calendarModel = CalendarActivityModel(service: environment.services.calendar,
+            coordinator: displayCoordinator.presentationModel.activityCoordinator,
+            clock: environment.clock,
+            openPage: { [weak presentation = displayCoordinator.presentationModel] in
+                presentation?.setExpanded(true)
+                presentation?.pageModel.selectedPage = .calendar
+            })
         displayCoordinator.presentationModel.mediaRenderer = mediaModel
+        displayCoordinator.presentationModel.calendarRenderer = calendarModel
     }
 
     public static func production() -> NotchiumApplicationController {
@@ -59,6 +72,7 @@ public final class NotchiumApplicationController {
         guard !isRunning else { return }
         isRunning = true
         displayCoordinator.start()
+        if environment.featureFlags[.calendar] { calendarModel.start() }
         if environment.featureFlags[.media] {
             mediaModel.start()
             if let real = environment.services.media as? RealMediaProvider {
@@ -74,6 +88,7 @@ public final class NotchiumApplicationController {
         guard isRunning else { return }
         mediaConnectionTask?.cancel(); mediaConnectionTask = nil
         mediaModel.stop()
+        calendarModel.stop()
         if let real = environment.services.media as? RealMediaProvider {
             Task { await real.shutdown() }
         }

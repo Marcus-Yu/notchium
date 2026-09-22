@@ -130,7 +130,7 @@ final class DisplayCoordinatorTests: XCTestCase {
         defer { coordinator.stop() }
         let model = coordinator.presentationModel
         model.present(.expanded, animated: false)
-        model.pageModel.selectedPage = .utilities
+        model.pageModel.selectedPage = .calendar
         for kind in [NotchActivityKind.media, .notification] {
             model.activityCoordinator.present(NotchActivity(
                 id: UUID(), kind: kind, title: kind.rawValue,
@@ -147,7 +147,7 @@ final class DisplayCoordinatorTests: XCTestCase {
         XCTAssertEqual(model.visualState, .collapsed)
         XCTAssertNotNil(model.activityCoordinator.activeActivity)
         XCTAssertEqual(model.activityCoordinator.queueCount, 1)
-        XCTAssertEqual(model.pageModel.selectedPage, .utilities)
+        XCTAssertEqual(model.pageModel.selectedPage, .calendar)
         await drainMainActorTasks()
         XCTAssertEqual(model.presentationState, .activity)
         XCTAssertEqual(panel.layout?.panelFrame, frame)
@@ -163,7 +163,7 @@ final class DisplayCoordinatorTests: XCTestCase {
         defer { coordinator.stop() }
         let provider = MockMediaProvider()
         let capture = TestAudioCapture()
-        let meter = SystemAudioMeter(capture: capture, permissionGranted: { true })
+        let meter = SystemAudioMeter(capture: capture, permissionGranted: { true }, activityClock: clock)
         let media = MediaSessionController(provider: provider,
                                            coordinator: coordinator.presentationModel.activityCoordinator,
                                            visibilityClock: clock, audioMeter: meter)
@@ -171,6 +171,8 @@ final class DisplayCoordinatorTests: XCTestCase {
         media.start()
         defer { media.stop() }
         try await provider.apply(.play)
+        for _ in 0..<100 where capture.starts == 0 { await Task.yield() }
+        capture.levels?(Array(repeating: 0.8, count: 7))
         for _ in 0..<100 where !media.collapsedMediaVisible { await Task.yield() }
         XCTAssertTrue(media.collapsedMediaVisible) // Never opened the notch.
         let track = media.state.trackID

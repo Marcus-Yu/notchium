@@ -82,8 +82,15 @@ public struct NotchiumShellView: View {
 
 private struct NotchShellOuterSurface: View {
     @Bindable var model: DynamicIslandPresentationModel
+    @ObservedObject private var pageModel: NotchPageModel
     let layout: NotchPanelLayout
     @State private var contentVisible = false
+
+    init(model: DynamicIslandPresentationModel, layout: NotchPanelLayout) {
+        self.model = model
+        _pageModel = ObservedObject(wrappedValue: model.pageModel)
+        self.layout = layout
+    }
 
     var body: some View {
         let passiveShape = NotchShape(
@@ -105,25 +112,46 @@ private struct NotchShellOuterSurface: View {
             hardwareWidth: layout.hardwareNotchGeometry?.frame.width ?? 0,
             hardwareHeight: layout.collapsedVisibleFrame.height
         )
+        let showMedia = model.showsCollapsedMedia
         let shape = NotchShellSurface(
-            width: model.showsCollapsedMedia ? mediaGeometry.width : layout.surfaceSize.width,
+            width: showMedia || model.showsCalendarReminder ? mediaGeometry.width
+                : layout.surfaceSize.width,
             height: model.surfaceState == .collapsed ? layout.collapsedVisibleFrame.height : layout.expandedSize.height,
             centerX: layout.visibleSurfaceFrame.midX - layout.panelFrame.minX,
             bottomRadius: model.surfaceState == .collapsed ? passiveShape.bottomCornerRadius : 28,
-            passiveShape: passiveShape
+            passiveShape: passiveShape,
+            reminderHeight: model.showsCalendarReminder ? NotchReminderGeometry.height : 0
         )
 
         ZStack(alignment: .top) {
-            if model.showsCollapsedMedia, let renderer = model.mediaRenderer {
-                renderer.collapsedMedia(hardwareWidth: mediaGeometry.hardwareWidth, hardwareHeight: mediaGeometry.height)
-                    .frame(width: mediaGeometry.width, height: mediaGeometry.height)
-                    .transition(.opacity)
-                    .zIndex(2)
-            }
-
             shape.fill(Color.black)
                 .allowsHitTesting(false)
                 .zIndex(0)
+
+            // Both rows share the shell's fill and mask. The top row owns the
+            // attachment edge, including when there is no media to render.
+            VStack(spacing: 0) {
+                ZStack {
+                    Color.clear.allowsHitTesting(false)
+                    if model.mediaRenderer?.collapsedMediaVisible == true,
+                       let renderer = model.mediaRenderer {
+                        renderer.collapsedMedia(hardwareWidth: mediaGeometry.hardwareWidth, hardwareHeight: mediaGeometry.height)
+                            .frame(width: mediaGeometry.width, height: mediaGeometry.height)
+                            .opacity(showMedia ? 1 : 0)
+                            .allowsHitTesting(showMedia)
+                            .accessibilityHidden(!showMedia)
+                    }
+                }
+                .frame(height: layout.collapsedVisibleFrame.height)
+
+                if model.showsCalendarReminder, let renderer = model.calendarRenderer {
+                    renderer.reminderBanner()
+                        .frame(width: mediaGeometry.width, height: NotchReminderGeometry.height)
+                        .transition(.opacity)
+                }
+            }
+            .frame(width: mediaGeometry.width, alignment: .top)
+            .zIndex(3)
 
             shellContent
                 .frame(
@@ -135,8 +163,8 @@ private struct NotchShellOuterSurface: View {
 
             if model.surfaceState != .collapsed {
                 NotchUtilityControls(close: model.collapse)
-                    .padding(.trailing, 18)
-                    .padding(.top, 2)
+                    .padding(.trailing, NotchGeometryResolver.expandedContentHorizontalInset)
+                    .padding(.top, 8)
                     .frame(width: layout.expandedSize.width, alignment: .trailing)
                     .zIndex(11)
             }
@@ -146,7 +174,8 @@ private struct NotchShellOuterSurface: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .overlayPreferenceValue(MediaArtworkAnchorKey.self) { anchor in
             GeometryReader { proxy in
-                if let anchor, let renderer = model.mediaRenderer {
+                if model.showsSharedMediaArtwork,
+                   let anchor, let renderer = model.mediaRenderer {
                     let rect = proxy[anchor]
                     renderer.mediaArtwork(size: rect.width)
                         .position(x: rect.midX, y: rect.midY)
@@ -156,25 +185,26 @@ private struct NotchShellOuterSurface: View {
             .allowsHitTesting(false)
         }
         .mask(shape)
-        .contentShape(shape)
+        .contentShape(Rectangle())
         .environment(\.notchMediaRenderer, model.mediaRenderer)
         .environment(\.notchSharedMediaArtwork, true)
         .environment(\.notchMediaExpanded, model.surfaceState != .collapsed)
         .foregroundStyle(.white)
+        .animation(model.reduceMotion ? NotchMotion.reduced : .smooth(duration: 0.26),
+                   value: model.showsCalendarReminder)
     }
 
     private var shellContent: some View {
         Group {
             Group {
                 if model.presentationState == .activity,
-                   let activity = model.activityCoordinator.activeActivity {
-                    if activity.kind == .media, let renderer = model.mediaRenderer {
-                        renderer.expandedMedia()
-                    } else {
-                        NotchActivityView(activity: activity)
-                    }
+                   let activity = model.activityCoordinator.activeActivity,
+                   activity.kind != .media && activity.kind != .calendar {
+                    NotchActivityView(activity: activity)
                 } else {
-                    NotchExpandedPlaceholderContainer(pageModel: model.pageModel)
+                    NotchPagesView(model: pageModel,
+                                   mediaRenderer: model.mediaRenderer,
+                                   calendarRenderer: model.calendarRenderer)
                 }
             }
             .padding(.top, layout.collapsedVisibleFrame.height)
@@ -185,14 +215,14 @@ private struct NotchShellOuterSurface: View {
         .accessibilityHidden(!contentVisible)
         .task(id: model.surfaceState != .collapsed) {
             guard model.surfaceState != .collapsed else {
-                withAnimation(NotchMotion.contentOut) { contentVisible = false }
+                withAnimation(model.reduceMotion ? NotchMotion.reduced : NotchMotion.contentOut) {
+                    contentVisible = false
+                }
                 return
             }
-            do {
-                try await Task.sleep(for: .milliseconds(70))
-            } catch { return }
-            guard !Task.isCancelled else { return }
-            withAnimation(NotchMotion.contentIn) { contentVisible = true }
+            withAnimation(model.reduceMotion ? NotchMotion.reduced : NotchMotion.contentIn) {
+                contentVisible = true
+            }
         }
     }
 }

@@ -45,8 +45,11 @@ final class ExpandedTopSurfaceTests: XCTestCase {
         for step in (1...60).reversed() {
             let progress = CGFloat(step) / 60
             shape.animatableData = AnimatablePair(
-                AnimatablePair(212 + 238 * progress, 38 + 152 * progress),
-                AnimatablePair(320, 8 + 20 * progress)
+                AnimatablePair(
+                    AnimatablePair(212 + 238 * progress, 38 + 152 * progress),
+                    AnimatablePair(320, 8 + 20 * progress)
+                ),
+                0
             )
             let path = shape.path(in: panel)
             XCTAssertEqual(path.boundingRect.minY, 0)

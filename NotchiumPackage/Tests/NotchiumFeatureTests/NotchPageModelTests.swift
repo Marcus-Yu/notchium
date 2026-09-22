@@ -3,41 +3,44 @@ import XCTest
 
 @MainActor
 final class NotchPageModelTests: XCTestCase {
-    func testDefaultsAndEnabledPageOrder() {
+    func testMusicAndCalendarAreOrderedTopLevelPages() {
         let model = NotchPageModel()
-        XCTAssertEqual(model.enabledPages, [.home, .media, .system, .utilities, .focus])
-        model.enabledPages = [.focus, .media, .home]
-        XCTAssertEqual(model.enabledPages, [.focus, .media, .home])
+        XCTAssertEqual(model.enabledPages, [.music, .calendar])
+        XCTAssertEqual(model.selectedPage, .music)
+        XCTAssertEqual(NotchPage.music.title, "Music")
+        XCTAssertEqual(NotchPage.calendar.symbol, "calendar")
+
         model.moveSelection(forward: true)
-        XCTAssertEqual(model.selectedPage, .focus)
+        XCTAssertEqual(model.selectedPage, .calendar)
         model.moveSelection(forward: false)
-        XCTAssertEqual(model.selectedPage, .home)
+        XCTAssertEqual(model.selectedPage, .music)
     }
 
     func testDisabledPageCannotBeSelected() {
-        let model = NotchPageModel(enabledPages: [.home, .focus])
-        model.selectedPage = .media
-        XCTAssertEqual(model.selectedPage, .home)
+        let model = NotchPageModel(enabledPages: [.music])
+        model.selectedPage = .calendar
+        XCTAssertEqual(model.selectedPage, .music)
     }
 
-    func testDisablingSelectionFallsBackToEnabledDefaultThenFirstPage() {
-        let model = NotchPageModel(selectedPage: .media, defaultPage: .focus)
-        model.enabledPages = [.home, .focus]
-        XCTAssertEqual(model.selectedPage, .focus)
-        model.enabledPages = [.utilities, .home]
-        XCTAssertEqual(model.selectedPage, .utilities)
-        model.defaultPage = .home
+    func testSelectionFallsBackWhenEnabledPagesChange() {
+        let model = NotchPageModel(selectedPage: .calendar, defaultPage: .music)
+        model.enabledPages = [.music]
+        XCTAssertEqual(model.selectedPage, .music)
+        model.enabledPages = [.calendar]
+        XCTAssertEqual(model.selectedPage, .calendar)
+        model.defaultPage = .calendar
         model.selectDefaultPage()
-        XCTAssertEqual(model.selectedPage, .home)
+        XCTAssertEqual(model.selectedPage, .calendar)
     }
 
     func testEmptyAndDuplicateListsKeepValidSelection() {
         let model = NotchPageModel(enabledPages: [])
-        XCTAssertEqual(model.enabledPages, [.home])
-        model.enabledPages = [.focus, .focus, .media]
-        XCTAssertEqual(model.enabledPages, [.focus, .media])
-        XCTAssertEqual(model.selectedPage, .focus)
+        XCTAssertEqual(model.enabledPages, [.music])
+        model.enabledPages = [.calendar, .calendar, .music]
+        XCTAssertEqual(model.enabledPages, [.calendar, .music])
+        model.moveSelection(forward: true)
+        XCTAssertEqual(model.selectedPage, .calendar)
         model.enabledPages = []
-        XCTAssertEqual(model.selectedPage, .home)
+        XCTAssertEqual(model.selectedPage, .music)
     }
 }

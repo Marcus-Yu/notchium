@@ -129,7 +129,7 @@ final class ActivityCoordinatorTests: XCTestCase {
     func testManualExpansionAndPageSurviveCriticalInterruption() {
         let model = DynamicIslandPresentationModel(clock: clock())
         model.present(.expanded, animated: false)
-        model.pageModel.selectedPage = .focus
+        model.pageModel.selectedPage = .calendar
         model.activityCoordinator.present(activity(.battery))
         XCTAssertEqual(model.presentationState, .expanded)
         model.activityCoordinator.present(activity(.notification))
@@ -138,7 +138,28 @@ final class ActivityCoordinatorTests: XCTestCase {
         model.activityCoordinator.dismissActive()
         XCTAssertEqual(model.presentationState, .expanded)
         XCTAssertEqual(model.visualState, .expanded)
-        XCTAssertEqual(model.pageModel.selectedPage, .focus)
+        XCTAssertEqual(model.pageModel.selectedPage, .calendar)
+    }
+
+    func testExpandedPageSelectionSurvivesMediaActivityChanges() {
+        let model = DynamicIslandPresentationModel(clock: clock())
+        model.present(.expanded, animated: false)
+        model.pageModel.selectedPage = .calendar
+        let media = activity(.media)
+        model.activityCoordinator.present(media)
+        XCTAssertEqual(model.pageModel.selectedPage, .calendar)
+        model.activityCoordinator.dismiss(id: media.id)
+        XCTAssertEqual(model.pageModel.selectedPage, .calendar)
+    }
+
+    func testOpeningCollapsedCalendarActivitySelectsCalendar() {
+        let model = DynamicIslandPresentationModel(clock: clock())
+        model.activityCoordinator.present(activity(.calendar))
+        XCTAssertEqual(model.pageModel.selectedPage, .calendar)
+
+        model.pageModel.selectedPage = .music
+        model.setExpanded(true)
+        XCTAssertEqual(model.pageModel.selectedPage, .calendar)
     }
 
     func testHoverOverridesNonCriticalActivityAndDismissalRestoresPassive() async {
@@ -162,7 +183,7 @@ final class ActivityCoordinatorTests: XCTestCase {
     func testMockCatalogUsesExactPrioritiesAndAllKinds() {
         let expected: [NotchActivityKind: Int] = [
             .systemHUD: 10, .media: 20, .charging: 30, .audioDevice: 30,
-            .download: 40, .screenshot: 40, .calendar: 50, .focus: 60,
+            .download: 40, .screenshot: 40, .calendar: 15, .focus: 60,
             .battery: 70, .meeting: 80, .clipboard: 80, .notification: 100
         ]
         let coordinator = ActivityCoordinator(clock: clock())

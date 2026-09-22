@@ -75,7 +75,7 @@ final class NotchGeometryResolverTests: XCTestCase {
         XCTAssertEqual(layout.panelFrame.maxY, display.frame.maxY, accuracy: 0.001)
         XCTAssertEqual(layout.hardwareNotchGeometry?.frame, layout.collapsedVisibleFrame)
         XCTAssertEqual(layout.visibleSurfaceFrame, layout.collapsedVisibleFrame)
-        XCTAssertEqual(layout.panelFrame.size, CGSize(width: 640, height: 242))
+        XCTAssertEqual(layout.panelFrame.size, CGSize(width: 740, height: 322))
         XCTAssertTrue(layout.hasHardwareNotch)
         XCTAssertEqual(layout.collapsedVisibleFrame.height, display.safeAreaInsets.top)
         XCTAssertEqual(layout.collapsedVisibleFrame.minX, display.auxiliaryTopLeftArea?.maxX)
@@ -102,7 +102,7 @@ final class NotchGeometryResolverTests: XCTestCase {
         XCTAssertEqual(layout.panelFrame.midX, display.frame.midX, accuracy: 0.001)
         XCTAssertEqual(layout.panelFrame.maxY, display.frame.maxY, accuracy: 0.001)
         XCTAssertNil(layout.hardwareNotchGeometry)
-        XCTAssertEqual(layout.panelFrame.size, CGSize(width: 640, height: 242))
+        XCTAssertEqual(layout.panelFrame.size, CGSize(width: 740, height: 322))
         XCTAssertEqual(layout.visibleSurfaceFrame, layout.collapsedVisibleFrame)
     }
 
@@ -290,19 +290,19 @@ final class NotchGeometryResolverTests: XCTestCase {
 
         XCTAssertEqual(
             NotchGeometryResolver.layout(for: physical, state: .hovered).surfaceSize,
-            CGSize(width: 450, height: 222)
+            CGSize(width: 560, height: 302)
         )
         XCTAssertEqual(
             NotchGeometryResolver.layout(for: virtual, state: .hovered).surfaceSize,
-            CGSize(width: 450, height: 222)
+            CGSize(width: 560, height: 302)
         )
         XCTAssertEqual(
             NotchGeometryResolver.layout(for: physical, state: .expanded).surfaceSize,
-            CGSize(width: 450, height: 222)
+            CGSize(width: 560, height: 302)
         )
         XCTAssertEqual(
             NotchGeometryResolver.layout(for: virtual, state: .expanded).surfaceSize,
-            CGSize(width: 450, height: 222)
+            CGSize(width: 560, height: 302)
         )
     }
 
@@ -315,7 +315,7 @@ final class NotchGeometryResolverTests: XCTestCase {
             state: .expanded
         )
 
-        XCTAssertEqual(layout.panelFrame, CGRect(x: 415, y: 714, width: 640, height: 242))
+        XCTAssertEqual(layout.panelFrame, CGRect(x: 365, y: 634, width: 740, height: 322))
         XCTAssertEqual(layout.panelFrame.maxY, 956)
     }
 
@@ -326,7 +326,7 @@ final class NotchGeometryResolverTests: XCTestCase {
         let placement = NotchShellPlacement(display: display, mode: .virtualPill)
         let layout = NotchGeometryResolver.layout(for: placement, state: .expanded)
 
-        XCTAssertEqual(layout.panelFrame.size, CGSize(width: 640, height: 242))
+        XCTAssertEqual(layout.panelFrame.size, CGSize(width: 740, height: 322))
         XCTAssertEqual(layout.panelFrame.midX, display.frame.midX, accuracy: 0.001)
         XCTAssertEqual(layout.panelFrame.maxY, display.frame.maxY, accuracy: 0.001)
     }
@@ -340,7 +340,7 @@ final class NotchGeometryResolverTests: XCTestCase {
 
         XCTAssertGreaterThan(layout.panelFrame.width, 0)
         XCTAssertGreaterThan(layout.panelFrame.height, 0)
-        XCTAssertEqual(layout.panelFrame.size, CGSize(width: 640, height: 242))
+        XCTAssertEqual(layout.panelFrame.size, CGSize(width: 740, height: 322))
         XCTAssertEqual(layout.panelFrame.midX, display.frame.midX, accuracy: 0.001)
         XCTAssertEqual(layout.panelFrame.maxY, display.frame.maxY, accuracy: 0.001)
     }

@@ -37,7 +37,7 @@ public struct AppEnvironment: Sendable {
         self.distributionProfile = distributionProfile
     }
 
-    public static func production() -> AppEnvironment {
+    @MainActor public static func production() -> AppEnvironment {
         AppEnvironment(
             services: .real(),
             permissions: RealPermissionAuthorizer(),
@@ -46,7 +46,7 @@ public struct AppEnvironment: Sendable {
             uuids: SystemUUIDGenerator(),
             fileSystem: SystemFileSystem(),
             logger: UnifiedAppLogger(),
-            featureFlags: .stageFourMedia,
+            featureFlags: .stageFiveCalendar,
             distributionProfile: .current
         )
     }
@@ -67,7 +67,7 @@ public struct AppEnvironment: Sendable {
                 temporaryURL: URL(fileURLWithPath: "/private/tmp/notchium-tests")
             ),
             logger: logger,
-            featureFlags: .stageFourMedia,
+            featureFlags: .stageFiveCalendar,
             distributionProfile: .developerID
         )
     }

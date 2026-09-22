@@ -52,10 +52,26 @@ public final class DynamicIslandPresentationModel {
     public let activityCoordinator: ActivityCoordinator
     public let pageModel: NotchPageModel
     public var mediaRenderer: (any NotchMediaRendering)?
+    public var calendarRenderer: (any NotchCalendarRendering)?
+
+    public var showsCalendarReminder: Bool {
+        _ = activityRevision
+        return calendarRenderer?.reminderVisible == true
+            && activityCoordinator.activeActivity?.kind == .calendar && visualState == .collapsed
+    }
 
     public var showsCollapsedMedia: Bool {
         _ = activityRevision
-        return mediaRenderer?.collapsedMediaVisible == true && activityCoordinator.activeActivity?.kind == .media && visualState == .collapsed
+        let activity = activityCoordinator.activeActivity?.kind
+        return mediaRenderer?.collapsedMediaVisible == true
+            && (activity == .media || activity == .calendar)
+            && visualState == .collapsed
+    }
+
+    /// The collapsed artwork follows the media surface, not the expanded page selection.
+    public var showsSharedMediaArtwork: Bool {
+        if surfaceState == .collapsed { return showsCollapsedMedia }
+        return pageModel.selectedPage == .music
     }
     private var activityRevision = 0
     @ObservationIgnored private var activityObservation: AnyCancellable?
@@ -72,7 +88,9 @@ public final class DynamicIslandPresentationModel {
 
     /// Activities reuse the existing open shell geometry without becoming pinned.
     public var surfaceState: NotchStableState {
-        (mediaRenderer != nil && activityCoordinator.activeActivity?.kind == .media && visualState == .collapsed)
+        ((mediaRenderer != nil && activityCoordinator.activeActivity?.kind == .media
+          || calendarRenderer != nil && activityCoordinator.activeActivity?.kind == .calendar)
+         && visualState == .collapsed)
             ? .collapsed : (presentationState == .activity ? .hovered : visualState)
     }
 
@@ -100,9 +118,11 @@ public final class DynamicIslandPresentationModel {
         activityCoordinator = ActivityCoordinator(clock: clock)
         pageModel = NotchPageModel()
         activityObservation = activityCoordinator.$activeActivity.sink { [weak self] activity in
-            self?.activityRevision &+= 1
-            if activity?.kind == .media, self?.mediaRenderer != nil {
-                self?.pageModel.selectedPage = .media
+            guard let self else { return }
+            self.activityRevision &+= 1
+            // A collapsed activity opens on its own page. Expanded navigation remains user-owned.
+            if self.visualState == .collapsed {
+                self.selectPage(for: activity)
             }
         }
     }
@@ -133,6 +153,9 @@ public final class DynamicIslandPresentationModel {
         _ expanded: Bool,
         target: NotchStableState = .expanded
     ) {
+        if expanded && visualState == .collapsed {
+            selectPage(for: activityCoordinator.activeActivity)
+        }
         let animation = reduceMotion ? NotchMotion.reduced : NotchMotion.morph(opening: expanded)
 
         withAnimation(animation) {
@@ -166,6 +189,14 @@ public final class DynamicIslandPresentationModel {
     public func setReduceMotion(_ reduceMotion: Bool) {
         guard self.reduceMotion != reduceMotion else { return }
         self.reduceMotion = reduceMotion
+    }
+
+    private func selectPage(for activity: NotchActivity?) {
+        switch activity?.kind {
+        case .media: pageModel.selectedPage = .music
+        case .calendar: pageModel.selectedPage = .calendar
+        default: break
+        }
     }
 
     private func scheduleHoverExpansion() {

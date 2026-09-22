@@ -114,7 +114,7 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
-        panel.ignoresMouseEvents = model.surfaceState == .collapsed
+        updateHitTesting(at: NSEvent.mouseLocation)
         #if DEBUG
         print("[MediaHitTest] expanded=\(model.surfaceState != .collapsed) ignoresMouseEvents=\(panel.ignoresMouseEvents)")
         #endif
@@ -261,6 +261,7 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
     private func handlePointerEvent(_ type: NSEvent.EventType, at point: CGPoint) {
         switch type {
         case .mouseMoved:
+            updateHitTesting(at: point)
             if allowsPointerDrivenHover { handleMouseMoved(at: point) }
         case .leftMouseDown:
             handleClick(at: point)
@@ -271,6 +272,11 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
 
     func handleClick(at point: CGPoint) {
         guard let currentLayout else { return }
+        if model.showsCalendarReminder,
+           NotchHoverRegion.contains(point, in: reminderFrame(for: currentLayout)) {
+            // The banner's SwiftUI buttons own its click, including Join and dismiss.
+            return
+        }
         let region = model.surfaceState == .collapsed
             ? currentLayout.collapsedHoverFrame : currentLayout.visibleSurfaceFrame
         #if DEBUG
@@ -289,10 +295,28 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
 
     private func handleMouseMoved(at point: CGPoint) {
         guard let currentLayout else { return }
+        let insideReminder = model.showsCalendarReminder
+            && NotchHoverRegion.contains(point, in: reminderFrame(for: currentLayout))
+        model.calendarRenderer?.setReminderHovered(insideReminder)
+        if insideReminder {
+            model.setHovered(false)
+            return
+        }
         let zone = model.surfaceState == .collapsed
             ? currentLayout.collapsedHoverFrame
             : currentLayout.visibleSurfaceFrame
         model.setHovered(NotchHoverRegion.contains(point, in: zone))
+    }
+
+    private func reminderFrame(for layout: NotchPanelLayout) -> CGRect {
+        NotchReminderGeometry.contentFrame(for: layout)
+    }
+
+    private func updateHitTesting(at point: CGPoint) {
+        guard let currentLayout else { return }
+        let insideReminder = model.showsCalendarReminder
+            && NotchHoverRegion.contains(point, in: reminderFrame(for: currentLayout))
+        panel.ignoresMouseEvents = model.surfaceState == .collapsed && !insideReminder
     }
 
     private func removePointerMonitors() {

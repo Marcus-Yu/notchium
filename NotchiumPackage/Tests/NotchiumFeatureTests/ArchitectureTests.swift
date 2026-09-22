@@ -22,7 +22,13 @@ final class ArchitectureTests: XCTestCase {
 
         for service in ServiceKind.allCases {
             let availability = await services.availability(for: service)
-            XCTAssertEqual(availability, .unavailable(service == .media ? .permissionNotDetermined : .stageTwoRequired))
+            if service == .calendar {
+                XCTAssertTrue([.available, .unavailable(.permissionNotDetermined),
+                               .unavailable(.permissionDenied), .unavailable(.permissionRestricted)]
+                    .contains(availability))
+            } else {
+                XCTAssertEqual(availability, .unavailable(service == .media ? .permissionNotDetermined : .stageTwoRequired))
+            }
         }
     }
 

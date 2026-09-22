@@ -38,13 +38,14 @@ public struct NotchPanelLayout: Equatable, Sendable {
 }
 
 public enum NotchGeometryResolver {
+    public static let expandedContentHorizontalInset: CGFloat = 30
     public static let expandedNotchSize = CGSize(
-        width: 450,
-        height: 222
+        width: 560,
+        height: 302
     )
     public static let panelSize = CGSize(
-        width: 640,
-        height: 242
+        width: 740,
+        height: 322
     )
     public static let virtualNotchWidth: CGFloat = 180
 

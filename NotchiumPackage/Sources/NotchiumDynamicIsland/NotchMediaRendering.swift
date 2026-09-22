@@ -10,6 +10,7 @@ import SwiftUI
 
 extension EnvironmentValues {
     @Entry public var notchMediaExpanded = true
+    @Entry public var notchMediaPageVisible = true
     @Entry public var notchSharedMediaArtwork = false
     @Entry var notchMediaRenderer: (any NotchMediaRendering)? = nil
 }

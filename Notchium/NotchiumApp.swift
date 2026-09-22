@@ -56,6 +56,7 @@ struct NotchiumApp: App {
         Settings {
             NotchiumSettingsView(environment: appDelegate.controller.environment,
                                  audioMeter: appDelegate.controller.mediaModel.audioMeter,
+                                 calendarModel: appDelegate.controller.calendarModel,
                                  menuBarInsertion: menuBarInsertion)
         }
 
