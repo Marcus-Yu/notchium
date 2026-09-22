@@ -62,19 +62,19 @@ private actor HeldSeekProvider: MediaProviding {
         }
         XCTAssertEqual(estimatedPlaybackPosition(at: now, state: sample(rate: .nan)), 30)
     }
-    func testSeekHoldsThroughStaleSampleThenConfirms() async {
+    func testSeekRejectsBufferedPreActionSampleThenAcceptsSnapshot() async {
         let provider = HeldSeekProvider()
         let model = MediaFeatureModel(provider: provider, coordinator: ActivityCoordinator(clock: TestAppClock(now: now, automaticallyAdvances: false)))
         model.receive(sample())
         let seek = Task { try await model.seek(to: 90, at: now) }
         await provider.waitForSeek()
         XCTAssertEqual(model.displayedPosition(at: now.addingTimeInterval(1)), 91)
-        var stale = sample(elapsed: 31); stale.timestamp = now.addingTimeInterval(1)
+        var stale = sample(elapsed: 31); stale.timestamp = now.addingTimeInterval(-1)
         model.receive(stale)
         XCTAssertEqual(model.displayedPosition(at: now.addingTimeInterval(2)), 92)
         var confirmed = sample(elapsed: 92); confirmed.timestamp = now.addingTimeInterval(2)
         model.receive(confirmed)
-        XCTAssertNil(model.pendingSeek)
+        XCTAssertNil(model.lastSeekTarget)
         XCTAssertEqual(model.displayedPosition(at: now.addingTimeInterval(3)), 93)
         await provider.finish()
         try? await seek.value
@@ -95,7 +95,7 @@ private actor HeldSeekProvider: MediaProviding {
             default: next.trackID = "2"
             }
             model.receive(next)
-            XCTAssertNil(model.pendingSeek)
+            XCTAssertNil(model.lastSeekTarget)
             XCTAssertEqual(model.displayedPosition(at: now), 2)
             await provider.finish()
             try? await seek.value
@@ -110,7 +110,7 @@ private actor HeldSeekProvider: MediaProviding {
         do { try await seek.value; XCTFail("Failed seek succeeded") } catch {}
         for _ in 0..<20 where model.isBusy { await Task.yield() }
         XCTAssertFalse(model.isBusy)
-        XCTAssertNil(model.pendingSeek)
+        XCTAssertNil(model.lastSeekTarget)
         XCTAssertNotNil(model.errorMessage)
         XCTAssertEqual(model.displayedPosition(at: now), 30)
     }
@@ -159,7 +159,7 @@ private actor HeldSeekProvider: MediaProviding {
         XCTAssertEqual(model.displayedPosition(at: now.addingTimeInterval(1.5)), 1.5)
 
         var stale = sample(elapsed: 122)
-        stale.timestamp = now.addingTimeInterval(2)
+        stale.timestamp = now.addingTimeInterval(-1)
         model.receive(stale)
         XCTAssertEqual(model.state.elapsed, 0)
         XCTAssertEqual(model.state.timestamp, now)
@@ -169,40 +169,91 @@ private actor HeldSeekProvider: MediaProviding {
         try? await seek.value
         model.stop()
     }
+    func testReadStartedBeforeRestartCannotReplaceItsNewClock() async {
+        let provider = HeldSeekProvider()
+        let model = MediaFeatureModel(provider: provider, coordinator: ActivityCoordinator(
+            clock: TestAppClock(now: now, automaticallyAdvances: false)))
+        model.receive(sample(elapsed: 90))
+        let seek = Task { try await model.seek(to: 0, at: now) }
+        await provider.waitForSeek()
+        let baseline = model.state.sampledUptime!
+        var old = sample(elapsed: 91)
+        old.observationStartedUptime = baseline - 1
+        old.sampledUptime = baseline + 1
+        old.timestamp = now.addingTimeInterval(1)
+        model.receive(old)
+        XCTAssertEqual(model.displayedPosition(at: now, uptime: baseline + 2), 2)
+        var fresh = sample(elapsed: 1)
+        fresh.observationStartedUptime = baseline + 2
+        fresh.sampledUptime = baseline + 3
+        fresh.timestamp = now.addingTimeInterval(3)
+        model.receive(fresh)
+        XCTAssertEqual(model.state, fresh)
+        XCTAssertEqual(model.displayedPosition(at: now, uptime: baseline + 4), 2)
+        await provider.finish()
+        try? await seek.value
+        model.stop()
+    }
+
+    func testSnapshotClockUsesMonotonicTimeAcrossWallClockChanges() {
+        var snapshot = sample(elapsed: 90)
+        snapshot.sampledUptime = 100
+        XCTAssertEqual(estimatedPlaybackPosition(at: now.addingTimeInterval(3600), state: snapshot, uptime: 102), 92)
+        snapshot.elapsed = 0
+        snapshot.sampledUptime = 103
+        XCTAssertEqual(estimatedPlaybackPosition(at: now.addingTimeInterval(-3600), state: snapshot, uptime: 104), 1)
+    }
+
     func testTimelineDisplayKeepsSeekPositionWhileDragging() {
         XCTAssertEqual(mediaSliderDisplayPosition(isSeeking: true, seekPosition: 60,
                                                   estimatedPosition: 120), 60)
         XCTAssertEqual(mediaSliderDisplayPosition(isSeeking: false, seekPosition: 60,
                                                   estimatedPosition: 120), 120)
     }
-    func testCollapsedVisibilityDelayCancellationAndPausedSession() async {
+    func testCollapsedVisibilityRequiresCurrentLocalSpotifyAudio() async {
         let clock = TestAppClock(now: now, automaticallyAdvances: false)
         let coordinator = ActivityCoordinator(clock: clock)
-        let model = MediaFeatureModel(provider: MockMediaProvider(), coordinator: coordinator, visibilityClock: clock)
-        model.receive(sample())
-        XCTAssertTrue(model.collapsedMediaVisible) // Synchronous: no timer on appear.
-        model.receive(sample(playing: false))
-        await clock.waitForPendingSleeps()
-        await clock.advance(by: .milliseconds(449))
-        await Task.yield()
+        let capture = TestAudioCapture()
+        let meter = SystemAudioMeter(capture: capture, permissionGranted: { true }, activityClock: clock)
+        let model = MediaFeatureModel(provider: MockMediaProvider(), coordinator: coordinator,
+                                      visibilityClock: clock, audioMeter: meter)
+        var local = sample()
+        local.activeDeviceID = "mac"
+        local.activeDeviceName = "This Mac"
+        local.activeDeviceType = "Computer"
+        model.receive(local)
+        for _ in 0..<30 { await Task.yield() }
+        XCTAssertFalse(model.collapsedMediaVisible)
+
+        capture.levels?(Array(repeating: 0.8, count: 7))
+        for _ in 0..<30 { await Task.yield() }
         XCTAssertTrue(model.collapsedMediaVisible)
-        model.receive(sample()) // Resume cancels the pending removal.
-        await clock.advance(by: .milliseconds(450))
-        for _ in 0..<10 { await Task.yield() }
-        XCTAssertTrue(model.collapsedMediaVisible)
-        model.receive(sample(playing: false))
-        await clock.waitForPendingSleeps()
-        model.receive(sample(playing: false)) // Repeated polling must not reset the deadline.
-        await clock.advance(by: .milliseconds(450))
-        for _ in 0..<10 { await Task.yield() }
+
+        var paused = local
+        paused.playbackState = .paused
+        paused.playbackRate = 0
+        model.receive(paused)
+        XCTAssertFalse(model.collapsedMediaVisible)
+
+        capture.levels?(Array(repeating: 0.8, count: 7))
+        for _ in 0..<30 { await Task.yield() }
+        XCTAssertFalse(model.collapsedMediaVisible)
+
+        var remote = local
+        remote.activeDeviceID = "iphone"
+        remote.activeDeviceName = "iPhone"
+        remote.activeDeviceType = "Smartphone"
+        model.receive(remote)
         XCTAssertFalse(model.collapsedMediaVisible)
         XCTAssertTrue(model.state.hasMedia)
         XCTAssertNotNil(coordinator.activeActivity)
-        model.receive(sample())
-        XCTAssertTrue(model.collapsedMediaVisible)
+
         model.receive(.init())
         XCTAssertFalse(model.collapsedMediaVisible)
-        XCTAssertNil(coordinator.activeActivity)
+        XCTAssertNotNil(coordinator.activeActivity)
+        XCTAssertTrue(model.isShowingCachedTrack)
+        XCTAssertEqual(model.state.playbackState, .paused)
+        model.stop()
     }
     func testCollapsedGeometryReservesHardwareAndNeverExtrudes() {
         let geometry = CollapsedMediaGeometry(hardwareWidth: 179, hardwareHeight: 32)

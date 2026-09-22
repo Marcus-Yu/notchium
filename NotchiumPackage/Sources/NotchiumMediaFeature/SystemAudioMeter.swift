@@ -1,50 +1,58 @@
 import Foundation
 import Combine
 import CoreGraphics
+import NotchiumCore
 
 /// Owned by the app's media session, never by a view or a Space.
 @MainActor
 public final class SystemAudioMeter: ObservableObject {
     public enum Status: Equatable { case idle, starting, capturing, permissionRequired, unavailable }
     public static let staticLevels = [CGFloat](repeating: 0.12, count: 7)
+    private static let activityThreshold = AudioSpectrumAnalyzer.minimum + 0.02
+    private static let activityTimeout = Duration.milliseconds(250)
     @Published public private(set) var waveformLevels = staticLevels
     @Published public private(set) var status: Status = .idle
+    @Published public private(set) var isAudioActive = false
     private let capture: any SystemAudioCapturing
     private let captureEnabled: Bool
     private let permissionGranted: @MainActor () -> Bool
+    private let activityClock: any AppClock
     private var wantsCapture = false
     private var monitorsPlaybackActivity = false
     private var isPlaying = false
+    private var waveformPresentationEnabled = true
     private var captureStarted = false
     private var captureFailed = false
     private var lifecycleTask: Task<Void, Never>?
+    private var inactivityTask: Task<Void, Never>?
     private var playbackActivityHandler: (@MainActor @Sendable () -> Void)?
+    private var localAudioActivityHandler: (@MainActor @Sendable (Bool) -> Void)?
     public var isRunning: Bool { status == .capturing }
     private var generation = 0
-    #if DEBUG
-    private var lastDebugLevels = Date.distantPast
-    #endif
+    private var activityGeneration = 0
 
-    public convenience init(captureEnabled: Bool = true) {
+    public convenience init(
+        captureEnabled: Bool = true,
+        activityClock: any AppClock = ContinuousAppClock()
+    ) {
         self.init(capture: SpotifyAudioTap(), captureEnabled: captureEnabled,
-                  permissionGranted: { true })
+                  permissionGranted: { true }, activityClock: activityClock)
     }
     init(capture: any SystemAudioCapturing, captureEnabled: Bool = true,
-         permissionGranted: @escaping @MainActor () -> Bool) {
+         permissionGranted: @escaping @MainActor () -> Bool,
+         activityClock: any AppClock = ContinuousAppClock()) {
         self.capture = capture; self.captureEnabled = captureEnabled
         self.permissionGranted = permissionGranted
+        self.activityClock = activityClock
     }
 
     public func setPlaying(_ playing: Bool) {
-        #if DEBUG
-        if playing != isPlaying {
-            print("[Waveform] media isPlaying=\(playing)")
-            print("[Waveform] meter running=\(isRunning) status=\(status)")
-        }
-        #endif
         if playing && !isPlaying { captureFailed = false }
+        let didStopPlaying = !playing && isPlaying
         isPlaying = playing
-        if !playing { waveformLevels = Self.staticLevels }
+        if didStopPlaying {
+            setAudioActive(false)
+        }
         updateCaptureIntent()
     }
 
@@ -59,10 +67,26 @@ public final class SystemAudioMeter: ObservableObject {
         playbackActivityHandler = handler
     }
 
+    func setLocalAudioActivityHandler(
+        _ handler: (@MainActor @Sendable (Bool) -> Void)?
+    ) {
+        localAudioActivityHandler = handler
+    }
+
+    func setWaveformPresentationEnabled(_ enabled: Bool) {
+        waveformPresentationEnabled = enabled
+    }
+
+    /// A new Spotify Connect target invalidates samples attributed to the previous target.
+    func resetLocalAudioActivity() {
+        setAudioActive(false)
+    }
+
     public func stop() {
         monitorsPlaybackActivity = false
         wantsCapture = false; isPlaying = false
         waveformLevels = Self.staticLevels
+        setAudioActive(false)
         reconcile()
     }
 
@@ -117,24 +141,26 @@ public final class SystemAudioMeter: ObservableObject {
                             guard let self, self.generation == generation,
                                   self.wantsCapture, !self.captureFailed,
                                   levels.count == 7 else { return }
-                            if !self.isPlaying,
-                               levels.contains(where: { $0 > AudioSpectrumAnalyzer.minimum + 0.02 }) {
+                            let normalized = levels.map {
+                                $0.isFinite ? min(1, max(AudioSpectrumAnalyzer.minimum, $0))
+                                    : AudioSpectrumAnalyzer.minimum
+                            }
+                            let hasAudioEnergy = normalized.contains { $0 > Self.activityThreshold }
+                            self.updateAudioActivity(hasAudioEnergy)
+                            if !self.isPlaying, hasAudioEnergy {
                                 self.playbackActivityHandler?()
                             }
-                            guard self.isPlaying else { return }
-                            self.waveformLevels = levels.map { $0.isFinite ? min(1, max(0.12, $0)) : 0.12 }
-                            #if DEBUG
-                            if Date().timeIntervalSince(self.lastDebugLevels) >= 5 {
-                                self.lastDebugLevels = Date()
-                                NSLog("[Waveform] Updating levels")
+                            guard self.isPlaying, self.waveformPresentationEnabled else { return }
+                            if (hasAudioEnergy || self.isAudioActive), self.waveformLevels != normalized {
+                                self.waveformLevels = normalized
                             }
-                            #endif
                         }
                     } failure: { [weak self] in
                         Task { @MainActor [weak self] in
                             guard let self, self.generation == generation else { return }
                             self.captureFailed = true; self.wantsCapture = false
                             self.status = .unavailable; self.waveformLevels = Self.staticLevels
+                            self.setAudioActive(false)
                             self.reconcile()
                         }
                     }
@@ -148,9 +174,46 @@ public final class SystemAudioMeter: ObservableObject {
                     self.status = error as? SystemAudioCaptureError == .permissionDenied
                         ? .permissionRequired : .unavailable
                     self.waveformLevels = Self.staticLevels
+                    self.setAudioActive(false)
                     return
                 }
             }
         }
+    }
+
+    private func updateAudioActivity(_ hasAudioEnergy: Bool) {
+        guard hasAudioEnergy else { return }
+        setAudioActive(true)
+        activityGeneration &+= 1
+        guard inactivityTask == nil else { return }
+        let clock = activityClock
+        inactivityTask = Task { [weak self] in
+            guard let self else { return }
+            var observedGeneration = self.activityGeneration
+            while !Task.isCancelled {
+                do { try await clock.sleep(for: Self.activityTimeout) }
+                catch { return }
+                guard !Task.isCancelled else { return }
+                if self.activityGeneration != observedGeneration {
+                    observedGeneration = self.activityGeneration
+                    continue
+                }
+                self.inactivityTask = nil
+                self.setAudioActive(false)
+                return
+            }
+        }
+    }
+
+    private func setAudioActive(_ active: Bool) {
+        if !active {
+            inactivityTask?.cancel()
+            inactivityTask = nil
+            activityGeneration &+= 1
+            if waveformLevels != Self.staticLevels { waveformLevels = Self.staticLevels }
+        }
+        guard isAudioActive != active else { return }
+        isAudioActive = active
+        localAudioActivityHandler?(active)
     }
 }

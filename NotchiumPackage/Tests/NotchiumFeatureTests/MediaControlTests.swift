@@ -62,6 +62,44 @@ private actor HeldControlProvider: MediaProviding {
             model.stop()
         }
     }
+    func testCachedTrackPlayIsOptimisticAndReturnsToPausedWhenResumeFails() async {
+        let provider = HeldControlProvider()
+        let model = model(provider, playing: false, elapsed: 61)
+        var valid = model.state
+        valid.trackID = "fixture"
+        valid.source = .spotify
+        model.receive(valid)
+        model.receive(.init(connectionState: .authenticated, source: .spotify))
+        XCTAssertTrue(model.isShowingCachedTrack)
+        XCTAssertEqual(model.state.playbackState, .paused)
+
+        model.send(.playPause)
+        XCTAssertEqual(model.state.playbackState, .playing)
+        await provider.waitFor(1)
+        let commands = await provider.commands
+        XCTAssertEqual(commands, [.play])
+
+        await provider.finish(.play, failing: true)
+        while model.isBusy { await Task.yield() }
+        XCTAssertEqual(model.state.playbackState, .paused)
+        XCTAssertTrue(model.isShowingCachedTrack)
+        XCTAssertEqual(model.errorMessage, MediaFailure.disconnected.errorDescription)
+        model.stop()
+    }
+    func testUnchangedPausedSampleEventuallyRevertsUnfulfilledPlayIntent() async {
+        let provider = HeldControlProvider()
+        let model = model(provider, playing: false)
+        var paused = model.state
+        model.send(.playPause)
+        XCTAssertTrue(model.state.isPlaying)
+        paused.timestamp = Date().addingTimeInterval(11)
+        model.receive(paused)
+        XCTAssertFalse(model.state.isPlaying)
+        await provider.waitFor(1)
+        await provider.finish(.play)
+        while model.isBusy { await Task.yield() }
+        model.stop()
+    }
     func testVolumeIsOptimisticAndFinalRequestsAreSerialized() async {
         let provider = HeldControlProvider()
         let model = model(provider)
@@ -136,7 +174,8 @@ private actor HeldControlProvider: MediaProviding {
         let provider = MockMediaProvider(snapshot: snapshot, devices: devices)
         let model = MediaFeatureModel(provider: provider, coordinator: ActivityCoordinator(
             clock: TestAppClock(now: Date(), automaticallyAdvances: false)))
-        model.receive(snapshot)
+        model.start()
+        while !model.state.hasMedia { await Task.yield() }
 
         model.refreshDevices()
         while model.devicesLoading { await Task.yield() }
@@ -144,6 +183,7 @@ private actor HeldControlProvider: MediaProviding {
 
         model.transferPlayback(to: devices[1])
         while model.devicesLoading { await Task.yield() }
+        for _ in 0..<100 where model.state.activeDeviceID != "speaker" { await Task.yield() }
         XCTAssertEqual(model.state.activeDeviceID, "speaker")
         XCTAssertEqual(model.state.activeDeviceName, "Kitchen")
         XCTAssertEqual(model.state.volumePercent, 35)
@@ -169,31 +209,49 @@ private actor HeldControlProvider: MediaProviding {
         await provider.finish(.seek(0), failing: true)
         do { try await seek.value; XCTFail("Failed seek succeeded") } catch {}
         while model.isBusy { await Task.yield() }
-        XCTAssertNil(model.pendingSeek)
+        XCTAssertNil(model.lastSeekTarget)
         model.stop()
     }
-    func testNextAndPreviousRefreshQueueAfterSuccess() async {
+    func testNextAndPreviousRefreshVisibleQueueAfterSuccess() async {
         for command: MediaCommand in [.next, .previous] {
             let provider = HeldControlProvider()
             let model = model(provider, elapsed: command == .previous ? 0 : 20)
+            model.setUpNextVisible(true)
+            await provider.waitForQueueRefresh(1)
             model.send(command)
             await provider.waitFor(1)
             await provider.finish(command)
             while model.isBusy { await Task.yield() }
             let queueRefreshCount = await provider.queueRefreshCount
-            XCTAssertEqual(queueRefreshCount, 1)
+            XCTAssertEqual(queueRefreshCount, 2)
             model.stop()
         }
     }
     func testSpotifyTrackChangeRefreshesQueueOnce() async {
         let provider = HeldControlProvider()
         let model = model(provider)
+        model.setUpNextVisible(true)
+        await provider.waitForQueueRefresh(1)
         model.receive(.init(playbackState: .playing, title: "New Track", artist: "Artist",
                             elapsed: 0, duration: 240, trackID: "new", source: .spotify,
                             capabilities: .init(canPlayPause: true, canReadQueue: true)))
-        await provider.waitForQueueRefresh(1)
+        await provider.waitForQueueRefresh(2)
         let queueRefreshCount = await provider.queueRefreshCount
-        XCTAssertEqual(queueRefreshCount, 1)
+        XCTAssertEqual(queueRefreshCount, 2)
+        model.stop()
+    }
+    func testHiddenQueueDoesNotRefreshOnTrackChangeOrSkip() async {
+        let provider = HeldControlProvider()
+        let model = model(provider)
+        model.receive(.init(playbackState: .playing, title: "New Track", artist: "Artist",
+                            elapsed: 0, duration: 240, trackID: "new", source: .spotify,
+                            capabilities: .init(canPlayPause: true, canSkipForward: true, canReadQueue: true)))
+        model.send(.next)
+        await provider.waitFor(1)
+        await provider.finish(.next)
+        while model.isBusy { await Task.yield() }
+        let queueRefreshCount = await provider.queueRefreshCount
+        XCTAssertEqual(queueRefreshCount, 0)
         model.stop()
     }
     func testQueueFailureDoesNotBreakPlaybackState() async {
@@ -235,6 +293,8 @@ private actor HeldControlProvider: MediaProviding {
             clock: TestAppClock(now: Date(), automaticallyAdvances: false)))
         model.start()
         while model.state.trackID == nil { await Task.yield() }
+        model.setUpNextVisible(true)
+        while await provider.queueRefreshCount < 2 { await Task.yield() }
         model.send(.next)
         while model.isBusy || model.state.trackID == "midnight" { await Task.yield() }
         let state = await provider.snapshot
@@ -272,6 +332,112 @@ private actor HeldControlProvider: MediaProviding {
         while model.isBusy { await Task.yield() }
         model.stop()
     }
+    func testRestartSupersedesUnconfirmedPreviousTrackAndAcceptsExternalUpdates() async {
+        let now = Date()
+        let provider = HeldControlProvider()
+        let model = model(provider, playing: true, elapsed: 0, timestamp: now)
+        model.previous(at: now)
+        await provider.waitFor(1)
+        await provider.finish(.previous)
+        while model.isBusy { await Task.yield() }
+        // The previous-track request completed, but Spotify has not supplied a new ID.
+        // A later Previous is now a restart, not a continuation of that transition.
+        let restartAt = now.addingTimeInterval(4)
+        model.previous(at: restartAt)
+        await provider.waitFor(2)
+        var confirmed = model.state
+        confirmed.elapsed = 1
+        confirmed.timestamp = restartAt.addingTimeInterval(1)
+        model.receive(confirmed)
+        XCTAssertNil(model.lastSeekTarget)
+        XCTAssertEqual(model.state.elapsed, 1)
+        XCTAssertEqual(model.state.timestamp, confirmed.timestamp)
+        await provider.finish(.seek(0))
+        while model.isBusy { await Task.yield() }
+        var external = confirmed
+        external.elapsed = 50
+        external.timestamp = restartAt.addingTimeInterval(2)
+        model.receive(external)
+        XCTAssertEqual(model.state.elapsed, 50)
+        model.stop()
+    }
+
+    func testCompletedRestartReleasesRequestGuardWithoutLosingStaleProtection() async {
+        let now = Date()
+        let provider = HeldControlProvider()
+        let model = model(provider, playing: true, elapsed: 90, timestamp: now)
+        model.previous(at: now)
+        await provider.waitFor(1)
+        await provider.finish(.seek(0))
+        while model.isBusy { await Task.yield() }
+        XCTAssertFalse(model.seekInFlight)
+        XCTAssertNotNil(model.lastSeekTarget)
+        var stale = model.state
+        stale.elapsed = 90
+        stale.timestamp = now.addingTimeInterval(-1)
+        stale.sampledUptime = nil
+        model.receive(stale)
+        XCTAssertEqual(model.displayedPosition(at: now.addingTimeInterval(1)), 1)
+        model.stop()
+    }
+
+    func testPreviousTrackSupersedesUnconfirmedRestart() async {
+        let now = Date()
+        let provider = HeldControlProvider()
+        let model = model(provider, playing: true, elapsed: 90, timestamp: now)
+        model.previous(at: now)
+        await provider.waitFor(1)
+        await provider.finish(.seek(0))
+        while model.isBusy { await Task.yield() }
+        model.previous(at: now.addingTimeInterval(1))
+        XCTAssertNil(model.lastSeekTarget)
+        await provider.waitFor(2)
+        var previous = model.state
+        previous.trackID = "previous-track"
+        previous.title = "Previous"
+        previous.duration = 180
+        previous.elapsed = 0.5
+        previous.timestamp = now.addingTimeInterval(2)
+        previous.sampledUptime = nil
+        model.receive(previous)
+        XCTAssertEqual(model.state, previous)
+        await provider.finish(.previous)
+        while model.isBusy { await Task.yield() }
+        XCTAssertFalse(model.seekInFlight)
+        XCTAssertFalse(model.isPreviousPending)
+        model.stop()
+    }
+
+    func testPreviousNextPreviousPausePlayKeepsReceivingExternalState() async throws {
+        let provider = MockMediaProvider()
+        try await provider.apply(.play)
+        try await provider.seek(to: 90)
+        let model = MediaFeatureModel(provider: provider, coordinator: ActivityCoordinator(
+            clock: TestAppClock(now: Date(), automaticallyAdvances: false)))
+        model.start()
+        while !model.state.hasMedia { await Task.yield() }
+        for command: MediaCommand in [.previous, .next, .previous, .pause, .play] {
+            model.send(command)
+            while model.isBusy { await Task.yield() }
+            let authoritative = await provider.snapshot
+            // Drain observation delivery without recreating the model or requesting a refresh.
+            for _ in 0..<100 where model.state != authoritative { await Task.yield() }
+            XCTAssertEqual(model.state, authoritative)
+            XCTAssertNil(model.lastSeekTarget)
+            XCTAssertFalse(model.seekInFlight)
+            XCTAssertFalse(model.isPreviousPending)
+        }
+        let commands = await provider.commands
+        XCTAssertEqual(Array(commands.suffix(5)), [.seek(0), .next, .previous, .pause, .play])
+        var external = await provider.snapshot
+        external.elapsed = 53
+        external.timestamp = Date()
+        await provider.publish(external)
+        for _ in 0..<100 where model.state != external { await Task.yield() }
+        XCTAssertEqual(model.state, external)
+        model.stop()
+    }
+
     func testPreviousUsesThreeSecondThresholdAndInterpolatedPosition() async {
         let now = Date(timeIntervalSince1970: 1_000)
         let cases: [(playing: Bool, elapsed: Double, offset: TimeInterval, expected: MediaCommand)] = [
@@ -316,9 +482,12 @@ private actor HeldControlProvider: MediaProviding {
         while model.isBusy { await Task.yield() }
         model.stop()
     }
-    func testTrackTransitionKeepsLastValidTrackUntilReplacementArrives() async {
+    func testAuthoritativeInactiveSnapshotUsesCacheUntilReplacementArrives() async {
         let provider = HeldControlProvider()
         let model = model(provider, playing: true, elapsed: 42)
+        var initial = model.state
+        initial.source = .spotify
+        model.receive(initial)
         let original = model.state
         model.send(.next)
         await provider.waitFor(1)

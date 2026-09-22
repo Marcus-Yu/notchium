@@ -112,10 +112,11 @@ actor SpotifyPlaybackAPI {
         requestCount += 1
         let number = requestCount
         Self.logger.debug("[SpotifyAPI] client=\(self.diagnosticID, privacy: .public) request=\(number) reason=\(reason, privacy: .public) \(method, privacy: .public) /me/player\(path, privacy: .public)")
+        let requestStartedAt = ProcessInfo.processInfo.systemUptime
         #endif
         let response = try await transport.send(request)
         #if DEBUG
-        Self.logger.debug("[SpotifyAPI] client=\(self.diagnosticID, privacy: .public) request=\(number) status=\(response.status) retryAfter=\(response.retryAfter ?? 0)")
+        Self.logger.debug("[SpotifyAPI] client=\(self.diagnosticID, privacy: .public) request=\(number) status=\(response.status) duration_ms=\((ProcessInfo.processInfo.systemUptime - requestStartedAt) * 1000) retryAfter=\(response.retryAfter ?? 0)")
         #endif
         if response.status == 429 {
             // Record every actual 429 before any caller can discard a stale playback response.
@@ -183,9 +184,10 @@ actor SpotifyPlaybackAPI {
                                  supportsVolume: device.supports_volume == true)
         }
     }
-    func transferPlayback(to deviceID: String) async throws {
+    func transferPlayback(to deviceID: String, play: Bool? = nil) async throws {
         guard !deviceID.isEmpty else { throw MediaFailure.unsupported }
-        let body = try JSONEncoder().encode(["device_ids": [deviceID]])
+        struct Transfer: Encodable { let device_ids: [String]; let play: Bool? }
+        let body = try JSONEncoder().encode(Transfer(device_ids: [deviceID], play: play))
         let response = try await request(method: "PUT", body: body, reason: "transfer")
         guard response.status == 204 else { throw MediaFailure.invalidResponse }
     }

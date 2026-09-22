@@ -6,7 +6,15 @@ import NotchiumCore
 @testable import NotchiumMediaFeature
 @testable import NotchiumServices
 
+private actor MemoryMediaSnapshotStore: MediaSnapshotStoring {
+    private var track: CachedMediaTrack?
+    init(track: CachedMediaTrack? = nil) { self.track = track }
+    func loadLastMediaTrack() -> CachedMediaTrack? { track }
+    func saveLastMediaTrack(_ track: CachedMediaTrack) { self.track = track }
+}
+
 @MainActor final class MediaTests: XCTestCase {
+    private func drain() async { for _ in 0..<30 { await Task.yield() } }
     private func presentation() -> DynamicIslandPresentationModel {
         .init(clock: TestAppClock(now: Date(timeIntervalSince1970: 0), automaticallyAdvances: false))
     }
@@ -24,38 +32,80 @@ import NotchiumCore
     func testPassivePlayingPausedStoppedAndFrozenDimensions() async throws {
         let presentation = presentation()
         let provider = MockMediaProvider()
-        let model = MediaFeatureModel(provider: provider, coordinator: presentation.activityCoordinator)
+        let capture = TestAudioCapture()
+        let meter = SystemAudioMeter(capture: capture, permissionGranted: { true })
+        let model = MediaFeatureModel(provider: provider, coordinator: presentation.activityCoordinator,
+                                      audioMeter: meter)
         presentation.mediaRenderer = model
         model.receive(await provider.snapshot)
         XCTAssertEqual(presentation.presentationState, .passive)
         try await provider.apply(.play)
         model.receive(await provider.snapshot)
+        await drain()
+        capture.levels?(Array(repeating: 0.8, count: 7))
+        await drain()
         XCTAssertEqual(presentation.activityCoordinator.activeActivity?.priority, 20)
         XCTAssertTrue(presentation.showsCollapsedMedia)
         XCTAssertEqual(presentation.surfaceState, .collapsed)
-        XCTAssertEqual(presentation.pageModel.selectedPage, .media)
+        XCTAssertEqual(presentation.pageModel.selectedPage, .music)
         try await provider.apply(.pause)
         model.receive(await provider.snapshot)
         XCTAssertFalse(model.state.isPlaying)
-        XCTAssertTrue(presentation.showsCollapsedMedia)
+        XCTAssertFalse(presentation.showsCollapsedMedia)
         presentation.present(.hovered, animated: false)
         XCTAssertEqual(presentation.surfaceState, .hovered)
         XCTAssertFalse(presentation.showsCollapsedMedia)
-        XCTAssertEqual(NotchGeometryResolver.expandedNotchSize, CGSize(width: 450, height: 222))
+        XCTAssertEqual(NotchGeometryResolver.expandedNotchSize, CGSize(width: 560, height: 302))
         presentation.present(.collapsed, animated: false)
         try await provider.apply(.stop)
         model.receive(await provider.snapshot)
-        XCTAssertEqual(presentation.presentationState, .passive)
-        XCTAssertNil(presentation.activityCoordinator.activeActivity)
+        XCTAssertEqual(model.state.playbackState, .paused)
+        XCTAssertTrue(model.isShowingCachedTrack)
+        XCTAssertFalse(presentation.showsCollapsedMedia)
+        XCTAssertNotNil(presentation.activityCoordinator.activeActivity)
+    }
+    func testCalendarPageDoesNotHideCollapsedArtwork() async throws {
+        let presentation = presentation()
+        let provider = MockMediaProvider()
+        let capture = TestAudioCapture()
+        let meter = SystemAudioMeter(capture: capture, permissionGranted: { true })
+        let model = MediaFeatureModel(provider: provider, coordinator: presentation.activityCoordinator,
+                                      audioMeter: meter)
+        presentation.mediaRenderer = model
+        try await provider.apply(.play)
+        model.receive(await provider.snapshot)
+        await drain()
+        capture.levels?(Array(repeating: 0.8, count: 7))
+        await drain()
+        let artwork = try XCTUnwrap(model.state.artwork)
+        XCTAssertTrue(presentation.showsSharedMediaArtwork)
+
+        presentation.present(.expanded, animated: false)
+        presentation.pageModel.selectedPage = .calendar
+        XCTAssertFalse(presentation.showsSharedMediaArtwork)
+        XCTAssertEqual(model.state.artwork, artwork)
+        XCTAssertTrue(model.collapsedMediaVisible)
+
+        presentation.present(.collapsed, animated: false)
+        XCTAssertEqual(presentation.pageModel.selectedPage, .calendar)
+        XCTAssertTrue(presentation.showsCollapsedMedia)
+        XCTAssertTrue(presentation.showsSharedMediaArtwork)
+        XCTAssertEqual(model.state.artwork, artwork)
     }
     func testMediaInterruptsRestoresWithoutDuplicatesAndStopRemovesQueuedMedia() async throws {
         let presentation = presentation()
         let provider = MockMediaProvider()
-        let model = MediaFeatureModel(provider: provider, coordinator: presentation.activityCoordinator)
+        let capture = TestAudioCapture()
+        let meter = SystemAudioMeter(capture: capture, permissionGranted: { true })
+        let model = MediaFeatureModel(provider: provider, coordinator: presentation.activityCoordinator,
+                                      audioMeter: meter)
         presentation.mediaRenderer = model
         try await provider.apply(.play)
         let playing = await provider.snapshot
         model.receive(playing)
+        await drain()
+        capture.levels?(Array(repeating: 0.8, count: 7))
+        await drain()
         let id = presentation.activityCoordinator.activeActivity?.id
         let alert = NotchActivity(id: UUID(), kind: .notification, title: "Test alert", subtitle: nil, priority: 100, duration: nil)
         presentation.activityCoordinator.present(alert)
@@ -68,7 +118,51 @@ import NotchiumCore
         presentation.activityCoordinator.present(alert)
         model.receive(.init())
         presentation.activityCoordinator.dismissActive()
-        XCTAssertNil(presentation.activityCoordinator.activeActivity)
+        XCTAssertEqual(presentation.activityCoordinator.activeActivity?.id, id)
+        XCTAssertTrue(model.isShowingCachedTrack)
+        XCTAssertFalse(presentation.showsCollapsedMedia)
+    }
+
+    func testLastValidTrackPersistsAndRestoresAsPausedPresentation() async throws {
+        let snapshot = MediaState(
+            playbackState: .playing,
+            title: "Midnight City",
+            artist: "M83",
+            elapsed: 61,
+            duration: 244,
+            trackID: "track-1",
+            artwork: URL(string: "https://i.scdn.co/image/fixture"),
+            source: .spotify,
+            capabilities: .init(canPlayPause: true, canSkipForward: true, canSkipBackward: true,
+                                canSeek: true, canShuffle: true, canRepeat: true, canReadQueue: true,
+                                canSetVolume: true),
+            shuffle: false,
+            repeatMode: .off
+        )
+        let store = MemoryMediaSnapshotStore()
+        let first = MediaFeatureModel(provider: MockMediaProvider(), coordinator: presentation().activityCoordinator,
+                                      snapshotStore: store)
+        first.receive(snapshot)
+        while await store.loadLastMediaTrack() == nil { await Task.yield() }
+        first.receive(.init(connectionState: .authenticated, source: .spotify))
+        XCTAssertEqual(first.state.title, "Midnight City")
+        XCTAssertEqual(first.state.elapsed, 61)
+        XCTAssertEqual(first.state.playbackState, .paused)
+        XCTAssertTrue(first.isShowingCachedTrack)
+        XCTAssertFalse(first.collapsedMediaVisible)
+
+        let coordinator = presentation().activityCoordinator
+        let restored = MediaFeatureModel(provider: MockMediaProvider(), coordinator: coordinator,
+                                         snapshotStore: store)
+        restored.start()
+        for _ in 0..<100 where !restored.isShowingCachedTrack { await Task.yield() }
+        XCTAssertEqual(restored.state.title, "Midnight City")
+        XCTAssertEqual(restored.state.artist, "M83")
+        XCTAssertEqual(restored.state.elapsed, 61)
+        XCTAssertEqual(restored.state.playbackState, .paused)
+        XCTAssertTrue(restored.state.canPlayPause)
+        XCTAssertNotNil(coordinator.activeActivity)
+        restored.stop()
     }
     func testMockCommandsAndSeekClamp() async throws {
         let provider = MockMediaProvider()
@@ -162,11 +256,11 @@ import NotchiumCore
         try await provider.apply(.queue)
         let model = MediaFeatureModel(provider: provider, coordinator: presentation().activityCoordinator)
         model.receive(await provider.snapshot)
-        let expanded = ImageRenderer(content: MediaPageView(model: model).frame(width: 450, height: 140).background(.black))
+        let expanded = ImageRenderer(content: MediaPageView(model: model).frame(width: 560, height: 222).background(.black))
         let collapsed = ImageRenderer(content: CollapsedMediaView(model: model, hardwareWidth: 180)
             .frame(width: 380, height: 32).background(.black))
         let upNext = ImageRenderer(content: UpNextView(state: model.state)
-            .frame(width: 402, height: 112).background(.black))
+            .frame(width: 460, height: 180).background(.black))
         for (name, renderer) in [("expanded", expanded.nsImage), ("collapsed", collapsed.nsImage),
                                  ("up-next", upNext.nsImage)] {
             let image = try XCTUnwrap(renderer)
@@ -194,7 +288,7 @@ import NotchiumCore
         for (name, state) in states {
             model.receive(state)
             let renderer = ImageRenderer(content: MediaPageView(model: model)
-                .frame(width: 450, height: 140).background(.black))
+                .frame(width: 560, height: 222).background(.black))
             let image = try XCTUnwrap(renderer.nsImage)
             let tiff = try XCTUnwrap(image.tiffRepresentation)
             let png = try XCTUnwrap(NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]))

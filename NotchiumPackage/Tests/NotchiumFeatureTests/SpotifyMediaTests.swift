@@ -22,6 +22,42 @@ private actor ScriptedMediaTransport: MediaHTTPTransport {
     }
 }
 
+private actor LocalResumeTransport: MediaHTTPTransport {
+    private(set) var requests: [URLRequest] = []
+    private var playbackReads = 0
+    private var deviceReads = 0
+
+    func send(_ request: URLRequest) -> MediaHTTPResponse {
+        requests.append(request)
+        if request.url?.path.hasSuffix("/devices") == true {
+            deviceReads += 1
+            let devices = deviceReads == 1
+                ? #"{"devices":[]}"#
+                : #"{"devices":[{"id":"local-mac","is_active":false,"is_restricted":false,"name":"Test Mac","type":"Computer","volume_percent":62,"supports_volume":true}]}"#
+            return .init(data: Data(devices.utf8), status: 200)
+        }
+        if request.httpMethod == "PUT", request.url?.path.hasSuffix("/me/player") == true {
+            return .init(status: 204)
+        }
+        playbackReads += 1
+        guard playbackReads > 1 else { return .init(status: 204) }
+        let playback = #"{"is_playing":true,"progress_ms":61000,"device":{"id":"local-mac","is_active":true,"is_restricted":false,"name":"Test Mac","type":"Computer","volume_percent":62,"supports_volume":true},"actions":{"disallows":{}},"shuffle_state":false,"repeat_state":"off","item":{"id":"track-1","name":"Midnight City","type":"track","duration_ms":244000,"artists":[{"name":"M83"}],"album":{"images":[]}}}"#
+        return .init(data: Data(playback.utf8), status: 200)
+    }
+
+    func waitForInitialPlaybackRead() async {
+        while playbackReads == 0 { await Task.yield() }
+    }
+}
+
+private actor TestSpotifyApplicationLauncher: SpotifyApplicationLaunching {
+    private(set) var launchCount = 0
+    private var running = false
+    func isSpotifyRunning() -> Bool { running }
+    func launchSpotify() { launchCount += 1; running = true }
+    func localDeviceNames() -> Set<String> { ["test mac"] }
+}
+
 private actor RacingMediaTransport: MediaHTTPTransport {
     private let playing: Data
     private let paused: Data
@@ -48,6 +84,7 @@ private actor RacingMediaTransport: MediaHTTPTransport {
         await withCheckedContinuation { observer = $0 }
     }
     func rateLimitHeldPoll() { held?.resume(returning: .init(status: 429, retryAfter: 60)); held = nil }
+    func releaseHeldPoll() { held?.resume(returning: .init(data: playing, status: 200)); held = nil }
     func failHeldPoll() { held?.resume(throwing: MediaFailure.invalidResponse); held = nil }
 }
 
@@ -63,6 +100,29 @@ private actor HeldNextTransport: MediaHTTPTransport {
     }
     func waitForNext() async { while next == nil { await Task.yield() } }
     func finishNext() { next?.resume(returning: .init(status: 204)); next = nil }
+}
+
+private actor HeldPlaybackRefreshTransport: MediaHTTPTransport {
+    let initial: Data
+    let changed: Data
+    private var reads = 0
+    private var held: CheckedContinuation<MediaHTTPResponse, Never>?
+    init(initial: Data, changed: Data) { self.initial = initial; self.changed = changed }
+    func send(_ request: URLRequest) async -> MediaHTTPResponse {
+        reads += 1
+        switch reads {
+        case 1: return .init(data: initial, status: 200)
+        case 2: return await withCheckedContinuation { held = $0 }
+        default: return .init(data: changed, status: 200)
+        }
+    }
+    func waitForHeldRead() async { while held == nil { await Task.yield() } }
+    func releaseHeldRead() {
+        held?.resume(returning: .init(data: initial, status: 200))
+        held = nil
+    }
+    func waitForReads(_ count: Int) async { while reads < count { await Task.yield() } }
+    var readCount: Int { reads }
 }
 
 private actor OverlappingAuthorizationTransport: MediaHTTPTransport {
@@ -126,6 +186,50 @@ private actor HeldQueueTransport: MediaHTTPTransport {
     }
 }
 
+private actor TestPlaybackEvents: SpotifyPlaybackEventProviding {
+    private var continuation: AsyncStream<SpotifyPlaybackEvent>.Continuation?
+    private(set) var subscriptions = 0
+    private(set) var terminations = 0
+    func events() -> AsyncStream<SpotifyPlaybackEvent> {
+        subscriptions += 1
+        let pair = AsyncStream<SpotifyPlaybackEvent>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        continuation = pair.continuation
+        pair.continuation.onTermination = { [weak self] _ in Task { await self?.terminated() } }
+        return pair.stream
+    }
+    private func terminated() { terminations += 1; continuation = nil }
+    func emit(_ event: SpotifyPlaybackEvent) { continuation?.yield(event) }
+    func waitForSubscription() async { while subscriptions == 0 { await Task.yield() } }
+    func waitForTermination() async { while terminations == 0 { await Task.yield() } }
+}
+
+private actor EventPlaybackTransport: MediaHTTPTransport {
+    private var playback: Data
+    private(set) var reads = 0
+    private var holdNext = false
+    private var held: CheckedContinuation<MediaHTTPResponse, Never>?
+    private var heldData: Data?
+    init(_ playback: Data) { self.playback = playback }
+    func setPlayback(_ data: Data) { playback = data }
+    func holdNextRead() { holdNext = true }
+    func send(_ request: URLRequest) async -> MediaHTTPResponse {
+        guard request.httpMethod == "GET" else { return .init(status: 204) }
+        reads += 1
+        if holdNext {
+            holdNext = false
+            heldData = playback
+            return await withCheckedContinuation { held = $0 }
+        }
+        return .init(data: playback, status: 200)
+    }
+    func waitForHeldRead() async { while held == nil { await Task.yield() } }
+    func releaseHeldRead() {
+        held?.resume(returning: .init(data: heldData ?? Data(), status: 200))
+        held = nil
+        heldData = nil
+    }
+}
+
 @MainActor final class SpotifyMediaTests: XCTestCase {
     private func authorizedStore() -> MemorySpotifyStore {
         .init(data: Data(#"{"clientID":"fixture","accessToken":"fixture-access","refreshToken":"fixture-refresh","expiration":9999999999}"#.utf8))
@@ -137,6 +241,105 @@ private actor HeldQueueTransport: MediaHTTPTransport {
         "item":{"id":"track-1","name":"Midnight City","type":"track","duration_ms":244000,
         "artists":[{"name":"M83"}],"album":{"images":[{"url":"https://i.scdn.co/image/fixture","width":300}]}}}
         """.utf8)
+    }
+    func testDesktopAndMediaKeyEventsUseOnePipelineAndPollingContinues() async throws {
+        let events = TestPlaybackEvents()
+        let transport = EventPlaybackTransport(playback())
+        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
+        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
+                                         transport: transport, clock: clock, playbackEvents: events)
+        try await provider.connect()
+        await clock.waitForPendingSleeps()
+        await events.waitForSubscription()
+        var updates = await provider.updates().makeAsyncIterator()
+        _ = await updates.next()
+        // Desktop buttons and media keys result in the same Spotify notification.
+        let changes: [(String, Bool, Int)] = [("desktop-next", true, 0), ("media-key-next", true, 0),
+            ("desktop-previous", true, 0), ("media-key-previous", true, 0),
+            ("media-key-previous", false, 1000), ("media-key-previous", true, 1000)]
+        for (id, playing, position) in changes {
+            let data = Data(playback(playing: playing, elapsed: position).formattedForTest
+                .replacingOccurrences(of: "track-1", with: id).utf8)
+            await transport.setPlayback(data)
+            await events.emit(.init(trackID: id, isPlaying: playing, position: Double(position) / 1000))
+            let value = await updates.next()
+            XCTAssertEqual(value?.trackID, id)
+            XCTAssertEqual(value?.isPlaying, playing)
+            XCTAssertEqual(value?.elapsed, Double(position) / 1000)
+            await clock.waitForPendingSleeps(2)
+            await clock.advance(by: .milliseconds(250))
+        }
+        // Five simulated minutes after Previous: no event or notch reload is needed.
+        for index in 0..<60 {
+            await transport.setPlayback(playback(elapsed: (53 + index) * 1000))
+            await clock.advance(by: .seconds(5))
+            let polled = await updates.next()
+            XCTAssertEqual(polled?.elapsed, Double(53 + index))
+            await clock.waitForPendingSleeps()
+        }
+        let subscriptions = await events.subscriptions
+        let reads = await transport.reads
+        XCTAssertEqual(subscriptions, 1)
+        XCTAssertEqual(reads, changes.count + 61)
+        await provider.shutdown()
+        await events.waitForTermination()
+    }
+
+    func testEventDuringOldPollRejectsItAndPerformsOneTrailingRead() async throws {
+        let events = TestPlaybackEvents()
+        let transport = EventPlaybackTransport(playback(elapsed: 90000))
+        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
+        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
+                                         transport: transport, clock: clock, playbackEvents: events)
+        try await provider.connect()
+        await clock.waitForPendingSleeps()
+        await events.waitForSubscription()
+        await transport.holdNextRead()
+        await clock.advance(by: .seconds(5))
+        await transport.waitForHeldRead()
+        var updates = await provider.updates().makeAsyncIterator()
+        _ = await updates.next()
+        await transport.setPlayback(playback(elapsed: 0))
+        await events.emit(.init(trackID: "track-1", isPlaying: true, position: 0))
+        // The listener has invalidated the old read and entered its bounded event cooldown.
+        await clock.waitForPendingSleeps(2)
+        await transport.releaseHeldRead()
+        let restart = await updates.next()
+        XCTAssertEqual(restart?.elapsed, 0)
+        let reads = await transport.reads
+        XCTAssertEqual(reads, 3)
+        await provider.shutdown()
+        await events.waitForTermination()
+    }
+
+    func testResumeWithoutActivePlaybackLaunchesSpotifyAndTransfersToLocalMacOnce() async throws {
+        let transport = LocalResumeTransport()
+        let launcher = TestSpotifyApplicationLauncher()
+        let clock = TestAppClock(now: Date(timeIntervalSince1970: 0), automaticallyAdvances: false)
+        let provider = RealMediaProvider(
+            authorization: SpotifyAuthorization(store: authorizedStore(), transport: transport),
+            transport: transport,
+            clock: clock,
+            applicationLauncher: launcher
+        )
+        try await provider.connect()
+        await transport.waitForInitialPlaybackRead()
+
+        try await provider.resumePlayback()
+
+        let launchCount = await launcher.launchCount
+        XCTAssertEqual(launchCount, 1)
+        let requests = await transport.requests
+        let transfer = try XCTUnwrap(requests.first {
+            $0.httpMethod == "PUT" && $0.url?.path.hasSuffix("/me/player") == true
+        })
+        let body = try XCTUnwrap(transfer.httpBody)
+        XCTAssertTrue(String(decoding: body, as: UTF8.self).contains(#""play":true"#))
+        var updates = await provider.updates().makeAsyncIterator()
+        let resumed = await updates.next()
+        XCTAssertEqual(resumed?.activeDeviceID, "local-mac")
+        XCTAssertEqual(resumed?.playbackState, .playing)
+        await provider.shutdown()
     }
     func testSpotifyMappingCapabilitiesArtworkProgressAndRestrictedDevice() throws {
         let state = try JSONDecoder().decode(SpotifyPlayback.self, from: playback()).mediaState()
@@ -494,6 +697,93 @@ private actor HeldQueueTransport: MediaHTTPTransport {
         let availability = await provider.availability()
         XCTAssertEqual(availability, .available)
         try await provider.disconnect()
+    }
+    func testEventRefreshDuringPollRunsOneTrailingRead() async throws {
+        let transport = HeldPlaybackRefreshTransport(initial: playback(), changed: playback(playing: false))
+        let clock = TestAppClock(now: Date(timeIntervalSince1970: 0), automaticallyAdvances: false)
+        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
+                                         transport: transport, clock: clock)
+        try await provider.connect()
+        await clock.waitForPendingSleeps()
+        await clock.advance(by: .seconds(5))
+        await transport.waitForHeldRead()
+
+        await provider.refresh()
+        await provider.refresh()
+        let beforeRelease = await transport.readCount
+        XCTAssertEqual(beforeRelease, 2)
+        var iterator = await provider.updates().makeAsyncIterator()
+        _ = await iterator.next()
+        await transport.releaseHeldRead()
+        await transport.waitForReads(3)
+        var state = await iterator.next()
+        if state?.playbackState != .paused { state = await iterator.next() }
+        XCTAssertEqual(state?.playbackState, .paused)
+        let totalReads = await transport.readCount
+        XCTAssertEqual(totalReads, 3)
+        await provider.shutdown()
+    }
+
+    func testVolumeCommandDoesNotFetchPlaybackConfirmation() async throws {
+        let playable = Data(#"{"is_playing":true,"progress_ms":1000,"device":{"id":"mac","is_restricted":false,"volume_percent":50,"supports_volume":true},"item":{"id":"one","name":"Track","type":"track","duration_ms":100000}}"#.utf8)
+        let transport = ScriptedMediaTransport([
+            .init(data: playable, status: 200), .init(status: 204)
+        ])
+        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
+        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
+                                         transport: transport, clock: clock)
+        try await provider.connect()
+        await clock.waitForPendingSleeps()
+        try await provider.perform(.setVolume(0.73))
+        let requests = await transport.requests
+        XCTAssertEqual(requests.map(\.url?.path), ["/v1/me/player", "/v1/me/player/volume"])
+        var iterator = await provider.updates().makeAsyncIterator()
+        let state = await iterator.next()
+        XCTAssertEqual(state?.volumePercent, 73)
+        await provider.shutdown()
+    }
+    func testExpandedPlayerRefreshesImmediatelyAndUsesActiveCadence() async throws {
+        let response = MediaHTTPResponse(data: playback(), status: 200)
+        let transport = ScriptedMediaTransport(Array(repeating: response, count: 4))
+        let clock = TestAppClock(now: Date(timeIntervalSince1970: 0), automaticallyAdvances: false)
+        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
+                                         transport: transport, clock: clock)
+        try await provider.connect()
+        await clock.waitForPendingSleeps()
+        await provider.setExpandedVisible(true)
+        var requestCount = await transport.requests.count
+        XCTAssertEqual(requestCount, 2)
+
+        await clock.advance(by: .seconds(5))
+        await clock.waitForPendingSleeps()
+        requestCount = await transport.requests.count
+        XCTAssertEqual(requestCount, 3)
+        await clock.advance(by: .milliseconds(2_499))
+        requestCount = await transport.requests.count
+        XCTAssertEqual(requestCount, 3)
+        await clock.advance(by: .milliseconds(1))
+        await clock.waitForPendingSleeps()
+        requestCount = await transport.requests.count
+        XCTAssertEqual(requestCount, 4)
+        await provider.shutdown()
+    }
+    func testUnchangedPausedPollStillReachesReconciliationSubscriber() async throws {
+        let response = MediaHTTPResponse(data: playback(playing: false), status: 200)
+        let transport = ScriptedMediaTransport([response, response])
+        let clock = TestAppClock(now: Date(timeIntervalSince1970: 0), automaticallyAdvances: false)
+        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
+                                         transport: transport, clock: clock)
+        try await provider.connect()
+        await clock.waitForPendingSleeps()
+        var iterator = await provider.updates().makeAsyncIterator()
+        let first = await iterator.next()
+        XCTAssertEqual(first?.playbackState, .paused)
+        await clock.advance(by: .seconds(15))
+        let second = await iterator.next()
+        XCTAssertEqual(second?.playbackState, .paused)
+        let requests = await transport.requests
+        XCTAssertEqual(requests.count, 2)
+        await provider.shutdown()
     }
     func testPollingWithoutSubscribersAndRetryAfter() async throws {
         let transport = ScriptedMediaTransport([
@@ -965,6 +1255,155 @@ private actor HeldQueueTransport: MediaHTTPTransport {
         XCTAssertEqual(next?.title, "Next Track")
         await provider.shutdown()
     }
+    func testEventRefreshDoesNotCancelSkipRetryAndSnapshotsStayCoherent() async throws {
+        for command: MediaCommand in [.next, .previous] {
+            let initial = Data(playback().formattedForTest
+                .replacingOccurrences(of: "\"skipping_next\":true", with: "\"skipping_next\":false").utf8)
+            let replacement = Data(initial.formattedForTest
+                .replacingOccurrences(of: "track-1", with: "track-2")
+                .replacingOccurrences(of: "Midnight City", with: "Replacement")
+                .replacingOccurrences(of: "61000", with: "0")
+                .replacingOccurrences(of: "244000", with: "180000").utf8)
+            let transport = ScriptedMediaTransport([
+                .init(data: initial, status: 200), .init(status: 204),
+                .init(data: initial, status: 200), .init(data: initial, status: 200),
+                .init(data: replacement, status: 200),
+            ])
+            let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
+            let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
+                                             transport: transport, clock: clock)
+            try await provider.connect()
+            await clock.waitForPendingSleeps()
+            try await provider.perform(command)
+            await provider.refresh()
+            var updates = await provider.updates().makeAsyncIterator()
+            let retained = await updates.next()
+            XCTAssertEqual(retained?.trackID, "track-1")
+            await clock.waitForPendingSleeps(2)
+            await clock.advance(by: .milliseconds(250))
+            let changed = await updates.next()
+            XCTAssertEqual(changed?.trackID, "track-2")
+            XCTAssertEqual(changed?.title, "Replacement")
+            XCTAssertEqual(changed?.duration, 180)
+            XCTAssertEqual(changed?.elapsed, 0)
+            let count = await transport.requests.count
+            XCTAssertEqual(count, 5)
+            await provider.shutdown()
+        }
+    }
+
+    func testSkipRetriesAreBoundedWhenSpotifyNeverChangesTrack() async throws {
+        let initial = Data(playback().formattedForTest
+            .replacingOccurrences(of: "\"skipping_next\":true", with: "\"skipping_next\":false").utf8)
+        let transport = ScriptedMediaTransport([
+            .init(data: initial, status: 200), .init(status: 204),
+            .init(data: initial, status: 200), .init(data: initial, status: 200),
+            .init(data: initial, status: 200), .init(data: initial, status: 200),
+        ])
+        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
+        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
+                                         transport: transport, clock: clock)
+        try await provider.connect()
+        await clock.waitForPendingSleeps()
+        try await provider.nextTrack()
+        for delay: Duration in [.milliseconds(250), .milliseconds(500), .seconds(1)] {
+            await clock.waitForPendingSleeps(2)
+            await clock.advance(by: delay)
+        }
+        while await transport.requests.count < 6 { await Task.yield() }
+        await clock.advance(by: .seconds(1))
+        for _ in 0..<20 { await Task.yield() }
+        let count = await transport.requests.count
+        XCTAssertEqual(count, 6) // initial poll + command + immediate read + three retries
+        var updates = await provider.updates().makeAsyncIterator()
+        let retained = await updates.next()
+        XCTAssertEqual(retained?.trackID, "track-1")
+        await provider.shutdown()
+    }
+
+    func testPreviousAndRestartResumeNormalPollingAfterConfirmation() async throws {
+        for command: MediaCommand in [.previous, .seek(0)] {
+            let isRestart = command == .seek(0)
+            let initial = playback(elapsed: isRestart ? 90000 : 1000)
+            // A metadata refresh on the same track must not confirm Previous.
+            let stale = Data(initial.formattedForTest.replacingOccurrences(
+                of: "https://i.scdn.co/image/fixture", with: "https://i.scdn.co/image/updated").utf8)
+            let confirmed = isRestart ? playback(elapsed: 0) : Data(playback(elapsed: 0)
+                .formattedForTest.replacingOccurrences(of: "track-1", with: "track-previous")
+                .replacingOccurrences(of: "Midnight City", with: "Previous Track").utf8)
+            let external = Data(confirmed.formattedForTest.replacingOccurrences(
+                of: "\"progress_ms\":0", with: "\"progress_ms\":53000").utf8)
+            let transport = ScriptedMediaTransport([
+                .init(data: initial, status: 200), .init(status: 204),
+                .init(data: isRestart ? initial : stale, status: 200),
+                .init(data: confirmed, status: 200), .init(data: external, status: 200),
+            ])
+            let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
+            let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
+                                             transport: transport, clock: clock)
+            try await provider.connect()
+            await clock.waitForPendingSleeps()
+            try await provider.perform(command)
+            var updates = await provider.updates().makeAsyncIterator()
+            _ = await updates.next()
+            await clock.waitForPendingSleeps(2)
+            await clock.advance(by: .milliseconds(250))
+            let replacement = await updates.next()
+            XCTAssertEqual(replacement?.trackID, isRestart ? "track-1" : "track-previous")
+            XCTAssertEqual(replacement?.elapsed, 0)
+            XCTAssertEqual(replacement?.artwork, URL(string: "https://i.scdn.co/image/fixture"))
+            // No reopen or explicit refresh: the original five-second poll must work.
+            await clock.advance(by: .milliseconds(4750))
+            let changedExternally = await updates.next()
+            XCTAssertEqual(changedExternally?.elapsed, 53)
+            XCTAssertEqual(changedExternally?.trackID, replacement?.trackID)
+            let requests = await transport.requests
+            XCTAssertEqual(requests.count, 5)
+            await provider.shutdown()
+        }
+    }
+
+    func testRestartRejectsPreActionPollAfterConfirmation() async throws {
+        let transport = RacingMediaTransport(playing: playback(elapsed: 90000), paused: playback(elapsed: 0))
+        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
+        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
+                                         transport: transport, clock: clock)
+        try await provider.connect()
+        await clock.waitForPendingSleeps()
+        await clock.advance(by: .seconds(5))
+        await transport.waitForHeldPoll()
+        try await provider.seek(to: 0)
+        await transport.releaseHeldPoll()
+        await clock.waitForPendingSleeps()
+        var updates = await provider.updates().makeAsyncIterator()
+        let restarted = await updates.next()
+        XCTAssertEqual(restarted?.elapsed, 0)
+        XCTAssertTrue(restarted?.isPlaying == true)
+        await provider.shutdown()
+    }
+
+    func testRestartRetriesStalePostCommandPositionWithoutRollback() async throws {
+        let transport = ScriptedMediaTransport([
+            .init(data: playback(elapsed: 90000), status: 200), .init(status: 204),
+            .init(data: playback(elapsed: 90000), status: 200),
+            .init(data: playback(elapsed: 1000), status: 200),
+        ])
+        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
+        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
+                                         transport: transport, clock: clock)
+        try await provider.connect()
+        await clock.waitForPendingSleeps()
+        try await provider.seek(to: 0)
+        var updates = await provider.updates().makeAsyncIterator()
+        let reset = await updates.next()
+        XCTAssertEqual(reset?.elapsed, 90) // provider retains the authoritative snapshot; UI owns immediate feedback
+        await clock.waitForPendingSleeps(2)
+        await clock.advance(by: .milliseconds(250))
+        let confirmed = await updates.next()
+        XCTAssertEqual(confirmed?.elapsed, 1)
+        await provider.shutdown()
+    }
+
     func testNoActiveDeviceFailureRecoversWithDisabledCapabilities() async throws {
         let transport = ScriptedMediaTransport([.init(data: playback(), status: 200),
                                                  .init(status: 404), .init(status: 404)])

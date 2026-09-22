@@ -285,10 +285,10 @@ private final class SpotifyPCMAnalyzer: @unchecked Sendable {
         for index in channels.indices { pending[index].append(contentsOf: channels[index]) }
         let count = AudioSpectrumAnalyzer.sampleCount
         guard pending.allSatisfy({ $0.count >= count }) else { return }
-        pending = pending.map { Array($0.suffix(count)) }
         let now = ProcessInfo.processInfo.systemUptime
         guard now - lastEmission >= 1.0 / 30 else { return }
         lastEmission = now
+        pending = pending.map { Array($0.suffix(count)) }
         let levels = spectrum.levels(channels: pending, sampleRate: format.mSampleRate)
         #if DEBUG
         if !didLogNonSilentSamples, levels.contains(where: { $0 > AudioSpectrumAnalyzer.minimum }) {

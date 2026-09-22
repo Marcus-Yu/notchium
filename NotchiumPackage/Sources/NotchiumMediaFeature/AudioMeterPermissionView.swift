@@ -22,7 +22,7 @@ public struct AudioMeterPermissionView: View {
         case .idle: "System audio is analyzed only during playback. Audio is never saved."
         case .starting: "Starting system audio analysis…"
         case .capturing: "Waveform follows Spotify audio only."
-        case .permissionRequired: "System Audio Recording permission is required for Spotify's audio-reactive waveform. Bars remain static until access is granted."
+        case .permissionRequired: "System Audio Recording permission is required for Spotify's audio-reactive waveform. The waveform stays hidden until access is granted."
         case .unavailable: "Spotify audio capture is unavailable. Start Spotify, then retry the waveform."
         }
     }

@@ -3,10 +3,14 @@ import NotchiumCore
 import NotchiumDynamicIsland
 import NotchiumServices
 import Observation
+import OSLog
 import SwiftUI
 
 @MainActor @Observable
 public final class MediaSessionController {
+    #if DEBUG
+    private static let performanceLogger = Logger(subsystem: "com.marcusyu.notchium", category: "media-performance")
+    #endif
     private static let previousTrackThreshold: TimeInterval = 3
     private static let reconciliationGrace: TimeInterval = 10
     private static let visibleQueueRefreshInterval = Duration.seconds(5)
@@ -15,9 +19,10 @@ public final class MediaSessionController {
 
     public let audioMeter: SystemAudioMeter
     public private(set) var collapsedMediaVisible = false
-    @ObservationIgnored private var mediaHideTask: Task<Void, Never>?
+    public private(set) var isShowingCachedTrack = false
     @ObservationIgnored private let visibilityClock: any AppClock
     @ObservationIgnored private let controlClock: any AppClock
+    @ObservationIgnored private let snapshotStore: any MediaSnapshotStoring
     public private(set) var state = MediaState(availability: .unavailable(.permissionNotDetermined),
                                                connectionState: .initializing, source: .spotify)
     private var authoritativeState = MediaState(availability: .unavailable(.permissionNotDetermined),
@@ -30,7 +35,6 @@ public final class MediaSessionController {
     public var isBusy: Bool { !pendingControls.isEmpty }
     public func isPending(_ command: MediaCommand) -> Bool { pendingControls.contains(command.controlID) }
     public var isPreviousPending: Bool { isPending(.previous) || isPending(.seek(0)) }
-    public private(set) var pendingSeek: PendingMediaSeek?
     public private(set) var lastSeekTarget: Double?
     public private(set) var seekInFlight = false
     @ObservationIgnored private var provider: any MediaProviding
@@ -43,14 +47,18 @@ public final class MediaSessionController {
     @ObservationIgnored private var devicesTask: Task<Void, Never>?
     @ObservationIgnored private var volumeThrottleTask: Task<Void, Never>?
     @ObservationIgnored private var volumeCommandTask: Task<Void, Never>?
+    @ObservationIgnored private var cacheLoadTask: Task<Void, Never>?
+    @ObservationIgnored private var cacheWriteTask: Task<Void, Never>?
     @ObservationIgnored private var queuedVolumeRequest: VolumeRequest?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var intentRevision = 0
-    private var pendingPlaybackIntent: PendingMediaValue<MediaPlaybackState>?
     private var pendingShuffleIntent: PendingMediaValue<Bool>?
     private var pendingRepeatIntent: PendingMediaValue<MediaRepeatMode>?
     private var pendingVolumeIntent: PendingMediaValue<Int>?
-    private var pendingTrackTransition: PendingTrackTransition?
+    // A timestamp barrier rejects already-buffered pre-action samples, never future observations.
+    // Track/progress reconciliation belongs entirely to the provider.
+    @ObservationIgnored private var playbackAction: (date: Date, uptime: TimeInterval, revision: Int)?
+    private var lastCachedTrack: CachedMediaTrack?
     private var isUpNextVisible = false
     private let activityID = UUID()
 
@@ -59,6 +67,7 @@ public final class MediaSessionController {
         coordinator: ActivityCoordinator,
         visibilityClock: any AppClock = ContinuousAppClock(),
         controlClock: any AppClock = ContinuousAppClock(),
+        snapshotStore: any MediaSnapshotStoring = NoopMediaSnapshotStore(),
         audioMeter: SystemAudioMeter = SystemAudioMeter(captureEnabled: false)
     ) {
         self.audioMeter = audioMeter
@@ -66,7 +75,12 @@ public final class MediaSessionController {
         self.coordinator = coordinator
         self.visibilityClock = visibilityClock
         self.controlClock = controlClock
+        self.snapshotStore = snapshotStore
         audioMeter.setPlaybackActivityHandler { [weak self] in self?.spotifyAudioBecameActive() }
+        audioMeter.setLocalAudioActivityHandler { [weak self] _ in
+            guard let self else { return }
+            self.updateCollapsedVisibility(self.state)
+        }
     }
     deinit {
         observation?.cancel()
@@ -77,10 +91,12 @@ public final class MediaSessionController {
         devicesTask?.cancel()
         volumeThrottleTask?.cancel()
         volumeCommandTask?.cancel()
-        mediaHideTask?.cancel()
+        cacheLoadTask?.cancel()
+        cacheWriteTask?.cancel()
     }
     public func start() {
         guard observation == nil else { return }
+        restoreCachedTrack()
         let generation = generation
         let provider = provider
         observation = Task { [weak self] in
@@ -92,71 +108,104 @@ public final class MediaSessionController {
     }
     public func stop() {
         audioMeter.stop()
-        mediaHideTask?.cancel(); mediaHideTask = nil; collapsedMediaVisible = false
+        collapsedMediaVisible = false
         generation &+= 1; observation?.cancel(); observation = nil
         commandTasks.values.forEach { $0.cancel() }; commandTasks.removeAll(); pendingControls.removeAll()
         queueTask?.cancel(); queueTask = nil
         visibleQueueTask?.cancel(); visibleQueueTask = nil; isUpNextVisible = false
+        audioMeter.setWaveformPresentationEnabled(true)
         playbackActivityRefreshTask?.cancel(); playbackActivityRefreshTask = nil
         devicesTask?.cancel(); devicesTask = nil; devices = []; devicesLoading = false; deviceIssue = nil
         volumeThrottleTask?.cancel(); volumeThrottleTask = nil
         volumeCommandTask?.cancel(); volumeCommandTask = nil; queuedVolumeRequest = nil
+        cacheLoadTask?.cancel(); cacheLoadTask = nil
         coordinator.dismiss(id: activityID)
         authoritativeState = .init()
-        state = .init(); clearPendingSeek(); clearOptimisticIntents()
+        state = .init(); isShowingCachedTrack = false; clearPendingSeek(); clearOptimisticIntents()
+        seekInFlight = false
     }
     public func use(_ provider: any MediaProviding) {
         stop(); self.provider = provider; errorMessage = nil; start()
     }
     /// Provider snapshots are the only input; activity identity stays stable across progress/track changes.
     public func receive(_ value: MediaState) {
+        if let action = playbackAction {
+            if let uptime = value.observationStartedUptime ?? value.sampledUptime {
+                guard uptime >= action.uptime else { return }
+            } else {
+                guard value.timestamp >= action.date else { return }
+            }
+        }
+        lastSeekTarget = nil
         let previous = state
+        let previousConnectionState = authoritativeState.connectionState
         authoritativeState = value
-        let next = reconcile(value, against: previous)
-        applyPresentation(next)
-        if previous.trackID != next.trackID, next.source == .spotify,
+        let reconciled = applyingControlFeedback(to: value)
+        let (next, showingCachedTrack) = presentationState(for: reconciled)
+        if previousConnectionState == value.connectionState,
+           isUnchangedPausedPresentation(next, showingCachedTrack: showingCachedTrack) { return }
+        applyPresentation(next, showingCachedTrack: showingCachedTrack)
+        if previous.activeDeviceID != next.activeDeviceID {
+            devices = devices.map {
+                .init(id: $0.id, name: $0.name, type: $0.type,
+                      isActive: $0.id == next.activeDeviceID, isRestricted: $0.isRestricted,
+                      volumePercent: $0.volumePercent, supportsVolume: $0.supportsVolume)
+            }
+        }
+        if isUpNextVisible, previous.trackID != next.trackID, next.source == .spotify,
            next.capabilities.canReadQueue, !isPending(.next), !isPending(.previous) {
             scheduleQueueRefresh()
         }
     }
 
-    private func reconcile(_ value: MediaState, against previous: MediaState) -> MediaState {
+    private func isUnchangedPausedPresentation(_ next: MediaState, showingCachedTrack: Bool) -> Bool {
+        guard !next.isPlaying, isShowingCachedTrack == showingCachedTrack,
+              pendingShuffleIntent == nil, pendingRepeatIntent == nil,
+              pendingVolumeIntent == nil else { return false }
+        var comparable = next
+        comparable.timestamp = state.timestamp
+        comparable.sampledUptime = state.sampledUptime
+        comparable.observationStartedUptime = state.observationStartedUptime
+        return comparable == state
+    }
+
+    private func presentationState(for value: MediaState) -> (MediaState, Bool) {
+        if let cached = CachedMediaTrack(state: value) {
+            cache(cached)
+            return (value, false)
+        }
+        guard let lastCachedTrack else { return (value, false) }
+        let paused = lastCachedTrack.pausedPresentation(issue: value.issue)
+        return (paused, true)
+    }
+
+    private func cache(_ track: CachedMediaTrack) {
+        guard lastCachedTrack != track else { return }
+        lastCachedTrack = track
+        let store = snapshotStore
+        cacheWriteTask?.cancel()
+        cacheWriteTask = Task { await store.saveLastMediaTrack(track) }
+    }
+
+    private func restoreCachedTrack() {
+        guard cacheLoadTask == nil, lastCachedTrack == nil else { return }
+        let store = snapshotStore
+        let generation = generation
+        cacheLoadTask = Task { [weak self] in
+            let cached = await store.loadLastMediaTrack()
+            guard let self, self.generation == generation, let cached else { return }
+            self.cacheLoadTask = nil
+            guard self.lastCachedTrack == nil else { return }
+            self.lastCachedTrack = cached
+            guard !self.authoritativeState.hasMedia else { return }
+            let paused = cached.pausedPresentation(issue: self.authoritativeState.issue)
+            self.applyPresentation(paused, showingCachedTrack: true)
+        }
+    }
+
+    private func applyingControlFeedback(to value: MediaState) -> MediaState {
         var next = value
 
-        if let transition = pendingTrackTransition {
-            if value.hasMedia, !value.isSameTrack(as: transition.origin) {
-                pendingTrackTransition = nil
-            } else if transition.shouldHold(value) {
-                next = value.preservingMedia(from: previous)
-            } else {
-                pendingTrackTransition = nil
-            }
-        }
-
-        if let pendingSeek {
-            if pendingSeek.accepts(value) {
-                clearPendingSeek()
-            } else {
-                // Spotify may briefly return the pre-seek position. Preserve all other provider fields,
-                // but do not let that stale progress become the authoritative presentation sample.
-                next.elapsed = pendingSeek.position
-                next.timestamp = pendingSeek.requestedAt
-                next.playbackRate = pendingSeek.origin.isPlaying ? pendingSeek.origin.playbackRate : 0
-            }
-        }
-
-        if let intent = pendingPlaybackIntent {
-            if value.hasMedia, value.playbackState == intent.value {
-                pendingPlaybackIntent = nil
-            } else if intent.shouldHold(value.timestamp, grace: Self.reconciliationGrace) {
-                next.playbackState = intent.value
-                next.elapsed = previous.elapsed
-                next.timestamp = previous.timestamp
-                next.playbackRate = intent.value == .playing ? 1 : 0
-            } else {
-                pendingPlaybackIntent = nil
-            }
-        }
         if let intent = pendingShuffleIntent {
             if value.shuffle == intent.value {
                 pendingShuffleIntent = nil
@@ -187,64 +236,47 @@ public final class MediaSessionController {
         return next
     }
 
-    private func applyPresentation(_ next: MediaState) {
-        audioMeter.setMonitoringPlaybackActivity(next.connectionState == .authenticated)
+    private func applyPresentation(_ next: MediaState, showingCachedTrack: Bool? = nil) {
+        if state.activeDeviceID != next.activeDeviceID {
+            audioMeter.resetLocalAudioActivity()
+        }
+        if state != next { state = next }
+        if let showingCachedTrack, isShowingCachedTrack != showingCachedTrack {
+            isShowingCachedTrack = showingCachedTrack
+        }
+        // Capture lifecycle follows live provider connectivity, never the cached presentation.
+        audioMeter.setMonitoringPlaybackActivity(authoritativeState.connectionState == .authenticated)
         audioMeter.setPlaying(next.hasMedia && next.isPlaying)
         updateCollapsedVisibility(next)
-        state = next
-        errorMessage = next.issue
+        if errorMessage != next.issue { errorMessage = next.issue }
         if next.hasMedia {
             coordinator.present(.init(id: activityID, kind: .media, title: "Media",
                                       subtitle: nil, priority: 20, duration: nil))
         } else { coordinator.dismiss(id: activityID) }
     }
     private func updateCollapsedVisibility(_ value: MediaState) {
-        if value.hasMedia && value.isPlaying {
-            mediaHideTask?.cancel(); mediaHideTask = nil
-            withAnimation(.easeInOut(duration: 0.12)) { collapsedMediaVisible = true }
-        } else if !value.hasMedia {
-            mediaHideTask?.cancel(); mediaHideTask = nil
-            withAnimation(.easeInOut(duration: 0.12)) { collapsedMediaVisible = false }
-        } else if collapsedMediaVisible && mediaHideTask == nil {
-            mediaHideTask = Task { [weak self, visibilityClock] in
-                do { try await visibilityClock.sleep(for: .milliseconds(450)) } catch { return }
-                guard !Task.isCancelled, let self, !self.state.isPlaying else { return }
-                withAnimation(.easeInOut(duration: 0.12)) { self.collapsedMediaVisible = false }
-                self.mediaHideTask = nil
-            }
-        }
+        let isVisible = value.hasMedia && value.isPlaying && audioMeter.isAudioActive
+        guard collapsedMediaVisible != isVisible else { return }
+        withAnimation(.easeInOut(duration: 0.12)) { collapsedMediaVisible = isVisible }
     }
-    public func displayedPosition(at now: Date) -> Double {
-        pendingSeek?.displayedPosition(at: now, state: state)
-            ?? estimatedPlaybackPosition(at: now, state: state)
+    public func displayedPosition(at now: Date, uptime: TimeInterval? = nil) -> Double {
+        estimatedPlaybackPosition(at: now, state: state, uptime: uptime)
     }
     public func seek(to position: Double, at now: Date = Date()) async throws {
         let request = try prepareSeek(to: position, at: now)
         try await executeSeek(request)
     }
-    public func previous(at now: Date = Date()) {
+    public func previous(at date: Date? = nil) {
         guard !isPreviousPending, state.hasMedia, state.canSkipBackward else { return }
-        let position = displayedPosition(at: now)
-        #if DEBUG
-        print("[SpotifyControls] Previous pressed")
-        print("[SpotifyControls] Current position: \(String(format: "%.1f", position))s")
-        #endif
+        let now = date ?? Date()
+        let position = displayedPosition(at: now, uptime: date == nil ? ProcessInfo.processInfo.systemUptime : nil)
         if position > Self.previousTrackThreshold {
             guard state.canSeek else {
                 errorMessage = MediaFailure.unsupported.errorDescription
-                #if DEBUG
-                print("[SpotifyControls] Cannot restart current track because seeking is unavailable")
-                #endif
                 return
             }
-            #if DEBUG
-            print("[SpotifyControls] Seeking current track to beginning")
-            #endif
             startSeek(to: 0, at: now, refreshQueueAfterSuccess: true)
         } else {
-            #if DEBUG
-            print("[SpotifyControls] Requesting previous track")
-            #endif
             dispatch(.previous)
         }
     }
@@ -312,8 +344,11 @@ public final class MediaSessionController {
                 await provider.refresh()
                 guard let self, self.generation == generation, !Task.isCancelled else { return }
                 self.clearOptimisticIntent(for: .setVolume(request.value), revision: request.revision)
-                let reconciled = self.reconcile(self.authoritativeState, against: self.state)
-                self.applyPresentation(reconciled)
+                let base = (self.playbackAction?.revision ?? request.revision) > request.revision
+                    ? self.state : self.authoritativeState
+                let reconciled = self.applyingControlFeedback(to: base)
+                let (presentation, showingCachedTrack) = self.presentationState(for: reconciled)
+                self.applyPresentation(presentation, showingCachedTrack: showingCachedTrack)
                 self.errorMessage = (error as? MediaFailure)?.errorDescription ?? "Playback command failed."
                 self.completeVolumeRequest(request)
             }
@@ -335,6 +370,9 @@ public final class MediaSessionController {
     }
     private func dispatch(_ command: MediaCommand) {
         guard !isPending(command), state.hasMedia, state.capabilities.supports(command) else { return }
+        #if DEBUG
+        let inputStartedAt = ProcessInfo.processInfo.systemUptime
+        #endif
         let id = command.controlID
         pendingControls.insert(id)
         let provider = provider
@@ -345,14 +383,7 @@ public final class MediaSessionController {
         let revision = intentRevision
         applyOptimistic(resolved, revision: revision, at: Date())
         #if DEBUG
-        switch resolved {
-        case .play: print("[SpotifyControls] Play")
-        case .pause: print("[SpotifyControls] Pause")
-        case .next: print("[SpotifyControls] Next pressed")
-        case .setShuffle(let enabled): print("[SpotifyControls] Shuffle → \(enabled ? "enabled" : "disabled")")
-        case .setRepeatMode(let mode): print("[SpotifyControls] Repeat → \(mode.rawValue)")
-        default: break
-        }
+        Self.performanceLogger.debug("[MediaInput] \(id, privacy: .public) local_ms=\((ProcessInfo.processInfo.systemUptime - inputStartedAt) * 1000)")
         #endif
         commandTasks[id] = Task { [weak self] in
             defer {
@@ -363,7 +394,7 @@ public final class MediaSessionController {
             }
             do {
                 switch resolved {
-                case .play: try await provider.play()
+                case .play: try await provider.resumePlayback()
                 case .pause: try await provider.pause()
                 case .next: try await provider.nextTrack()
                 case .previous: try await provider.previousTrack()
@@ -374,15 +405,21 @@ public final class MediaSessionController {
                 }
                 guard let self, self.generation == generation else { return }
                 self.errorMessage = nil
-                if resolved == .next || resolved == .previous {
+                #if DEBUG
+                Self.performanceLogger.debug("[MediaInput] \(id, privacy: .public) confirmed_ms=\((ProcessInfo.processInfo.systemUptime - inputStartedAt) * 1000)")
+                #endif
+                if self.isUpNextVisible && (resolved == .next || resolved == .previous) {
                     try? await provider.refreshQueue()
                 }
             } catch {
                 guard let self, self.generation == generation else { return }
                 self.clearOptimisticIntent(for: resolved, revision: revision)
-                let previous = self.state
-                let reconciled = self.reconcile(self.authoritativeState, against: previous)
-                self.applyPresentation(reconciled)
+                // Failure of an older control must not undo newer immediate feedback.
+                if (self.playbackAction?.revision ?? revision) <= revision {
+                    let reconciled = self.applyingControlFeedback(to: self.authoritativeState)
+                    let (presentation, showingCachedTrack) = self.presentationState(for: reconciled)
+                    self.applyPresentation(presentation, showingCachedTrack: showingCachedTrack)
+                }
                 let message = (error as? MediaFailure)?.errorDescription ?? "Playback command failed."
                 self.errorMessage = message
                 #if DEBUG
@@ -393,6 +430,11 @@ public final class MediaSessionController {
         }
     }
 
+    private func markPlaybackAction(at date: Date, revision: Int) {
+        lastSeekTarget = nil
+        playbackAction = (date, ProcessInfo.processInfo.systemUptime, revision)
+    }
+
     private func applyOptimistic(_ command: MediaCommand, revision: Int, at now: Date) {
         var next = state
         switch command {
@@ -401,13 +443,15 @@ public final class MediaSessionController {
             next.timestamp = now
             next.playbackState = .playing
             next.playbackRate = 1
-            pendingPlaybackIntent = .init(value: .playing, requestedAt: now, revision: revision)
+            next.sampledUptime = ProcessInfo.processInfo.systemUptime
+            markPlaybackAction(at: now, revision: revision)
         case .pause:
             next.elapsed = displayedPosition(at: now)
             next.timestamp = now
             next.playbackState = .paused
             next.playbackRate = 0
-            pendingPlaybackIntent = .init(value: .paused, requestedAt: now, revision: revision)
+            next.sampledUptime = ProcessInfo.processInfo.systemUptime
+            markPlaybackAction(at: now, revision: revision)
         case .setShuffle(let enabled):
             next.shuffle = enabled
             pendingShuffleIntent = .init(value: enabled, requestedAt: now, revision: revision)
@@ -419,8 +463,7 @@ public final class MediaSessionController {
             next.volumePercent = percent
             pendingVolumeIntent = .init(value: percent, requestedAt: now, revision: revision)
         case .next, .previous:
-            pendingTrackTransition = .init(origin: authoritativeState.hasMedia ? authoritativeState : state,
-                                           requestedAt: now, revision: revision)
+            markPlaybackAction(at: now, revision: revision)
         default:
             break
         }
@@ -428,9 +471,10 @@ public final class MediaSessionController {
     }
 
     private func clearOptimisticIntent(for command: MediaCommand, revision: Int) {
+        if playbackAction?.revision == revision { playbackAction = nil }
         switch command {
         case .play, .pause, .playPause:
-            if pendingPlaybackIntent?.revision == revision { pendingPlaybackIntent = nil }
+            break
         case .setShuffle, .toggleShuffle:
             if pendingShuffleIntent?.revision == revision { pendingShuffleIntent = nil }
         case .setRepeatMode, .cycleRepeat:
@@ -438,7 +482,7 @@ public final class MediaSessionController {
         case .setVolume:
             if pendingVolumeIntent?.revision == revision { pendingVolumeIntent = nil }
         case .next, .previous:
-            if pendingTrackTransition?.revision == revision { pendingTrackTransition = nil }
+            break
         default:
             break
         }
@@ -455,6 +499,10 @@ public final class MediaSessionController {
     }
     public func refreshPlaybackState() async {
         await provider.refresh()
+    }
+    public func setExpandedVisible(_ visible: Bool) async {
+        guard !Task.isCancelled else { return }
+        await provider.setExpandedVisible(visible)
     }
 
     public func refreshDevices() {
@@ -491,18 +539,7 @@ public final class MediaSessionController {
             do {
                 try await provider.transferPlayback(to: device.id)
                 guard let self, self.generation == generation, !Task.isCancelled else { return }
-                self.devices = self.devices.map {
-                    .init(id: $0.id, name: $0.name, type: $0.type,
-                          isActive: $0.id == device.id, isRestricted: $0.isRestricted,
-                          volumePercent: $0.volumePercent, supportsVolume: $0.supportsVolume)
-                }
-                var next = self.state
-                next.activeDeviceID = device.id
-                next.activeDeviceName = device.name
-                next.activeDeviceType = device.type
-                next.volumePercent = device.volumePercent
-                next.capabilities.canSetVolume = device.supportsVolume
-                self.applyPresentation(next)
+                // Device identity arrives in the same authoritative snapshot as playback.
                 self.devicesLoading = false
                 self.devicesTask = nil
             } catch {
@@ -524,6 +561,7 @@ public final class MediaSessionController {
         let target: Double
         let generation: Int
         let refreshQueueAfterSuccess: Bool
+        let revision: Int
     }
     private func prepareSeek(to position: Double, at now: Date,
                              refreshQueueAfterSuccess: Bool = false) throws -> SeekRequest {
@@ -533,19 +571,21 @@ public final class MediaSessionController {
         }
         let target = min(max(position, 0), duration)
         let origin = state
-        pendingSeek = PendingMediaSeek(position: target, requestedAt: now, origin: origin)
+        intentRevision &+= 1
+        markPlaybackAction(at: now, revision: intentRevision)
         lastSeekTarget = target
         seekInFlight = true
         pendingControls.insert(MediaCommand.seek(target).controlID)
 
-        // Rebase presentation atomically before starting the Spotify request. PendingMediaSeek
-        // protects this new clock from responses that were sampled before the user action.
+        // Immediate feedback modifies one snapshot/clock. The next authoritative observation
+        // replaces it wholesale; there is no presentation-side seek/track confirmation machine.
         var next = origin
         next.elapsed = target
         next.timestamp = now
+        next.sampledUptime = ProcessInfo.processInfo.systemUptime
         applyPresentation(next)
         return .init(target: target, generation: generation,
-                     refreshQueueAfterSuccess: refreshQueueAfterSuccess)
+                     refreshQueueAfterSuccess: refreshQueueAfterSuccess, revision: intentRevision)
     }
     private func executeSeek(_ request: SeekRequest) async throws {
         let id = MediaCommand.seek(request.target).controlID
@@ -554,20 +594,24 @@ public final class MediaSessionController {
             if generation == request.generation {
                 pendingControls.remove(id)
                 commandTasks[id] = nil
+                seekInFlight = false
             }
         }
         do {
             try await provider.seek(to: request.target)
-            if request.refreshQueueAfterSuccess { try? await provider.refreshQueue() }
+            if request.refreshQueueAfterSuccess && isUpNextVisible {
+                try? await provider.refreshQueue()
+            }
             guard generation == request.generation else { return }
             errorMessage = nil
         } catch {
             await provider.refresh()
             guard generation == request.generation else { throw error }
+            if playbackAction?.revision == request.revision { playbackAction = nil }
             clearPendingSeek()
-            let previous = state
-            let reconciled = reconcile(authoritativeState, against: previous)
-            applyPresentation(reconciled)
+            if (playbackAction?.revision ?? request.revision) <= request.revision {
+                applyPresentation(applyingControlFeedback(to: authoritativeState))
+            }
             errorMessage = (error as? MediaFailure)?.errorDescription ?? "Playback command failed."
             throw error
         }
@@ -587,9 +631,7 @@ public final class MediaSessionController {
         }
     }
     private func clearPendingSeek() {
-        pendingSeek = nil
         lastSeekTarget = nil
-        seekInFlight = false
     }
     private func scheduleQueueRefresh() {
         guard queueTask == nil else { return }
@@ -605,6 +647,7 @@ public final class MediaSessionController {
     public func setUpNextVisible(_ visible: Bool) {
         guard isUpNextVisible != visible else { return }
         isUpNextVisible = visible
+        audioMeter.setWaveformPresentationEnabled(!visible)
         visibleQueueTask?.cancel()
         visibleQueueTask = nil
         guard visible else { return }
@@ -637,35 +680,10 @@ public final class MediaSessionController {
     }
 
     private func clearOptimisticIntents() {
-        pendingPlaybackIntent = nil
         pendingShuffleIntent = nil
         pendingRepeatIntent = nil
         pendingVolumeIntent = nil
-        pendingTrackTransition = nil
-    }
-}
-
-/// Local presentation intent, separate from authoritative provider state.
-public struct PendingMediaSeek {
-    public let position: Double
-    let requestedAt: Date
-    let origin: MediaState
-
-    func accepts(_ update: MediaState) -> Bool {
-        guard update.hasMedia, update.isSameTrack(as: origin) else { return true }
-        guard update.timestamp >= requestedAt else { return false }
-        let delta = update.timestamp.timeIntervalSince(requestedAt)
-        let expected = min(position + (update.isPlaying ? delta * update.playbackRate : 0), update.validDuration ?? 0)
-        // Ignore eventual-consistency responses still describing the pre-seek position.
-        // A later authoritative sample wins even if another device sought elsewhere.
-        return abs(update.elapsedTime - expected) <= 2 || delta >= 10
-    }
-
-    func displayedPosition(at now: Date, state: MediaState) -> Double {
-        guard let duration = state.validDuration ?? origin.validDuration else { return 0 }
-        let shouldAdvance = state.isPlaying && state.playbackRate.isFinite && state.playbackRate > 0
-        let delta = shouldAdvance ? max(0, now.timeIntervalSince(requestedAt)) * state.playbackRate : 0
-        return min(max(position + delta, 0), duration)
+        playbackAction = nil
     }
 }
 
@@ -676,42 +694,6 @@ private struct PendingMediaValue<Value: Equatable> {
 
     func shouldHold(_ observedAt: Date, grace: TimeInterval) -> Bool {
         observedAt.timeIntervalSince(requestedAt) < grace
-    }
-}
-
-private struct PendingTrackTransition {
-    let origin: MediaState
-    let requestedAt: Date
-    let revision: Int
-
-    func shouldHold(_ update: MediaState) -> Bool {
-        update.timestamp.timeIntervalSince(requestedAt) < 10
-    }
-}
-
-private extension MediaState {
-    func preservingMedia(from previous: MediaState) -> MediaState {
-        var merged = self
-        merged.playbackState = previous.playbackState
-        merged.trackID = previous.trackID
-        merged.activeDeviceID = previous.activeDeviceID
-        merged.activeDeviceName = previous.activeDeviceName
-        merged.activeDeviceType = previous.activeDeviceType
-        merged.volumePercent = previous.volumePercent
-        merged.title = previous.title
-        merged.artist = previous.artist
-        merged.artwork = previous.artwork
-        merged.source = previous.source
-        merged.elapsed = previous.elapsed
-        merged.duration = previous.duration
-        merged.timestamp = previous.timestamp
-        merged.playbackRate = previous.playbackRate
-        merged.capabilities = previous.capabilities
-        merged.shuffle = previous.shuffle
-        merged.repeatMode = previous.repeatMode
-        merged.queue = previous.queue
-        merged.queueIssue = previous.queueIssue
-        return merged
     }
 }
 
