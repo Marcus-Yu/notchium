@@ -14,6 +14,10 @@ enum NotchMotion {
 
     static let contentOut = Animation.smooth(duration: 0.14)
 
+    static let reminderResize = Animation.smooth(duration: 0.32)
+    static let reminderContentIn = Animation.easeOut(duration: 0.10).delay(0.20)
+    static let reminderContentOut = Animation.easeOut(duration: 0.08)
+
     static let reduced = Animation.easeOut(duration: 0.12)
 }
 
@@ -113,14 +117,18 @@ private struct NotchShellOuterSurface: View {
             hardwareHeight: layout.collapsedVisibleFrame.height
         )
         let showMedia = model.showsCollapsedMedia
+        let showAudioHUD = model.visualState == .collapsed && model.audioHUD != nil
+        let reminderWidth = NotchReminderGeometry.width(for: layout)
         let shape = NotchShellSurface(
-            width: showMedia || model.showsCalendarReminder ? mediaGeometry.width
-                : layout.surfaceSize.width,
-            height: model.surfaceState == .collapsed ? layout.collapsedVisibleFrame.height : layout.expandedSize.height,
+            width: showAudioHUD ? 292 : (showMedia ? mediaGeometry.width : layout.surfaceSize.width),
+            height: showAudioHUD ? layout.collapsedVisibleFrame.height + 78
+                : (model.surfaceState == .collapsed ? layout.collapsedVisibleFrame.height : layout.expandedSize.height),
             centerX: layout.visibleSurfaceFrame.midX - layout.panelFrame.minX,
             bottomRadius: model.surfaceState == .collapsed ? passiveShape.bottomCornerRadius : 28,
             passiveShape: passiveShape,
-            reminderHeight: model.showsCalendarReminder ? NotchReminderGeometry.height : 0
+            reminderHeight: model.surfaceState == .collapsed ? model.calendarReminderHeight : 0,
+            reminderWidth: reminderWidth,
+            reminderProgress: model.showsCalendarReminder ? 1 : 0
         )
 
         ZStack(alignment: .top) {
@@ -144,13 +152,28 @@ private struct NotchShellOuterSurface: View {
                 }
                 .frame(height: layout.collapsedVisibleFrame.height)
 
+                if showAudioHUD, let hud = model.audioHUD {
+                    NotchAudioHUDView(hud: hud)
+                        .frame(width: 264, height: 74)
+                        .padding(.bottom, 4)
+                }
+
                 if model.showsCalendarReminder, let renderer = model.calendarRenderer {
                     renderer.reminderBanner()
-                        .frame(width: mediaGeometry.width, height: NotchReminderGeometry.height)
-                        .transition(.opacity)
+                        .frame(width: reminderWidth)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .onGeometryChange(for: CGFloat.self) { proxy in
+                            max(NotchReminderGeometry.minimumHeight, ceil(proxy.size.height))
+                        } action: { height in
+                            model.calendarReminderHeight = height
+                        }
+                        .transition(.asymmetric(
+                            insertion: .opacity.animation(model.reduceMotion ? NotchMotion.reduced : NotchMotion.reminderContentIn),
+                            removal: .opacity.animation(model.reduceMotion ? NotchMotion.reduced : NotchMotion.reminderContentOut)
+                        ))
                 }
             }
-            .frame(width: mediaGeometry.width, alignment: .top)
+            .frame(width: showAudioHUD ? 292 : mediaGeometry.width, alignment: .top)
             .zIndex(3)
 
             shellContent
@@ -190,8 +213,12 @@ private struct NotchShellOuterSurface: View {
         .environment(\.notchSharedMediaArtwork, true)
         .environment(\.notchMediaExpanded, model.surfaceState != .collapsed)
         .foregroundStyle(.white)
-        .animation(model.reduceMotion ? NotchMotion.reduced : .smooth(duration: 0.26),
+        .animation(model.reduceMotion ? NotchMotion.reduced : NotchMotion.reminderResize,
                    value: model.showsCalendarReminder)
+        .animation(model.reduceMotion ? NotchMotion.reduced : NotchMotion.reminderResize,
+                   value: model.calendarReminderHeight)
+        .animation(model.reduceMotion ? NotchMotion.reduced : .smooth(duration: 0.24),
+                   value: showAudioHUD)
     }
 
     private var shellContent: some View {
@@ -204,7 +231,9 @@ private struct NotchShellOuterSurface: View {
                 } else {
                     NotchPagesView(model: pageModel,
                                    mediaRenderer: model.mediaRenderer,
-                                   calendarRenderer: model.calendarRenderer)
+                                   calendarRenderer: model.calendarRenderer,
+                                   audioRenderer: model.audioRenderer,
+                                   isExpanded: model.surfaceState != .collapsed)
                 }
             }
             .padding(.top, layout.collapsedVisibleFrame.height)
