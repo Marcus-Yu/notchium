@@ -6,6 +6,6 @@ public enum CalendarFeature: FeatureModule {
         id: .calendar,
         name: "Calendar",
         summary: "Upcoming events and safe meeting-link handoff.",
-        requiredPermissions: [.calendar, .notifications]
+        requiredPermissions: [.calendar]
     )
 }

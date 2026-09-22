@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-<dict>
+	<dict>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Notchium reads your selected calendars to show upcoming events and meeting links around the notch.</string>
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>Notchium analyzes Spotify audio in memory to generate the live media waveform.</string>
 </dict>
