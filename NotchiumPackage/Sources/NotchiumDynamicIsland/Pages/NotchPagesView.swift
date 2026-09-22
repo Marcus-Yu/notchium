@@ -5,6 +5,8 @@ struct NotchPagesView: View {
     @ObservedObject var model: NotchPageModel
     let mediaRenderer: (any NotchMediaRendering)?
     let calendarRenderer: (any NotchCalendarRendering)?
+    let audioRenderer: (any NotchAudioRendering)?
+    let isExpanded: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var pageAnimation: Animation {
@@ -44,10 +46,29 @@ struct NotchPagesView: View {
                 .offset(y: reduceMotion || model.selectedPage == .calendar ? 0 : 3)
                 .allowsHitTesting(model.selectedPage == .calendar)
                 .accessibilityHidden(model.selectedPage != .calendar)
+
+                Group {
+                    if let audioRenderer {
+                        audioRenderer.expandedAudio()
+                    } else {
+                        Text("Audio is unavailable.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white.opacity(0.55))
+                    }
+                }
+                .environment(\.notchAudioPageVisible, model.selectedPage == .audio)
+                .opacity(model.selectedPage == .audio ? 1 : 0)
+                .offset(y: reduceMotion || model.selectedPage == .audio ? 0 : 3)
+                .allowsHitTesting(model.selectedPage == .audio)
+                .accessibilityHidden(model.selectedPage != .audio)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .animation(pageAnimation, value: model.selectedPage)
+        .onChange(of: isExpanded && model.selectedPage == .audio, initial: true) { _, visible in
+            audioRenderer?.setPageVisible(visible)
+        }
+        .onDisappear { audioRenderer?.setPageVisible(false) }
         .overlay { NotchPageSwipeSurface(model: model) }
         .accessibilityElement(children: .contain)
         .accessibilityValue(model.selectedPage.title)
