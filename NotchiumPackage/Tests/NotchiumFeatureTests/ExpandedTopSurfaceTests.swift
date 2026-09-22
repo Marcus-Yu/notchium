@@ -49,7 +49,7 @@ final class ExpandedTopSurfaceTests: XCTestCase {
                     AnimatablePair(212 + 238 * progress, 38 + 152 * progress),
                     AnimatablePair(320, 8 + 20 * progress)
                 ),
-                0
+                AnimatablePair(0, 0)
             )
             let path = shape.path(in: panel)
             XCTAssertEqual(path.boundingRect.minY, 0)
