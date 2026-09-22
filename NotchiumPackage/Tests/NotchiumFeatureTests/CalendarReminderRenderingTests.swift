@@ -39,7 +39,7 @@ final class CalendarReminderRenderingTests: XCTestCase {
                 let calendar = CalendarActivityModel(service: MockCalendarService(),
                     coordinator: presentation.activityCoordinator, clock: clock)
                 presentation.calendarRenderer = calendar
-                let event = CalendarEventSummary(id: UUID(), title: "New Event",
+                let event = CalendarEventSummary(id: UUID(), title: "Quarterly Engineering Planning and Architecture Meeting",
                     startDate: base.addingTimeInterval(1800), endDate: base.addingTimeInterval(3600),
                     meetingURL: meeting ? URL(string: "https://meet.google.com/abc-defg-hij") : nil)
                 await calendar.reminders.update(events: [event])
@@ -48,11 +48,19 @@ final class CalendarReminderRenderingTests: XCTestCase {
                 XCTAssertEqual(presentation.showsCollapsedMedia, music)
 
                 let name = "\(music ? "music" : "idle")-\(meeting ? "join" : "no-link")"
-                let bitmap = try render(NotchiumShellView(model: presentation, layout: layout)
-                    .frame(width: layout.panelFrame.width, height: layout.panelFrame.height), name: name)
+                let view = NotchiumShellView(model: presentation, layout: layout)
+                    .frame(width: layout.panelFrame.width, height: layout.panelFrame.height)
+                let host = NSHostingView(rootView: view.transaction { $0.disablesAnimations = true })
+                host.frame = CGRect(origin: .zero, size: layout.panelFrame.size)
+                host.layoutSubtreeIfNeeded()
+                for _ in 0..<10 { await Task.yield() }
+                let bitmap = try render(view, name: name)
+                let bottom = Int(layout.collapsedVisibleFrame.height + presentation.calendarReminderHeight)
+                XCTAssertEqual(presentation.calendarReminderHeight, meeting ? 96 : 60)
+                XCTAssertEqual(inkBands(bitmap, x: (left + 36)..<(left + 258), y: 52..<84, scale: 1).count, 2)
 
                 // The outer edges are identical above, across, and below the old seam.
-                for y in [1, 30, 37, 38, 39, 90, 98] {
+                for y in [1, 30, 37, 38, 39, bottom - 10] {
                     for x in [left + 1, right - 2] {
                         let color = try XCTUnwrap(bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
                         XCTAssertGreaterThan(color.alphaComponent, 0.99, name)
@@ -61,18 +69,111 @@ final class CalendarReminderRenderingTests: XCTestCase {
                     assertBackground(bitmap, x: left - 1, y: y)
                     assertBackground(bitmap, x: right + 1, y: y)
                 }
-                assertBackground(bitmap, x: left + 20, y: 109)
-                let dot = try XCTUnwrap(bitmap.colorAt(x: left + 21, y: 73)?.usingColorSpace(.sRGB))
+                assertBackground(bitmap, x: left + 20, y: bottom + 1)
+                let dot = try XCTUnwrap(bitmap.colorAt(x: left + 23, y: 60)?.usingColorSpace(.sRGB))
                 XCTAssertGreaterThan(dot.blueComponent, 0.7, "Reminder content must remain visible: \(name)")
                 // A bright capsule has long solid white runs; text alone does not.
-                XCTAssertEqual(longestWhiteRun(bitmap, rows: 40..<105) > 40, meeting, name)
-                let hitFrame = NotchReminderGeometry.contentFrame(for: layout)
+                XCTAssertEqual(longestWhiteRun(bitmap, rows: 40..<bottom) > 40, meeting, name)
+                let hitFrame = NotchReminderGeometry.contentFrame(for: layout, height: presentation.calendarReminderHeight)
                 XCTAssertEqual(hitFrame.width, shellWidth)
                 XCTAssertEqual(hitFrame.maxY, layout.collapsedVisibleFrame.minY)
                 calendar.reminders.stop()
                 media.stop()
             }
         }
+    }
+
+    func testTitleWrappingAtStandardAndRetinaScale() async throws {
+        let titles = ["Dentist", "Weekly Engineering Team Meeting",
+                      "Quarterly Engineering Planning and Architecture Meeting",
+                      "Quarterly Engineering Planning and Architecture Meeting with all regional teams and project leads"]
+        for scale: CGFloat in [1, 2] {
+            for meeting in [false, true] {
+                var heights: [Int] = []
+                for (index, title) in titles.enumerated() {
+                    let clock = TestAppClock(now: base, automaticallyAdvances: false)
+                    let calendar = CalendarActivityModel(service: MockCalendarService(),
+                        coordinator: ActivityCoordinator(clock: clock), clock: clock)
+                    let event = CalendarEventSummary(id: UUID(), title: title,
+                        startDate: base.addingTimeInterval(1800), endDate: base.addingTimeInterval(3600),
+                        meetingURL: meeting ? URL(string: "https://meet.google.com/abc-defg-hij") : nil)
+                    await calendar.reminders.update(events: [event])
+                    let bitmap = try render(CalendarReminderView(model: calendar)
+                        .frame(width: 356).foregroundStyle(.white).background(.black),
+                        name: "title-\(index)-\(meeting ? "join" : "no-link")-\(Int(scale))x", scale: scale)
+                    heights.append(Int(CGFloat(bitmap.pixelsHigh) / scale))
+                    if meeting { assertCenteredJoin(bitmap, scale: Int(scale)) }
+                    // Title ink occupies one or two distinct bands, at the same font size.
+                    let titleRows = index < 2 ? 14..<32 : 14..<46
+                    let bands = inkBands(bitmap, x: 36..<258, y: titleRows, scale: Int(scale))
+                    XCTAssertEqual(bands.count, index < 2 ? 1 : 2, title)
+                    XCTAssertGreaterThanOrEqual(bands.first?.count ?? 0, 9 * Int(scale), title)
+                    // The countdown stays on the first row, with a clear gutter.
+                    XCTAssertEqual(inkBands(bitmap, x: 268..<310, y: 14..<32, scale: Int(scale)).count, 1)
+                    calendar.reminders.stop()
+                }
+                XCTAssertEqual(heights[0], heights[1])
+                XCTAssertGreaterThan(heights[2], heights[0])
+                XCTAssertLessThanOrEqual(heights[2] - heights[0], 18)
+                XCTAssertEqual(heights[3], heights[2], "Extra-long titles truncate after two lines")
+            }
+        }
+    }
+
+    func testCenteredJoinWithLocationAndJoinNow() async throws {
+        for scale: CGFloat in [1, 2] {
+            for (name, meeting, minutes) in [("location-only", false, 30),
+                                             ("join-location", true, 30),
+                                             ("join-now", true, 0)] {
+                let clock = TestAppClock(now: base, automaticallyAdvances: false)
+                let calendar = CalendarActivityModel(service: MockCalendarService(),
+                    coordinator: ActivityCoordinator(clock: clock), clock: clock)
+                let event = CalendarEventSummary(id: UUID(),
+                    title: "Quarterly Engineering Planning and Architecture Meeting",
+                    startDate: base.addingTimeInterval(Double(minutes * 60)),
+                    endDate: base.addingTimeInterval(3600),
+                    meetingURL: meeting ? URL(string: "https://meet.google.com/abc-defg-hij") : nil,
+                    location: "Engineering conference room, North campus")
+                await calendar.reminders.update(events: [event])
+                XCTAssertNotNil(calendar.reminders.current)
+                let bitmap = try render(CalendarReminderView(model: calendar)
+                    .frame(width: 356).foregroundStyle(.white).background(.black),
+                    name: "centered-\(name)-\(Int(scale))x", scale: scale)
+                if meeting {
+                    assertCenteredJoin(bitmap, scale: Int(scale))
+                } else {
+                    XCTAssertLessThan(longestWhiteRun(bitmap, rows: 0..<bitmap.pixelsHigh), 40 * Int(scale))
+                }
+                let expectedHeight = minutes == 0 ? 96 : (meeting ? 119 : 83)
+                XCTAssertEqual(bitmap.pixelsHigh, expectedHeight * Int(scale))
+                calendar.reminders.stop()
+            }
+        }
+    }
+
+    private func assertCenteredJoin(_ bitmap: NSBitmapImageRep, scale: Int) {
+        let span = longestWhiteSpan(bitmap, rows: (40 * scale)..<bitmap.pixelsHigh)
+        XCTAssertGreaterThan(span.count, 40 * scale, "Join remains bright at rest")
+        XCTAssertLessThan(span.count, 100 * scale, "The action remains compact")
+        let center = CGFloat(span.lowerBound + span.upperBound) / 2
+        XCTAssertEqual(center, CGFloat(bitmap.pixelsWide) / 2, accuracy: CGFloat(scale),
+                       "Join centers on the reminder, independent of title and secondary text")
+    }
+
+    private func inkBands(_ bitmap: NSBitmapImageRep, x: Range<Int>, y: Range<Int>, scale: Int) -> [Range<Int>] {
+        var bands: [Range<Int>] = []
+        var start: Int?
+        for row in (y.lowerBound * scale)..<(y.upperBound * scale) {
+            let hasInk = ((x.lowerBound * scale)..<(x.upperBound * scale)).contains { column in
+                guard row < bitmap.pixelsHigh,
+                      let color = bitmap.colorAt(x: column, y: row)?.usingColorSpace(.sRGB) else { return false }
+                return color.redComponent > 0.5 && color.greenComponent > 0.5 && color.blueComponent > 0.5
+            }
+            if hasInk && start == nil { start = row }
+            if !hasInk, let first = start { bands.append(first..<row); start = nil }
+        }
+        if let first = start { bands.append(first..<(y.upperBound * scale)) }
+        return bands
     }
 
     func testJoinIsOpaqueWhiteWithBlackContentAtRest() throws {
@@ -121,13 +222,13 @@ final class CalendarReminderRenderingTests: XCTestCase {
         }
     }
 
-    private func render<V: View>(_ view: V, name: String) throws -> NSBitmapImageRep {
+    private func render<V: View>(_ view: V, name: String, scale: CGFloat = 1) throws -> NSBitmapImageRep {
         let settled = view.transaction {
             $0.animation = nil
             $0.disablesAnimations = true
         }
         let renderer = ImageRenderer(content: settled.background(Color(white: 0.3)))
-        renderer.scale = 1
+        renderer.scale = scale
         let bitmap = NSBitmapImageRep(cgImage: try XCTUnwrap(renderer.cgImage))
         let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
         try png.write(to: URL(fileURLWithPath: "/private/tmp/notchium-ui-\(name).png"))
@@ -146,7 +247,11 @@ final class CalendarReminderRenderingTests: XCTestCase {
     }
 
     private func longestWhiteRun(_ bitmap: NSBitmapImageRep, rows: Range<Int>) -> Int {
-        var longest = 0
+        longestWhiteSpan(bitmap, rows: rows).count
+    }
+
+    private func longestWhiteSpan(_ bitmap: NSBitmapImageRep, rows: Range<Int>) -> Range<Int> {
+        var longest = 0..<0
         for y in rows {
             var run = 0
             for x in 0..<bitmap.pixelsWide {
@@ -154,7 +259,7 @@ final class CalendarReminderRenderingTests: XCTestCase {
                 if color.alphaComponent > 0.99 && color.redComponent > 0.98
                     && color.greenComponent > 0.98 && color.blueComponent > 0.98 {
                     run += 1
-                    longest = max(longest, run)
+                    if run > longest.count { longest = (x - run + 1)..<(x + 1) }
                 } else { run = 0 }
             }
         }
