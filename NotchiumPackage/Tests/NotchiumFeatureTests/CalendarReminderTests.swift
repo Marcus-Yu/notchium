@@ -190,6 +190,52 @@ final class CalendarReminderTests: XCTestCase {
         }
     }
 
+    func testReminderWideningIsBoundedAndCentered() {
+        let layout = NotchGeometryResolver.layout(
+            for: NotchShellPlacement(display: NotchShellDebugModel.builtInFixture, mode: .physicalNotch),
+            state: .collapsed)
+        let width = NotchReminderGeometry.width(for: layout)
+        XCTAssertEqual(width, 356)
+        for height: CGFloat in [44, 60, 80, 96] {
+            let frame = NotchReminderGeometry.contentFrame(for: layout, height: height)
+            XCTAssertEqual(frame.midX, layout.collapsedVisibleFrame.midX)
+            XCTAssertEqual(frame.maxY, layout.collapsedVisibleFrame.minY)
+            XCTAssertEqual(frame.height, height)
+            XCTAssertEqual(frame.width, width)
+        }
+    }
+
+    func testReminderRevealWidensBeforeGrowingAndReversesWithoutDetaching() {
+        let bounds = CGRect(x: 0, y: 0, width: 740, height: 322)
+        let passive = NotchShape(width: 212, height: 38, centerX: 370,
+                                 topCornerRadius: 0, bottomCornerRadius: 8)
+        for normalWidth: CGFloat in [212, 292] {
+            var previousSize = CGSize(width: normalWidth, height: 38)
+            for step in 0...60 {
+                let progress = CGFloat(step) / 60
+                let shape = NotchShellSurface(width: normalWidth, height: 38, centerX: 370,
+                    bottomRadius: 8, passiveShape: passive, reminderHeight: 60,
+                    reminderWidth: 356, reminderProgress: progress)
+                let path = shape.path(in: bounds)
+                XCTAssertEqual(path.boundingRect.midX, 370, accuracy: 0.001)
+                XCTAssertEqual(path.boundingRect.minY, 0)
+                XCTAssertGreaterThanOrEqual(path.boundingRect.width, previousSize.width)
+                XCTAssertGreaterThanOrEqual(path.boundingRect.height, previousSize.height)
+                if progress <= 0.2 { XCTAssertEqual(path.boundingRect.height, 38) }
+                if progress >= 0.55 { XCTAssertEqual(path.boundingRect.width, 356) }
+                previousSize = path.boundingRect.size
+                var reverse = shape
+                reverse.reminderProgress = 1
+                // Exercise native interpolation's progress channel on dismissal.
+                var data = reverse.animatableData
+                data.second.second = progress
+                reverse.animatableData = data
+                XCTAssertEqual(reverse.path(in: bounds), path)
+            }
+            XCTAssertEqual(previousSize, CGSize(width: 356, height: 98))
+        }
+    }
+
     func testReminderKeepsMusicFlanksWhenPlayingAndWorksWithoutMusic() {
         let model = DynamicIslandPresentationModel(
             clock: TestAppClock(now: base, automaticallyAdvances: false))
