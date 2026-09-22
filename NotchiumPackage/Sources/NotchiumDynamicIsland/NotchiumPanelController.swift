@@ -309,7 +309,7 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
     }
 
     private func reminderFrame(for layout: NotchPanelLayout) -> CGRect {
-        NotchReminderGeometry.contentFrame(for: layout)
+        NotchReminderGeometry.contentFrame(for: layout, height: model.calendarReminderHeight)
     }
 
     private func updateHitTesting(at point: CGPoint) {
