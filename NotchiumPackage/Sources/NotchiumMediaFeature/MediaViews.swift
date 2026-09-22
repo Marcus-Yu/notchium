@@ -10,17 +10,23 @@ public struct MediaWaveform: View {
     public init(isPlaying: Bool, meter: SystemAudioMeter) {
         self.isPlaying = isPlaying; self.meter = meter
     }
+    @ViewBuilder
     public var body: some View {
-        let levels = isPlaying && !reduceMotion ? meter.waveformLevels : SystemAudioMeter.staticLevels
-        HStack(spacing: 1.5) {
-            ForEach(0..<7) { band in
-                Capsule().fill(.white)
-                    .frame(width: 2, height: 16 * levels[band])
+        let isVisible = isPlaying && meter.isAudioActive && !reduceMotion
+        Group {
+            if isVisible {
+                HStack(spacing: 1.5) {
+                    ForEach(0..<7) { band in
+                        Capsule().fill(.white)
+                            .frame(width: 2, height: 16 * meter.waveformLevels[band])
+                    }
+                }
+                .frame(width: 24, height: 16)
+                .transition(.opacity.combined(with: .scale(scale: 0.86)))
+                .accessibilityLabel("Local Spotify audio waveform")
             }
         }
-        .frame(width: 24, height: 16)
-        .transaction { $0.animation = nil }
-        .accessibilityLabel(isPlaying ? "Playing" : "Paused")
+        .animation(MediaMotion.waveform(reduceMotion: reduceMotion), value: isVisible)
     }
 }
 
@@ -48,7 +54,9 @@ public struct CollapsedMediaView: View {
 public struct MediaPageView: View {
     let model: MediaFeatureModel
     @State private var selectedSurface = MediaSurface.player
+    @State private var showsDevices = false
     @Environment(\.notchMediaExpanded) private var isExpanded
+    @Environment(\.notchMediaPageVisible) private var isPageVisible
     @Environment(\.openSettings) private var openSettings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     public init(model: MediaFeatureModel) { self.model = model }
@@ -56,8 +64,9 @@ public struct MediaPageView: View {
         Group {
             switch model.state.experienceState {
             case .playing, .paused:
-                VStack(spacing: 5) {
+                VStack(spacing: 8) {
                     MediaSurfacePicker(selection: $selectedSurface)
+                        .padding(.top, 16)
                     Group {
                         switch selectedSurface {
                         case .player:
@@ -70,7 +79,7 @@ public struct MediaPageView: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.985, anchor: .top)))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .padding(.horizontal, 24)
+                .padding(.horizontal, NotchGeometryResolver.expandedContentHorizontalInset)
                 .animation(MediaMotion.surface(reduceMotion: reduceMotion), value: selectedSurface)
             case .initializing:
                 statusView(title: "Spotify", message: "Restoring your Spotify session…", showsProgress: true)
@@ -80,7 +89,7 @@ public struct MediaPageView: View {
                 statusView(title: "Spotify", message: "Connect Spotify to show and control playback.",
                            actionTitle: "Connect Spotify")
             case .inactive:
-                statusView(title: "Spotify", message: model.state.issue ?? "No active playback. Open Spotify and start playing.")
+                statusView(title: "Spotify", message: model.state.issue ?? "No recent Spotify track yet.")
             case .error:
                 statusView(title: "Spotify", message: model.state.issue ?? "Spotify could not restore your session.",
                            actionTitle: "Open Settings")
@@ -90,13 +99,25 @@ public struct MediaPageView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .allowsHitTesting(true)
         .accessibilityIdentifier("notchium.media.page")
-        .task(id: isExpanded && selectedSurface == .upNext) {
-            model.setUpNextVisible(isExpanded && selectedSurface == .upNext)
+        .task(id: isExpanded && isPageVisible && selectedSurface == .upNext) {
+            model.setUpNextVisible(isExpanded && isPageVisible && selectedSurface == .upNext)
+        }
+        .task(id: isExpanded && isPageVisible) {
+            await model.setExpandedVisible(isExpanded && isPageVisible)
         }
         .onChange(of: isExpanded) { _, expanded in
-            if !expanded { selectedSurface = .player }
+            if !expanded {
+                selectedSurface = .player
+                showsDevices = false
+            }
         }
-        .onDisappear { model.setUpNextVisible(false) }
+        .onChange(of: selectedSurface) { _, _ in
+            showsDevices = false
+        }
+        .onDisappear {
+            model.setUpNextVisible(false)
+            Task { await model.setExpandedVisible(false) }
+        }
     }
     private func statusView(title: String, message: String, showsProgress: Bool = false,
                             actionTitle: String? = nil) -> some View {
@@ -128,43 +149,76 @@ public struct MediaPageView: View {
     }
     private var player: some View {
         let trackIdentity = model.state.trackID ?? model.state.title ?? "unknown-track"
-        return HStack(spacing: 14) {
-            MediaArtworkSlot(url: model.state.artwork, size: 88, expanded: true)
-            VStack(alignment: .leading, spacing: 3) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(model.state.title ?? "").font(.system(size: 17, weight: .semibold))
-                        .lineLimit(1).truncationMode(.tail)
-                    HStack(spacing: 8) {
-                        Text(model.state.artist ?? "")
-                            .font(.system(size: 13, weight: .regular))
-                            .foregroundStyle(.gray)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        Spacer(minLength: 0)
-                        MediaWaveform(isPlaying: model.state.isPlaying, meter: model.audioMeter)
+        return ZStack(alignment: .bottomTrailing) {
+            HStack(spacing: 20) {
+                MediaArtworkSlot(url: model.state.artwork, size: 92, expanded: true)
+                VStack(alignment: .leading, spacing: 7) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(model.state.title ?? "").font(.system(size: 17, weight: .semibold))
+                            .lineLimit(1).truncationMode(.tail)
+                        HStack(spacing: 8) {
+                            Text(model.state.artist ?? "")
+                                .font(.system(size: 13, weight: .regular))
+                                .foregroundStyle(.gray)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                            Spacer(minLength: 0)
+                            MediaWaveform(isPlaying: model.state.isPlaying, meter: model.audioMeter)
+                        }
+                    }
+                    .id(trackIdentity)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .leading)))
+                    .animation(MediaMotion.track(reduceMotion: reduceMotion), value: trackIdentity)
+                    .opacity(model.isShowingCachedTrack ? 0.94 : 1)
+                    .animation(MediaMotion.track(reduceMotion: reduceMotion), value: model.isShowingCachedTrack)
+                    MediaProgressView(model: model).padding(.top, 5)
+                    controls.padding(.top, 5)
+                    SpotifySecondaryControls(model: model, showsDevices: $showsDevices)
+                        .padding(.top, 4)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if showsDevices {
+                Button {
+                    showsDevices = false
+                } label: {
+                    Color.clear.contentShape(.rect)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .buttonStyle(.plain)
+                .accessibilityHidden(true)
+
+                SpotifyDevicesPicker(model: model) { device in
+                    if device.id == model.state.activeDeviceID {
+                        showsDevices = false
+                    } else {
+                        model.transferPlayback(to: device)
                     }
                 }
-                .id(trackIdentity)
-                .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .leading)))
-                .animation(MediaMotion.track(reduceMotion: reduceMotion), value: trackIdentity)
-                MediaProgressView(model: model).padding(.top, 3)
-                controls.padding(.top, 2)
-                SpotifySecondaryControls(model: model)
-                    .padding(.top, 1)
+                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .bottomTrailing)))
+                .zIndex(1)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .animation(MediaMotion.control(reduceMotion: reduceMotion), value: showsDevices)
+        .onChange(of: model.state.activeDeviceID) { _, _ in
+            if showsDevices && !model.devicesLoading { showsDevices = false }
         }
     }
     private var controls: some View {
-        GlassEffectContainer(spacing: 12) {
-            HStack(spacing: 12) {
+        GlassEffectContainer(spacing: 28) {
+            HStack(spacing: 0) {
                 control("Shuffle", symbol: "shuffle", command: .setShuffle(model.state.shuffle != true),
                         enabled: model.state.canShuffle, active: model.state.shuffle == true, inactiveOpacity: 0.6)
+                Spacer().frame(width: 24)
                 control("Previous Track", symbol: "backward.fill", command: .previous,
                         enabled: model.state.canSkipBackward, pending: model.isPreviousPending)
+                Spacer().frame(width: 28)
                 control(model.state.isPlaying ? "Pause" : "Play", symbol: model.state.isPlaying ? "pause.fill" : "play.fill",
                         command: .playPause, enabled: model.state.canPlayPause)
+                Spacer().frame(width: 28)
                 control("Next Track", symbol: "forward.fill", command: .next, enabled: model.state.canSkipForward)
+                Spacer().frame(width: 24)
                 control("Repeat", symbol: model.state.repeatMode == .track ? "repeat.1" : "repeat",
                         command: .setRepeatMode(model.state.repeatMode == .off ? .context : model.state.repeatMode == .context ? .track : .off),
                         enabled: model.state.canRepeat, active: model.state.repeatMode != nil && model.state.repeatMode != .off,
@@ -204,7 +258,7 @@ public struct MediaPageView: View {
 
 private struct SpotifySecondaryControls: View {
     let model: MediaFeatureModel
-    @State private var showsDevices = false
+    @Binding var showsDevices: Bool
     @State private var isAdjustingVolume = false
     @State private var volume = 0.5
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -246,7 +300,9 @@ private struct SpotifySecondaryControls: View {
                 Text("\(Int((volume * 100).rounded()))%")
                     .font(.system(size: 10, weight: .semibold).monospacedDigit())
                     .foregroundStyle(.white.opacity(0.72))
-                    .frame(width: 30, alignment: .trailing)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .frame(width: 36, alignment: .trailing)
                     .transition(.opacity.combined(with: .scale(scale: 0.9)))
             }
 
@@ -270,9 +326,7 @@ private struct SpotifySecondaryControls: View {
             .buttonStyle(MediaControlButtonStyle())
             .help("Spotify Connect devices")
             .accessibilityLabel("Spotify Connect device, \(model.state.activeDeviceName ?? "unknown")")
-            .popover(isPresented: $showsDevices, arrowEdge: .bottom) {
-                SpotifyDevicesPopover(model: model)
-            }
+            .accessibilityIdentifier("notchium.media.devices.button")
         }
         .frame(height: 28)
         .animation(MediaMotion.control(reduceMotion: reduceMotion), value: isAdjustingVolume)
@@ -303,8 +357,9 @@ private struct SpotifySecondaryControls: View {
     }
 }
 
-private struct SpotifyDevicesPopover: View {
+private struct SpotifyDevicesPicker: View {
     let model: MediaFeatureModel
+    let onSelect: (SpotifyDevice) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -330,39 +385,55 @@ private struct SpotifyDevicesPopover: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: 46)
             } else {
-                ForEach(model.devices) { device in
-                    Button {
-                        model.transferPlayback(to: device)
-                    } label: {
-                        HStack(spacing: 9) {
-                            Image(systemName: deviceSymbol(device.type))
-                                .frame(width: 17)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(device.name).lineLimit(1)
-                                if device.isRestricted {
-                                    Text("Unavailable").font(.system(size: 9)).foregroundStyle(.secondary)
+                ScrollView {
+                    LazyVStack(spacing: 6) {
+                        ForEach(model.devices) { device in
+                            Button {
+                                onSelect(device)
+                            } label: {
+                                HStack(spacing: 9) {
+                                    Image(systemName: deviceSymbol(device.type))
+                                        .frame(width: 17)
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(device.name).lineLimit(1)
+                                        if device.isRestricted {
+                                            Text("Unavailable").font(.system(size: 9)).foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    Spacer(minLength: 8)
+                                    if device.isActive || device.id == model.state.activeDeviceID {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundStyle(.green)
+                                    }
                                 }
+                                .font(.system(size: 11, weight: .medium))
+                                .padding(.horizontal, 8)
+                                .frame(height: 34)
+                                .contentShape(.rect)
                             }
-                            Spacer(minLength: 8)
-                            if device.isActive || device.id == model.state.activeDeviceID {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(.green)
-                            }
+                            .buttonStyle(.plain)
+                            .disabled(device.isRestricted || model.devicesLoading)
+                            .opacity(device.isRestricted ? 0.5 : 1)
+                            .accessibilityAddTraits(device.isActive ? .isSelected : [])
                         }
-                        .font(.system(size: 11, weight: .medium))
-                        .padding(.horizontal, 8)
-                        .frame(height: 34)
-                        .contentShape(.rect)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(device.isRestricted || model.devicesLoading)
-                    .opacity(device.isRestricted ? 0.5 : 1)
-                    .accessibilityAddTraits(device.isActive ? .isSelected : [])
                 }
+                .scrollIndicators(.never)
+                .frame(maxHeight: 92)
             }
         }
         .padding(10)
         .frame(width: 228)
+        .background {
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color.black.opacity(0.96))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(.white.opacity(0.15), lineWidth: 1)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("notchium.media.devices.picker")
     }
 }
 
@@ -390,8 +461,8 @@ private struct MediaSurfacePicker: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        GlassEffectContainer(spacing: 4) {
-            HStack(spacing: 4) {
+        GlassEffectContainer(spacing: 8) {
+            HStack(spacing: 8) {
                 ForEach(MediaSurface.allCases) { surface in
                     Button(surface.rawValue) { selection = surface }
                         .buttonStyle(MediaControlButtonStyle())
@@ -497,5 +568,9 @@ private enum MediaMotion {
 
     static func track(reduceMotion: Bool) -> Animation {
         reduceMotion ? .easeOut(duration: 0.12) : .smooth(duration: 0.22)
+    }
+
+    static func waveform(reduceMotion: Bool) -> Animation {
+        reduceMotion ? .easeOut(duration: 0.1) : .smooth(duration: 0.2)
     }
 }

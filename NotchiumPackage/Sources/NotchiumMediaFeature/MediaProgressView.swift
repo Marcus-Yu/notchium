@@ -14,7 +14,7 @@ struct MediaProgressView: View {
             let position = mediaSliderDisplayPosition(
                 isSeeking: isSeeking,
                 seekPosition: seekPosition,
-                estimatedPosition: model.displayedPosition(at: timeline.date)
+                estimatedPosition: model.displayedPosition(at: timeline.date, uptime: ProcessInfo.processInfo.systemUptime)
             )
             VStack(spacing: 2) {
                 NotchiumSlider(
@@ -26,11 +26,8 @@ struct MediaProgressView: View {
                 ) { editing in
                     if editing {
                         isSeeking = true
-                        seekPosition = model.displayedPosition(at: timeline.date)
+                        seekPosition = model.displayedPosition(at: timeline.date, uptime: ProcessInfo.processInfo.systemUptime)
                     } else {
-                        #if DEBUG
-                        print("[MediaControl] SEEK tapped")
-                        #endif
                         let target = seekPosition
                         model.send(.seek(target))
                         seekPosition = target
