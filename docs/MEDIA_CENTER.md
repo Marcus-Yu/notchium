@@ -1,29 +1,37 @@
 # Stage 4 Media Center
 
+The current playback architecture is documented in [Spotify playback pipeline](SPOTIFY_PLAYBACK_PIPELINE.md).
+It supersedes the historical command-specific reconciliation notes below.
+
 Media uses the existing Stage 1 service boundary. `MediaProviding` is the canonical protocol; `MediaService`, `MediaSnapshot`, `RealMediaService`, and `MockMediaService` remain compatibility aliases. `MediaProvider` remains its previous alias. No parallel manager is introduced.
 
 `RealMediaProvider` / `MockMediaProvider` → `MediaState` → `MediaSessionController` (`MediaFeatureModel` compatibility alias) → `ActivityCoordinator` (priority 20) → shell content.
 
-One stable media activity identity survives track changes, pauses, progress updates, and higher-priority interruptions. Stopping media dismisses that identity, including when queued. Decoded artwork and queue payloads never enter the activity queue. Provider errors and unsupported commands do not fabricate successful playback or seeking.
+One stable media activity identity survives track changes, pauses, stops, temporary inactive responses, and higher-priority interruptions once a valid track has been observed. Only a true first-use state without a cached track has no media activity. Decoded artwork and queue payloads never enter the activity queue. Provider errors and unsupported commands do not fabricate successful playback or seeking.
 
 ## Frozen boundaries
 
 The user approved a media-only rendering exception to the frozen shell. `DynamicIslandPresentationModel` keeps an active media surface collapsed until the existing hover/click interaction opens it. Content is injected through `NotchMediaRendering`; the shell never imports media services. The existing media placeholder is filled without changing page navigation or swipe infrastructure.
 
-Panel positioning, panel geometry, 450 × 190 expanded size, hover/click handlers, are unchanged. Space changes only collapse/unpin interaction state, preserving all activities. The Stage 4 debug brief authorizes separate SwiftUI opening (0.42/0.80) and closing (0.45/1.00) springs and an interpolating media silhouette. No NSPanel animation or resizing is introduced. `ActivityCoordinator` is unchanged. The playing strip contains only artwork on the left and a system-audio waveform on the right. Each flank is 40 pt on this Mac: 24 pt artwork/visualizer allocation plus 8 pt padding on either side. The exact 179 pt hardware center and 32 pt height remain unchanged, yielding 259 × 32 overall. Collapsed metadata is absent. Expanded title/artist, progress, transport controls, and the same shared waveform remain, with system fonts at 17/13/11 pt for title/artist/times.
+Panel positioning and hover/click handlers are unchanged. The expanded surface is 520 × 250 inside a fixed 700 × 270 host panel; the shell shape continues to animate within that fixed panel. Space changes only collapse/unpin interaction state, preserving all activities. `ActivityCoordinator` is unchanged. The playing strip contains only artwork on the left and a system-audio waveform on the right. Each flank is 40 pt on this Mac: 24 pt artwork/visualizer allocation plus 8 pt padding on either side. The exact 179 pt hardware center and 32 pt height remain unchanged, yielding 259 × 32 overall. Collapsed metadata is absent. Expanded title/artist, progress, transport controls, and the same shared waveform remain, with system fonts at 17/13/11 pt for title/artist/times.
 
-`MediaFeatureModel.collapsedMediaVisible` is independent of the retained session. Playing snapshots reveal immediately with a 120 ms appearance animation. A paused snapshot freezes waveform movement and schedules one cancellable 450 ms hide task; repeated paused observations do not reset it. Resume cancels removal, and track changes keep the flanks mounted. No-session snapshots remove the extension immediately. Expanded paused media remains available. Artwork changes crossfade over 180 ms while the new request loads; its frame is reserved immediately. Existing hover hit regions are preserved: hover the hardware notch to open it. A Space change preserves the media session, activity, audio stream, panel, and host. It only collapses expanded/pinned mode and reasserts the existing panel. The panel retains canJoinAllSpaces, stationary, fullScreenAuxiliary, and ignoresCycle.
+`MediaFeatureModel.collapsedMediaVisible` is independent of the retained session. The collapsed media extension is visible only when Spotify metadata reports a playing track and the Spotify-scoped Core Audio meter reports current local audio energy. Paused, stopped, inactive, and remote-device playback retain the Spotify session for the expanded player but remove the collapsed extension immediately when their state is known. A short Core Audio activity expiry also clears stale local activity if sample delivery stops, and a Spotify Connect device change invalidates samples attributed to the previous target. Expanded paused and remote playback remain available. Artwork changes crossfade over 180 ms while the new request loads; its frame is reserved immediately. Existing hover hit regions are preserved: hover the hardware notch to open it. A Space change preserves the media session, activity, audio stream, panel, and host. It only collapses expanded/pinned mode and reasserts the existing panel. The panel retains canJoinAllSpaces, stationary, fullScreenAuxiliary, and ignoresCycle.
 
 ## Spotify setup and capabilities
 
 1. In a Spotify developer app, register `http://127.0.0.1:8888/callback` exactly.
 2. Enter its public client ID in Notchium Settings and choose Connect Spotify.
 3. Authorize playback state/control access in Spotify. The listener binds only to IPv4 loopback and closes on completion, cancellation, failure, or a five-minute timeout.
-4. Start playback on an active Spotify device. Premium, development-mode allowlisting, scopes, restricted devices/sessions, endpoint availability, and Spotify policy still apply.
+4. Start playback on an active Spotify device, or use a retained track’s Play control to resume on this Mac. Premium, development-mode allowlisting, scopes, restricted devices/sessions, endpoint availability, and Spotify policy still apply.
 
 Authorization uses random state, S256 PKCE, single-use validated callbacks, and Keychain persistence. No client secret is embedded. The public client ID is a preference; access and refresh tokens are never stored in preferences or logs. Expiring tokens refresh through one shared task. The sandbox-compatible profile includes network client/server entitlements for HTTPS and loopback OAuth.
 
-The adapter runs one app-owned polling task while authenticated, targeting a 500 ms refresh cadence regardless of UI visibility, subscribers, or playback state. Request duration is subtracted from the next sleep; slow requests cannot overlap and can exceed that target. HTTP 429 delays requests until Retry-After expires. Disconnect, shutdown, or loss of authorization end polling. Transient errors preserve the last media snapshot and expose an issue instead of removing the flanks. Duplicate commands for the same control are rejected while pending; different controls can operate concurrently. Every successful Spotify command immediately fetches playback state. Revision checks prevent older overlapping responses from overwriting newer observations. A pending seek is separate presentation intent: it holds the dragged value through stale observations, then yields to a matching provider confirmation, a track change, a command error, or an authoritative sample at least ten seconds later. The UI reflects device/action capabilities. Failures preserve state, clear the affected pending flag in defer, log a concise DEBUG message, and request a provider refresh (respecting Retry-After). Repeated no-device/authentication failures disable capabilities. No inline command-error UI is shown.
+The adapter owns one event listener and one adaptive fallback poller while authenticated.
+Commands, Spotify Desktop playback events, Connect changes, and polling all use the same
+playback read and snapshot-ingestion path. The controller applies only immediate feedback and
+cached presentation; it no longer owns track-transition or seek-confirmation state machines.
+See the [current architecture](SPOTIFY_PLAYBACK_PIPELINE.md) for ordering, monotonic progress,
+bounded retries, event limitations, and validation.
 
 The existing transport row now contains shuffle, previous, play/pause, next, and repeat, with per-control pending protection and 32 pt hit targets. Unsupported modes are consistently disabled. Mode highlights and transport icons come only from provider snapshots. Repeat cycles off → context → track → off. Explicit play/pause intent is captured at the tap. Previous uses the interpolated provider position: above three seconds it sends Spotify's seek-to-zero command, while at or below three seconds it sends Spotify's previous-track command. All actions use the existing MediaProviding.perform command path via typed convenience methods; there is no second manager or authentication flow. Unsupported source types produce no empty player. The state preserves provider track identity for a future licensed lyrics provider; no real lyrics or scraping are implemented.
 
@@ -33,21 +41,25 @@ Spotify is the sole media source and real provider in Stage 4. All transport ope
 
 ## Spotify Connect devices and playback volume
 
-The expanded player includes one compact secondary row for Spotify volume and the active Spotify Connect device. Opening the device popover performs a single `GET /me/player/devices` refresh; the list has no timer or second polling loop. Active devices are marked, restricted devices remain visible but disabled, and selecting another available device transfers playback through `PUT /me/player` while preserving the current play/pause state.
+The expanded player includes one compact secondary row for Spotify volume and the active Spotify Connect device. Opening the device picker performs a single `GET /me/player/devices` refresh; the list has no timer or second polling loop. The picker is an overlay inside the expanded notch rather than a separate popover window, so the panel's hover and outside-click logic cannot mistake device interaction for leaving the notch. Active devices are marked, restricted devices remain visible but disabled, and selecting another available device transfers playback through `PUT /me/player` while preserving the current play/pause state. The picker closes after the authoritative active-device state changes; clicking its backdrop dismisses only the picker, while clicking outside the notch uses the shell's existing collapse path.
 
 The active device name, type, volume, and `supports_volume` capability come from Spotify's playback snapshot. The slider is disabled with explanatory help when the active device is restricted or does not support remote volume. Dragging is local and immediate, shows a temporary percentage, and commits one `PUT /me/player/volume` request when the drag ends. The existing playback confirmation and shared Retry-After gate reconcile the optimistic value.
 
-Spotify may omit devices it does not support, return a nullable device ID or volume, and reject Connect transfer or volume endpoints for non-Premium accounts. Device IDs are treated as refresh-scoped values because Spotify does not guarantee that they remain stable. The expanded surface remains 450 points wide and grows from 190 to 222 points high; its host panel grows from 210 to 242 points. Collapsed geometry is unchanged.
+Spotify may omit devices it does not support, return a nullable device ID or volume, and reject Connect transfer or volume endpoints for non-Premium accounts. Device IDs are treated as refresh-scoped values because Spotify does not guarantee that they remain stable. The expanded surface is 520 × 250 points and its fixed host panel is 700 × 270 points. Collapsed geometry is unchanged.
 
 ## Lifecycle and performance
 
-`NotchiumApplicationController` is the composition root and owns one persistent `MediaSessionController`. The app delegate starts its subscription at launch, independent of any view. The session owns `SystemAudioMeter`; playback starts capture, pause immediately settles all bars to minimum, the 450 ms hide stops capture, and no media or shutdown also stops capture. A resume during the hide delay reuses the stream. Expansion and Space changes never restart it.
+`NotchiumApplicationController` is the composition root and owns one persistent `MediaSessionController`. The app delegate starts its subscription at launch, independent of any view. The session owns `SystemAudioMeter`; an authenticated Spotify session keeps the Spotify-only activity monitor warm so local playback can wake stale metadata. Pause, stop, a Connect target change, or expired local activity immediately removes the waveform and collapsed media presentation without discarding the expanded Spotify session. Disconnect and shutdown stop capture. Expansion and Space changes never restart it.
 
-`SystemAudioMeter` uses a public Core Audio process tap scoped to Spotify. `SpotifyProcessFinder` observes `NSWorkspace` launch and termination notifications without polling. `SpotifyAudioTap` resolves Spotify's current Core Audio process objects, also configures bundle-ID restoration for Spotify audio processes that appear later, and owns a private, tap-auto-start aggregate device plus IOProc. The callback copies only transient PCM buffers; a serial audio queue handles PCM conversion and the existing 2,048-sample Hann-windowed vDSP FFT. Stereo powers combine after transformation, preserving opposite-phase signals. Seven bands (60–120, 120–250, 250–500, 500–1,000, 1,000–2,000, 2,000–5,000, 5,000–12,000 Hz) map log energy to 0.12–1.0 with fast attack and slower release. Publications remain limited to 30 Hz using uptime. DEBUG diagnostics report process discovery, tap creation/start, first sample delivery, first non-silent delivery, and throttled publication without logging PCM or level values. The view has no timer or synthetic oscillator and retains seven fixed bar identities. No microphone, display pixels, other-app audio, PCM persistence, or ScreenCaptureKit audio path is involved.
+`MediaSessionController` stores the durable subset of each last valid track through the injected persistence boundary. Empty or stopped provider snapshots are kept authoritative for activity decisions, while the expanded presentation is rebuilt from that cache as paused. Artwork identity, metadata, progress/duration, transport capabilities, queue, volume, and last device context survive normal app and playback interruptions. The cache never makes collapsed media visible and is replaced only by a newer valid Spotify track.
+
+Play from a cached inactive track is optimistic. `RealMediaProvider` uses `NSWorkspace.openApplication` to launch Spotify Desktop without activating it when no playback device exists, then performs a bounded Spotify Connect device-readiness check. It selects the newly available or locally named Computer device, transfers with playback enabled, and confirms through the normal playback endpoint. The existing per-control pending guard prevents duplicate launches and commands; launch, readiness, transfer, or API failure reconciles the cached presentation back to paused.
+
+`SystemAudioMeter` uses a public Core Audio process tap scoped to Spotify. `SpotifyProcessFinder` observes `NSWorkspace` launch and termination notifications without polling. `SpotifyAudioTap` resolves Spotify's current Core Audio process objects, also configures bundle-ID restoration for Spotify audio processes that appear later, and owns a private, tap-auto-start aggregate device plus IOProc. The callback copies only transient PCM buffers; a serial audio queue handles PCM conversion and the existing 2,048-sample Hann-windowed vDSP FFT. Stereo powers combine after transformation, preserving opposite-phase signals. Seven bands (60–120, 120–250, 250–500, 500–1,000, 1,000–2,000, 2,000–5,000, 5,000–12,000 Hz) map log energy to 0.12–1.0 with fast attack and slower release. Publications remain limited to 30 Hz using uptime. The meter derives `isAudioActive` from those levels and expires it after 250 ms without another active sample, preventing stopped callbacks from leaving frozen waveform state behind. DEBUG diagnostics report process discovery, tap creation/start, first sample delivery, first non-silent delivery, and throttled publication without logging PCM or level values. The view has no timer or synthetic oscillator and retains seven fixed bar identities only while local audio is active. No microphone, display pixels, other-app audio, PCM persistence, or ScreenCaptureKit audio path is involved.
 
 Spotify playback polling runs every 5 seconds while playing and every 15 seconds while inactive, with a 30-second delay after transient failures and exact `Retry-After` backoff for HTTP 429. This avoids the former 500 ms loop exhausting Spotify's rolling rate limit and preventing the playable snapshot that starts the audio meter.
 
-Missing recording permission yields one clear permission-required state and seven static bars. The app does not prompt automatically; Settings provides an explicit permission action using the public macOS recording permission flow. Denied/unavailable capture never falls back to decorative motion. Reduced Motion also renders static bars.
+Missing recording permission yields one clear permission-required state and no waveform. The app does not prompt automatically; Settings provides an explicit permission action using the public macOS recording permission flow. Denied/unavailable capture never falls back to decorative or static bars. Reduce Motion also removes the waveform rather than freezing it.
 
 Artwork uses an eight-entry/1MB decoded-thumbnail cache, downsampled to at most 160 pixels. Remote artwork accepts HTTPS Spotify CDN URLs only, is bounded to 2MB input, and cancels with view/track lifetime. Fixture artwork is local and deterministic. Queue size, mock command history, and stream buffers are bounded (20 rows, 32 commands, and one latest snapshot respectively).
 
@@ -128,7 +140,7 @@ Final verification: 159 SwiftPM tests passed with no failures or skips, includin
 
 `MediaSessionController` now separates the last authoritative Spotify snapshot from the state presented to SwiftUI. The progress display advances from the latest accepted sample using local elapsed time. Seek, play/pause, shuffle, repeat, restart, and track-transition intents update presentation state immediately, then reconcile with Spotify. Each intent carries a revision and request time so an older playback response cannot overwrite a newer local action. A skip retains the last valid track until Spotify returns a valid replacement; `RealMediaProvider` performs only a bounded set of action-triggered transition refreshes, leaving the normal 5/15-second poll cadence unchanged.
 
-The Spotify-only Core Audio tap remains active while an authenticated session is inactive or paused. Non-silent Spotify activity is only a wake-up signal for an immediate Web API refresh; Spotify remains the sole metadata source. These refreshes are coalesced with a two-second cooldown. The waveform still publishes live levels only while authoritative/local playback is presented as playing.
+The Spotify-only Core Audio tap remains active while an authenticated session is inactive or paused. Non-silent Spotify activity is only a wake-up signal for an immediate Web API refresh; Spotify remains the sole metadata source. These refreshes are coalesced with a two-second cooldown. The waveform is present only while Spotify reports playback and the tap reports current local audio energy; it is removed, rather than frozen at baseline levels, for paused, remote, silent, unavailable, or expired activity.
 
 Opening Up Next now bypasses the passive 15-second queue cache and starts a five-second visible-only refresh cadence. Track changes, Next/Previous, and enqueue operations also request an immediate queue refresh. Closing Up Next cancels the visible cadence, while passive queue reads retain the existing cache and request coordination.
 
@@ -141,3 +153,58 @@ The expanded media controls and Player/Up Next selector now use grouped native `
 Expansion and collapse now use short, critically damped `smooth` animations (340 ms open, 300 ms close), with content entering after 70 ms instead of 170 ms. Transition phase timing matches the visible motion, preventing the model from remaining in a transitioning state after the shell has settled.
 
 Optimistic seek preparation now rebases the presented `MediaState.elapsed` and `timestamp` atomically before dispatching Spotify's seek request. Therefore Previous-as-restart changes every local progress consumer to a zero-based clock immediately; the pending seek revision continues rejecting pre-restart Spotify samples until a valid confirmation arrives. The three-second Previous threshold and previous-track path are unchanged.
+
+## Inactive cache and layout polish (2026-09-21)
+
+The last valid Spotify track is now persisted and restored as a paused expanded presentation whenever live Spotify state is temporarily empty, stopped, or unavailable. Live provider state remains authoritative for Core Audio and collapsed visibility, so the cache cannot fabricate local playback, a waveform, or collapsed media. Play is optimistic; with no active Spotify device, the provider launches Spotify Desktop through `NSWorkspace`, waits for this Mac's Connect device, transfers with playback enabled, and reconciles the result. Failures return the presentation to paused.
+
+The expanded surface is now 520 × 250 points inside a 700 × 270 fixed host panel. Artwork/metadata separation, transport spacing, and vertical separation between progress, transport, and the volume/device row increased without enlarging the control hit targets. Waveform insertion/removal uses a short opacity/scale transition and occupies no expanded-player layout space while inactive.
+
+Final verification: all 175 SwiftPM tests passed, including cache restoration, optimistic resume rollback, native-launch/local-device transfer, Core Audio visibility, Spotify Connect, and geometry regressions. The Notchium Debug workspace build for My Mac also succeeded.
+
+## Spotify responsiveness and resource pass (2026-09-21)
+
+Spotify playback still has one provider-owned fallback poller. It uses 5 seconds while playing and 15 seconds otherwise when the notch is collapsed; while expanded it uses 2.5 seconds for playing, 5 seconds for paused, and 10 seconds for an empty session. Opening the expanded page also requests an immediate, coalesced refresh. Core Audio activity continues to wake inactive local playback without treating audio as track metadata. An event arriving during an in-flight playback fetch now queues one trailing refresh instead of being discarded; queued event work is cancelled on authorization changes, disconnect, and shutdown. Paused/inactive provider samples still reach the controller so stale optimistic intents can expire, but unchanged paused presentation samples do not republish SwiftUI state solely because their receipt timestamp differs.
+
+Queue refreshes on track changes and skips now occur only while Up Next is visible; opening Up Next still refreshes immediately and keeps its visible five-second cadence. Enqueue completion still refreshes its explicit queue request. Volume drag requests remain throttled and serialized; successful volume PUTs no longer add a redundant playback GET. The next fallback poll reconciles volume with Spotify. Rate-limit cooldown and stale-response revision checks remain shared across requests.
+
+The Core Audio meter now keeps one inactivity watchdog during continuous local audio rather than cancelling and creating a task for every sample. Silent/unchanged waveform samples avoid needless observable publications; Up Next suppresses hidden waveform publications while local activity detection continues. PCM analysis trims its sample window only when emitting a frame. Activity decays after the capture stops. Expanded content begins its existing subtle transition without a fixed 70 ms blank interval, with the existing Reduce Motion substitute applied on entry and exit. DEBUG request logs include elapsed request time, and control logs include input-to-local-state and input-to-command-completion time; no token, track, or query payload is recorded.
+
+The final Debug workspace build and all 184 SwiftPM tests pass. A 10.9-second app-scoped idle Time Profiler sample recorded 28 ms of sampled CPU before and 13 ms after; both are already low, and this short observation is not a controlled active-playback or energy measurement. Deterministic tests show 20 local-audio samples now share one inactivity timer rather than creating 20 timers, a volume change sends one PUT instead of a PUT plus confirmation GET, and a hidden queue sends no request on skip/track change. Live expanded Player and Up Next accessibility/rendering were inspected; keyboard/media-key propagation, active-audio energy, and frame-hitch timings remain unmeasured.
+
+
+## Playback command reconciliation
+
+Next/Previous mark a pending provider transition before sending the command and retain the
+complete current track until a different track is observed. Restart rebases progress and its
+clock together, then seeks to zero. Each command triggers an immediate playback read; an
+unconfirmed skip or seek retries after 250 ms, 500 ms, and 1 s, then falls back to normal
+polling. All reads share the pending-intent gate, so an event refresh cannot cancel the retry
+budget or publish an old position. The reconciliation window is bounded at ten seconds to
+allow subsequent external Spotify/device changes to win. Shared API cooldowns still apply.
+
+Action revisions own retry tasks; observation revisions reject reads that predate a command
+or a newer read. Publication rechecks the observation revision after its asynchronous cooldown
+lookup. A failed confirmation read retains a successful command's intent instead of rolling
+back the local clock. Metadata, artwork URL, duration, position, and timestamp publish as one
+MediaState. Global polling intervals are unchanged.
+
+
+### Previous intent cleanup
+
+Previous has mutually exclusive restart and previous-track reconciliation. A restart cancels
+an older Previous track-transition intent; Previous near the beginning cancels an unconfirmed
+seek intent. The seek request guard ends when the request finishes, independently of the
+snapshot guard. Same-track progress near zero confirms restart even when Spotify executes it
+later than the click; Previous track confirmation requires a different available track ID.
+Inactive observations can expire the seek guard after the existing reconciliation window.
+Next's confirmation and refresh behavior are unchanged.
+
+Regression coverage reproduces the retained seek guard and conflicting Previous/restart
+intents, checks delayed restart confirmation and pre-action rejection, verifies the sequence
+Previous → Previous → Next → Pause → Play, and verifies normal provider polling of external
+changes after either Previous operation without opening the notch or issuing an extra refresh.
+
+## Stage 5 top-level navigation
+
+Music and Calendar now share a dedicated icon-and-label page strip. Player and Up Next remain Music-only sub-navigation. The media view stays mounted while Calendar is selected, so its sub-selection and local UI state survive switching pages; visibility-driven queue and expanded-state work pauses while Music is hidden. The expanded surface is 560 × 302 points inside a 740 × 322 host panel. Settings and Close remain separate header utilities, and collapsed media geometry is unchanged.

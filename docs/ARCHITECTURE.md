@@ -1,6 +1,6 @@
 # Architecture — Stage 3 Activity Infrastructure
 
-**Status:** Stage 4 Media Center adds provider state, public Spotify integration, media content, and developer fixtures. Stage 2 geometry/interactions and Stage 3 ActivityCoordinator rules remain frozen. See [MEDIA_CENTER.md](MEDIA_CENTER.md) for boundaries and limitations.
+**Status:** Stage 5 adds the EventKit Calendar activity alongside Stage 4 Media Center. Stage 2 geometry/interactions and Stage 3 ActivityCoordinator rules remain frozen. See [MEDIA_CENTER.md](MEDIA_CENTER.md) and [CALENDAR_ACTIVITY.md](CALENDAR_ACTIVITY.md) for feature boundaries and limitations.
 
 **Minimum OS:** macOS 26
 

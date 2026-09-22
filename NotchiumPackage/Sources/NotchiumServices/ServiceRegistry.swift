@@ -57,7 +57,7 @@ public struct ServiceRegistry: Sendable {
         self.browserActivity = browserActivity
     }
 
-    public static func real() -> ServiceRegistry {
+    @MainActor public static func real() -> ServiceRegistry {
         ServiceRegistry(
             media: RealMediaService(),
             calendar: RealCalendarService(),

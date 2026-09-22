@@ -24,7 +24,7 @@ let package = Package(
         ),
         .target(
             name: "NotchiumPersistence",
-            dependencies: ["NotchiumCore"]
+            dependencies: ["NotchiumCore", "NotchiumServices"]
         ),
         .target(name: "NotchiumDesignSystem"),
         .target(
@@ -37,7 +37,7 @@ let package = Package(
         ),
         .target(
             name: "NotchiumCalendarFeature",
-            dependencies: ["NotchiumCore", "NotchiumServices"]
+            dependencies: ["NotchiumCore", "NotchiumServices", "NotchiumDynamicIsland"]
         ),
         .target(
             name: "NotchiumShelfFeature",
@@ -126,6 +126,7 @@ let package = Package(
             name: "NotchiumFeatureTests",
             dependencies: [
                 "NotchiumCore",
+                "NotchiumCalendarFeature",
                 "NotchiumDiagnostics",
                 "NotchiumDynamicIsland",
                 "NotchiumFeature",

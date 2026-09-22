@@ -266,7 +266,7 @@ Acceptance criteria:
 
 Initial launch explains the app without triggering system permission dialogs. The onboarding bundle offers Clipboard History, application tracking, recent screenshots, and download observation together for discoverability, but each option is independently deselectable.
 
-Calendar, Camera, System Audio Recording, Screen Capture, Notifications, keyboard suppression trust, browser extension access, Apple Music, and Spotify authorization are requested only when the user enables or first invokes the corresponding feature. Revocation is checked whenever a protected operation starts and when the app becomes active.
+Stage 5 Calendar requests full access at first app launch. Camera, System Audio Recording, Screen Capture, Notifications, keyboard suppression trust, browser extension access, Apple Music, and Spotify authorization are requested only when the user enables or first invokes the corresponding feature. Revocation is checked whenever a protected operation starts and when the app becomes active.
 
 The exact permission ledger and denial behavior are defined in [PERMISSIONS.md](PERMISSIONS.md).
 

@@ -46,9 +46,9 @@ Geometry, hardware exclusion, panel positioning, fullscreen configuration, sprin
 
 Shell page infrastructure lives under `NotchiumDynamicIsland/Pages`; the existing `NotchiumPagesFeature` declaration remains a future feature boundary. The shell does not gain dependencies on concrete product feature modules.
 
-The default order is home, media, system, utilities, focus. The model supports direct enabled-list replacement/reordering, selected page, and a preferred default page. Disabled selections fall back to the enabled default or first enabled page. Duplicate entries are removed; an empty list normalizes to home so selection always remains valid. `selectDefaultPage()` explicitly applies the preference.
+The current top-level order is Music, Calendar. `NotchPageModel` owns the sole selected page and supports enabled-list replacement/reordering and a preferred default. Disabled selections fall back to the enabled default or first enabled page. Duplicate entries are removed; an empty list normalizes to Music. `selectDefaultPage()` explicitly applies the preference.
 
-Each placeholder contains only its name and one subtle label. Horizontal trackpad swipes switch pages, with five small indicators reflecting the enabled list. VoiceOver exposes an adjustable page action. Navigation does not consume the Stage 2 click-to-pin action or change geometry. The existing close control remains in the shell container.
+A compact icon-and-label strip selects Music or Calendar. Music retains Player and Up Next inside its own page; Calendar has no media sub-navigation. Both feature views remain mounted during top-level switches, while only the selected page receives input and accessibility focus. Horizontal trackpad swipes and VoiceOver adjustable actions use the same page model. Settings and Close remain separate utilities. The expanded surface is 560 × 302 points inside a 740 × 322 host panel; collapsed geometry and the existing click-to-pin interaction remain unchanged.
 
 ## Developer Panel and future publishers
 

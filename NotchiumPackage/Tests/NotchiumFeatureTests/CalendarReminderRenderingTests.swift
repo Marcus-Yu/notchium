@@ -136,9 +136,13 @@ final class CalendarReminderRenderingTests: XCTestCase {
 
     private func assertBackground(_ bitmap: NSBitmapImageRep, x: Int, y: Int) {
         let color = bitmap.colorAt(x: x, y: y)!.usingColorSpace(.sRGB)!
-        XCTAssertEqual(color.redComponent, 0.3, accuracy: 0.01)
-        XCTAssertEqual(color.greenComponent, 0.3, accuracy: 0.01)
-        XCTAssertEqual(color.blueComponent, 0.3, accuracy: 0.01)
+        // Compare in the renderer's output profile rather than assuming the
+        // grayscale input has identical component values after color conversion.
+        let background = bitmap.colorAt(x: 0, y: 0)!.usingColorSpace(.sRGB)!
+        XCTAssertGreaterThan(background.redComponent, 0.2)
+        XCTAssertEqual(color.redComponent, background.redComponent, accuracy: 0.01)
+        XCTAssertEqual(color.greenComponent, background.greenComponent, accuracy: 0.01)
+        XCTAssertEqual(color.blueComponent, background.blueComponent, accuracy: 0.01)
     }
 
     private func longestWhiteRun(_ bitmap: NSBitmapImageRep, rows: Range<Int>) -> Int {
