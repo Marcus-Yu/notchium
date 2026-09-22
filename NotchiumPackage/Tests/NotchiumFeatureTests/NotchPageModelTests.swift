@@ -3,17 +3,20 @@ import XCTest
 
 @MainActor
 final class NotchPageModelTests: XCTestCase {
-    func testMusicAndCalendarAreOrderedTopLevelPages() {
+    func testMusicCalendarAndAudioAreOrderedTopLevelPages() {
         let model = NotchPageModel()
-        XCTAssertEqual(model.enabledPages, [.music, .calendar])
+        XCTAssertEqual(model.enabledPages, [.music, .calendar, .audio])
         XCTAssertEqual(model.selectedPage, .music)
         XCTAssertEqual(NotchPage.music.title, "Music")
         XCTAssertEqual(NotchPage.calendar.symbol, "calendar")
+        XCTAssertEqual(NotchPage.audio.title, "Audio")
 
         model.moveSelection(forward: true)
         XCTAssertEqual(model.selectedPage, .calendar)
+        model.moveSelection(forward: true)
+        XCTAssertEqual(model.selectedPage, .audio)
         model.moveSelection(forward: false)
-        XCTAssertEqual(model.selectedPage, .music)
+        XCTAssertEqual(model.selectedPage, .calendar)
     }
 
     func testDisabledPageCannotBeSelected() {
