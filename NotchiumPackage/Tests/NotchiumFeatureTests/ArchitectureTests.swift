@@ -17,12 +17,23 @@ final class ArchitectureTests: XCTestCase {
         XCTAssertFalse(flags[.spotifyAudioWaveform])
     }
 
+    func testStageSixEnablesAudioAlongsideMusicAndCalendar() {
+        let flags = FeatureFlags.stageSixAudio
+        XCTAssertTrue(flags[.notchShell])
+        XCTAssertTrue(flags[.media])
+        XCTAssertTrue(flags[.calendar])
+        XCTAssertTrue(flags[.audioDevices])
+        XCTAssertFalse(flags[.spotifyAudioWaveform])
+    }
+
     func testUnimplementedRealProvidersFailClosedAndMediaRequiresConnection() async {
         let services = ServiceRegistry.real()
 
         for service in ServiceKind.allCases {
             let availability = await services.availability(for: service)
-            if service == .calendar {
+            if service == .audioDevices {
+                XCTAssertEqual(availability, .available)
+            } else if service == .calendar {
                 XCTAssertTrue([.available, .unavailable(.permissionNotDetermined),
                                .unavailable(.permissionDenied), .unavailable(.permissionRestricted)]
                     .contains(availability))
