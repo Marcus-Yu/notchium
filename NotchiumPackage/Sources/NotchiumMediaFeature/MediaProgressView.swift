@@ -1,4 +1,5 @@
 import SwiftUI
+import NotchiumDesignSystem
 import NotchiumServices
 import NotchiumDynamicIsland
 
