@@ -1,6 +1,7 @@
 import NotchiumCore
 import NotchiumCalendarFeature
 import NotchiumAudioFeature
+import NotchiumCaffeineFeature
 #if DEBUG
 import NotchiumDebug
 #endif
@@ -8,6 +9,7 @@ import NotchiumDiagnostics
 import NotchiumDynamicIsland
 import Observation
 import NotchiumMediaFeature
+import NotchiumKeyboardLockFeature
 import NotchiumPersistence
 import NotchiumServices
 
@@ -19,6 +21,8 @@ public final class NotchiumApplicationController {
     public let mediaSessionController: MediaSessionController
     public let calendarModel: CalendarActivityModel
     public let audioModel: AudioFeatureModel
+    public let caffeineModel: CaffeineControlModel
+    public let keyboardLockModel: KeyboardLockControlModel
     public var mediaModel: MediaSessionController { mediaSessionController }
 #if DEBUG
     public let mockMediaProvider = MockMediaProvider()
@@ -57,19 +61,20 @@ public final class NotchiumApplicationController {
                                        audioMeter: SystemAudioMeter(activityClock: environment.clock))
         calendarModel = CalendarActivityModel(service: environment.services.calendar,
             coordinator: displayCoordinator.presentationModel.activityCoordinator,
-            clock: environment.clock,
-            openPage: { [weak presentation = displayCoordinator.presentationModel] in
-                presentation?.setExpanded(true)
-                presentation?.pageModel.selectedPage = .calendar
-            })
+            clock: environment.clock)
         audioModel = AudioFeatureModel(devices: environment.services.audioDevices,
-                                       processes: environment.services.audioProcesses)
+                                       processes: environment.services.audioProcesses,
+                                       mixer: environment.services.appAudioMixer)
+        caffeineModel = CaffeineControlModel(service: environment.services.caffeine)
+        keyboardLockModel = KeyboardLockControlModel(service: environment.services.keyboardLock)
         audioModel.onHUD = { [weak presentation = displayCoordinator.presentationModel] hud in
             presentation?.showAudioHUD(hud)
         }
         displayCoordinator.presentationModel.mediaRenderer = mediaModel
         displayCoordinator.presentationModel.calendarRenderer = calendarModel
         displayCoordinator.presentationModel.audioRenderer = audioModel
+        displayCoordinator.presentationModel.caffeineController = caffeineModel
+        displayCoordinator.presentationModel.keyboardLockController = keyboardLockModel
     }
 
     public static func production() -> NotchiumApplicationController {
@@ -82,6 +87,8 @@ public final class NotchiumApplicationController {
         displayCoordinator.start()
         if environment.featureFlags[.calendar] { calendarModel.start() }
         if environment.featureFlags[.audioDevices] { audioModel.start() }
+        if environment.featureFlags[.caffeine] { caffeineModel.start() }
+        if environment.featureFlags[.keyboardLock] { keyboardLockModel.start() }
         if environment.featureFlags[.media] {
             mediaModel.start()
             if let real = environment.services.media as? RealMediaProvider {
@@ -99,6 +106,8 @@ public final class NotchiumApplicationController {
         mediaModel.stop()
         calendarModel.stop()
         audioModel.stop()
+        caffeineModel.stop()
+        keyboardLockModel.stop()
         if let real = environment.services.media as? RealMediaProvider {
             Task { await real.shutdown() }
         }
