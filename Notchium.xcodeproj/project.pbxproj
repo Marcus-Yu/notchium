@@ -125,6 +125,7 @@
 				8BC265582DEDD3F400F279A4 /* Sources */,
 				8BC265592DEDD3F400F279A4 /* Frameworks */,
 				8BC2655A2DEDD3F400F279A4 /* Resources */,
+                A7A700000000000000000001 /* Build Lid Awake Helper */,
 			);
 			buildRules = (
 			);
@@ -221,6 +222,29 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+        A7A700000000000000000001 /* Build Lid Awake Helper */ = {
+            isa = PBXShellScriptBuildPhase;
+            buildActionMask = 2147483647;
+            files = ();
+            inputPaths = (
+                "$(SRCROOT)/scripts/build-lid-awake-helper.sh",
+                "$(SRCROOT)/Helpers/LidAwake/main.swift",
+                "$(SRCROOT)/Helpers/LidAwake/PowerOverride.swift",
+                "$(SRCROOT)/Helpers/LidAwake/com.marcusyu.notchium.lid-awake.plist",
+                "$(SRCROOT)/NotchiumPackage/Sources/NotchiumServices/LidAwakeProtocol.swift",
+            );
+            name = "Build Lid Awake Helper";
+            outputPaths = (
+                "$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/HelperTools/NotchiumLidAwake",
+                "$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LaunchDaemons/com.marcusyu.notchium.lid-awake.plist",
+            );
+            runOnlyForDeploymentPostprocessing = 0;
+            shellPath = /bin/sh;
+            shellScript = "sh \"$SRCROOT/scripts/build-lid-awake-helper.sh\"";
+        };
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		8BC265582DEDD3F400F279A4 /* Sources */ = {
