@@ -22,22 +22,16 @@ public final class CalendarReminderCoordinator {
     @ObservationIgnored private var events: [CalendarEventSummary] = []
     @ObservationIgnored private var shown: [UUID: Set<Int>] = [:]
     @ObservationIgnored private var boundaryTask: Task<Void, Never>?
-    @ObservationIgnored private var dismissTask: Task<Void, Never>?
     @ObservationIgnored private var activityObservation: AnyCancellable?
     @ObservationIgnored private var activeID: UUID?
-    @ObservationIgnored private var remaining: TimeInterval = 10
-    @ObservationIgnored private var timerStarted: Date?
-    @ObservationIgnored private var hovering = false
-    @ObservationIgnored private var generation = 0
 
     public static let thresholds: [Int] = [3600, 1800, 300]
     public static let displayDuration: TimeInterval = 10
-    public static let priority = 25
 
     public init(activities: ActivityCoordinator, clock: any AppClock = ContinuousAppClock()) {
         self.activities = activities
         self.clock = clock
-        activityObservation = activities.$activeActivity.sink { [weak self] activity in
+        activityObservation = activities.$activeTransient.sink { [weak self] activity in
             Task { @MainActor [weak self] in self?.activityChanged(to: activity) }
         }
     }
@@ -62,9 +56,6 @@ public final class CalendarReminderCoordinator {
     }
 
     public func dismiss() {
-        dismissTask?.cancel(); dismissTask = nil
-        timerStarted = nil
-        hovering = false
         current = nil
         if let activeID { activities.dismiss(id: activeID) }
         activeID = nil
@@ -78,13 +69,8 @@ public final class CalendarReminderCoordinator {
     }
 
     public func setHovered(_ hovered: Bool) {
-        guard hovering != hovered else { return }
-        hovering = hovered
-        if hovered {
-            pauseDismissTimer()
-        } else if activities.activeActivity?.id == activeID {
-            startDismissTimer()
-        }
+        guard activities.activeTransient?.id == activeID else { return }
+        activities.setHovered(hovered)
     }
 
     private func evaluate(at now: Date) {
@@ -106,17 +92,18 @@ public final class CalendarReminderCoordinator {
         let event = selected.0
         let seconds = event.startDate.timeIntervalSince(now)
         let label = Self.label(for: event, at: now)
-        // Do not queue a stale reminder behind a higher-priority system activity.
-        guard activities.activeActivity?.priority ?? 0 <= Self.priority else { return }
         dismiss()
         let id = UUID()
         activeID = id
-        remaining = Self.displayDuration
         current = Reminder(event: event, label: label,
                            isImminent: seconds <= 300, isNow: seconds <= 0)
+        let priority: NotchActivityPriority = seconds <= 300 ? .high : .medium
         activities.present(.init(id: id, kind: .calendar, title: event.title,
-                                 subtitle: label, priority: Self.priority, duration: nil))
-        startDismissTimer()
+                                 subtitle: label, priority: priority,
+                                 presentationStyle: .downwardBanner,
+                                 lifetime: .transient,
+                                 destination: .calendar,
+                                 duration: .seconds(Self.displayDuration)))
     }
 
     private static func label(for event: CalendarEventSummary, at now: Date) -> String {
@@ -143,32 +130,10 @@ public final class CalendarReminderCoordinator {
     }
 
     private func activityChanged(to activity: NotchActivity?) {
-        guard activity?.id == activities.activeActivity?.id else { return }
-        guard activeID != nil else { return }
-        if activity?.id == activeID {
-            if !hovering && dismissTask == nil { startDismissTimer() }
-        } else {
-            pauseDismissTimer()
-        }
-    }
-
-    private func pauseDismissTimer() {
-        dismissTask?.cancel(); dismissTask = nil
-        guard let timerStarted else { return }
-        remaining = max(0, remaining - Date.now.timeIntervalSince(timerStarted))
-        self.timerStarted = nil
-    }
-
-    private func startDismissTimer() {
-        guard current != nil, !hovering, dismissTask == nil else { return }
-        generation &+= 1
-        let token = generation
-        timerStarted = .now
-        dismissTask = Task { [weak self, clock] in
-            do { try await clock.sleep(for: .seconds(max(0.01, self?.remaining ?? 0.01))) }
-            catch { return }
-            guard !Task.isCancelled, let self, self.generation == token else { return }
-            self.dismiss()
+        guard let activeID else { return }
+        if activity?.id != activeID, !activities.contains(id: activeID) {
+            current = nil
+            self.activeID = nil
         }
     }
 }
