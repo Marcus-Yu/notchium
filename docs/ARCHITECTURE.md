@@ -1,6 +1,6 @@
-# Architecture — Stage 3 Activity Infrastructure
+# Architecture — Stage 7 Activity Coordination and Utilities
 
-**Status:** Stage 5 adds the EventKit Calendar activity alongside Stage 4 Media Center. Stage 2 geometry/interactions and Stage 3 ActivityCoordinator rules remain frozen. See [MEDIA_CENTER.md](MEDIA_CENTER.md) and [CALENDAR_ACTIVITY.md](CALENDAR_ACTIVITY.md) for feature boundaries and limitations.
+**Status:** Stage 7 centralizes Music, Calendar, and Audio transient presentation and adds session-scoped Caffeine and Keyboard Lock utilities. See [MEDIA_CENTER.md](MEDIA_CENTER.md), [CALENDAR_ACTIVITY.md](CALENDAR_ACTIVITY.md), and [AUDIO.md](AUDIO.md) for feature boundaries and limitations.
 
 **Minimum OS:** macOS 26
 
@@ -10,7 +10,7 @@
 
 This document explains the Stage 1 production architecture and the Stage 2 shell implementation built on it. It is subordinate to [PRODUCT_SPEC.md](PRODUCT_SPEC.md), [FEASIBILITY.md](FEASIBILITY.md), [ENGINEERING_RULES.md](ENGINEERING_RULES.md), and [PERMISSIONS.md](PERMISSIONS.md). The detailed shell contract is in [NOTCH_SHELL.md](NOTCH_SHELL.md).
 
-Stage 2 hardens the executable shell only. It does not implement product features, request protected permissions, persist feature payloads, replace system UI, or use private APIs.
+The implementation preserves the Stage 2 shell and later Music, Calendar, and Audio boundaries. Stage 7 adds only public power-management and event-tap integrations; it does not replace system UI or use private APIs.
 
 ## Shape of the repository
 
@@ -132,14 +132,14 @@ Every requested service has a `Sendable` protocol, a real adapter type, a mock t
 | Camera | `CameraService` / `CameraProvider` | `RealCameraService` | `MockCameraService` |
 | Audio devices | `AudioDevicesService` / `AudioDeviceProvider` | `RealAudioDevicesService` | `MockAudioDevicesService` |
 | Battery | `BatteryService` | `RealBatteryService` | `MockBatteryService` |
-| Caffeine | `CaffeineService` / `WakeLockProvider` | `RealCaffeineService` | `MockCaffeineService` |
-| Keyboard lock | `KeyboardLockService` / `KeyboardGate` | `RealKeyboardLockService` | `MockKeyboardLockService` |
+| Caffeine | `CaffeineService` | `RealCaffeineService` | `MockCaffeineService` |
+| Keyboard lock | `KeyboardLockService` | `RealKeyboardLockService` | `MockKeyboardLockService` |
 | System statistics | `SystemStatsService` / `SystemMetricsProvider` | `RealSystemStatsService` | `MockSystemStatsService` |
 | Downloads | `DownloadsService` | `RealDownloadsService` | `MockDownloadsService` |
 | Meetings | `MeetingsService` | `RealMeetingsService` | `MockMeetingsService` |
 | Focus | `FocusService` / `FocusTracker` | `RealFocusService` | `MockFocusService` |
 
-The Stage 0 cross-cutting contracts are also present: `AudioMeterProvider`, `ActivityEventSource`, `BrowserActivityProvider`, `PermissionAuthorizer`, and `AppClock`, each with real and mock provider types where applicable. Future approved seams include `ActivityCoordinator`, `AudioProcessProvider`, `PowerSourceProvider`, `WindowManagementProvider`, and `LyricsProvider`; this amendment records responsibilities only and adds no Stage 1 implementation.
+The Stage 0 cross-cutting contracts are also present: `AudioMeterProvider`, `ActivityEventSource`, `BrowserActivityProvider`, `PermissionAuthorizer`, and `AppClock`, each with real and mock provider types where applicable. `ActivityCoordinator` is now the implemented presentation authority; future approved seams still include `PowerSourceProvider`, `WindowManagementProvider`, and `LyricsProvider`.
 
 “Real” in the architecture skeleton means the production injection point, not implemented feature behavior. Every real product adapter still reports the historical `FeatureAvailability.unavailable(.stageTwoRequired)` reason. Commands throw a typed `ServiceFailure`, streams terminate safely, and `RealPermissionAuthorizer.request` refuses to prompt. A later feature stage replaces one adapter at a time behind the existing protocol only after its permission and denial behavior is designed and tested.
 
@@ -179,7 +179,21 @@ The shell uses SwiftUI until macOS window behavior requires AppKit. `NotchiumPan
 
 `NotchiumDisplayCoordinator` requires a built-in display, nonzero public top safe-area inset, and valid `NSScreen.auxiliaryTopLeftArea` and `auxiliaryTopRightArea` values with a positive gap. Without an eligible display it hides the panel and retains the menu-bar fallback. The controller keeps one transparent fixed-size host panel top-anchored to the full screen frame. SwiftUI animates one shape and permanently excludes the hardware footprint from drawing; collapsed physical mode has an empty drawable path. Public pointer monitors drive the narrow hardware-derived hover zone. The panel uses documented Spaces and fullscreen collection behavior, never animates its frame, and never becomes key.
 
-`DynamicIslandPresentationModel` owns `collapsed`, temporarily `hovered`, and pinned `expanded` states plus transition phases. Injected clock tasks implement 120 ms hover entry and 200 ms exit grace, with cancellation and generation checks. Hover and click use the same 0.60/0.88/0.10 native spring, with a 0.18 s Reduce Motion fallback. Pinned state ignores hover exit; a second click, outside click, or Esc closes it. Space-change notifications cancel pending hover activation and close hovered or pinned states through the existing collapse path before reasserting the current panel. They never recreate or reposition it, and hover requires fresh entry to reopen. See [NOTCH_SHELL.md](NOTCH_SHELL.md) for notification timing and the pending hardware acceptance gate. Stage 3 adds five minimal page placeholders and generic activity content; no real feature page is implemented.
+`DynamicIslandPresentationModel` owns `collapsed`, temporarily `hovered`, and pinned `expanded` states plus transition phases. Injected clock tasks implement 120 ms hover entry and 200 ms exit grace, with cancellation and generation checks. Hover and click use the same 0.60/0.88/0.10 native spring, with a 0.18 s Reduce Motion fallback. Pinned state ignores hover exit; a second click, outside click, or Esc closes it. Space-change notifications cancel pending hover activation and close hovered or pinned states through the existing collapse path before reasserting the current panel. They never recreate or reposition it, and hover requires fresh entry to reopen. See [NOTCH_SHELL.md](NOTCH_SHELL.md) for notification timing and the pending hardware acceptance gate.
+
+## Stage 7 activity and utility ownership
+
+`ActivityCoordinator` owns one persistent baseline activity and one active transient activity. Music is the persistent baseline. Conflicting transients use typed `low`, `medium`, `high`, and `critical` priorities; the active transient wins equal-priority ties. The coordinator keeps at most one pending entry per activity family, so repeated Audio or Calendar updates coalesce instead of creating an unbounded FIFO.
+
+The coordinator is the only transient deadline scheduler. Calendar uses a ten-second lifetime and Audio uses 1.25 seconds; both pause while their visible surface is hovered. A preempted activity retains its original absolute deadline, so a short Audio HUD cannot reappear stale after a longer Calendar interruption. Manual expansion never yields page ownership to an arriving activity, although its deadline continues. Clicking a visible transient consumes its declarative destination, dismisses it, and opens the corresponding top-level page.
+
+Presentation policy is semantic: Music requests `mediaSides`, Calendar requests `downwardBanner`, and Audio requests `compactHUD`. Only Music plus Calendar derives `combined`. The shell's `NotchGeometryResolver` translates that mode into display-specific frames; feature modules do not resize or control the panel. Audio visually supersedes Music while preserving its state, and Music is restored immediately when Audio ends.
+
+The expanded header contains one shared `GlassEffectContainer` with two spaced groups: Caffeine and Keyboard Lock, then Settings and Close. All four controls are icon-only. Utility state is owned by application-lifetime feature models, not page views, so page changes and shell collapse do not reset it.
+
+`RealCaffeineService` uses `IOPMAssertionCreateWithName`. A click toggles prevention of idle system sleep; a 0.75-second hold selects the stronger system-and-display assertion. Replacing a mode creates the new assertion before releasing the old one, and application shutdown synchronously releases the active assertion. No duration selector or persisted relaunch state is involved. Optional [closed-lid keep-awake](LID_AWAKE.md) uses a separately approved, signed privileged helper with a renewable lease and recovery journal; it is not part of the public IOKit assertions.
+
+`RealKeyboardLockService` uses a session-level, head-insert, active `CGEventTap` for key-down, key-up, and modifier events only. Mouse and trackpad input are outside the mask. Lock state is published only after Accessibility trust, tap creation, run-loop installation, explicit enablement, and `CGEvent.tapIsEnabled` verification all succeed. Command–Option–Escape is consumed while a monotonic two-second emergency hold is measured; releasing any chord key cancels it. A tap disabled by timeout or user input is immediately re-enabled and verified; failed recovery tears it down and publishes an unlocked state. Permission prompting and the first-lock explanation each have separate once-per-installation markers, while opening System Settings always requires the user's explicit in-app action. Tap lifecycle changes run on the main run loop. The callback only filters events and updates chord state; a 50 ms common-mode timer publishes changes, checks tap health and trust, and completes the emergency hold. Activation also verifies the effective keyboard mask. Secure Input blocks activation and ends an existing lock with specific guidance. Lock state is never restored on relaunch and shutdown always tears down the tap.
 
 Ambient Edge must not be added to `DynamicIslandPresentationModel` as decorative booleans. In its later stage it receives a separate immutable presentation model from the activity coordinator, and its AppKit overlay lifecycle remains independent of `NotchiumPanelController`.
 
@@ -215,6 +229,9 @@ The `NotchiumFeatureTests` unit-test target covers:
 - disabled Stage 1 permission requests;
 - unique feature-module registration;
 - keyboard-lock failsafe policy;
+- persistent/transient arbitration, family coalescing, original deadlines, and hover pause;
+- Caffeine click/hold mode transitions and shutdown state;
+- Keyboard Lock permission gating, first-use education, emergency progress, and fail-open state;
 - root dependency replacement;
 - delayed/cancelled collapsed, hovered, expanded, and transitioning behavior;
 - display selection, hot-plug fallback, and zero-display behavior;
