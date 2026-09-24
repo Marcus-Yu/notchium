@@ -3,13 +3,14 @@ import SwiftUI
 
 struct CalendarReminderView: View {
     @Bindable var model: CalendarActivityModel
+    let openActivity: @MainActor () -> Void
     @State private var isHovered = false
 
     var body: some View {
         if let reminder = model.reminders.current {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .top, spacing: 8) {
-                    Button(action: model.openReminder) {
+                    Button(action: openActivity) {
                         HStack(alignment: .top, spacing: 10) {
                             Circle()
                                 .fill(Color(red: reminder.event.calendarColor.red,
@@ -66,7 +67,7 @@ struct CalendarReminderView: View {
                 }
 
                 if !reminder.isImminent, let location = reminder.event.location {
-                    Button(action: model.openReminder) {
+                    Button(action: openActivity) {
                         Text(location)
                             .font(.system(size: 10))
                             .foregroundStyle(.white.opacity(0.50))
@@ -83,7 +84,7 @@ struct CalendarReminderView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(minHeight: NotchReminderGeometry.minimumHeight)
             .background {
-                Button(action: model.openReminder) {
+                Button(action: openActivity) {
                     Color.clear.contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
