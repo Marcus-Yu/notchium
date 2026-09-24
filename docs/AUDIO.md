@@ -2,8 +2,9 @@
 
 The Audio page uses `AudioFeatureModel` as its feature state. `RealAudioDevicesService`
 owns Core Audio output discovery and commands; `RealAudioProcessesService` owns local
-audio-process discovery. The shell receives an `NotchAudioRendering` interface and a
-small `NotchAudioHUD` value, so Music, Calendar, and audio state remain independent.
+audio-process discovery; `RealAppAudioMixerService` owns the driverless process-tap
+graph. The shell receives an `NotchAudioRendering` interface and a small
+`NotchAudioHUD` value, so Music, Calendar, and audio state remain independent.
 
 ## Output devices and system volume
 
@@ -14,28 +15,52 @@ listeners when its final subscriber ends. Output names and write capabilities ar
 cached until the device list changes. Volume and mute controls are enabled only
 when the HAL property is writable across the output's channels. Some digital,
 Bluetooth, and virtual outputs expose no software volume or mute control.
+Private aggregate devices created by Notchium are removed from the published list
+by their owned UID namespace, so they cannot be selected as user destinations.
 
 Switching output writes the default-output property. The UI waits for the HAL's
 default-output notification before showing the newly selected device. A successful
 set call is not treated as confirmation because Core Audio may apply it later.
 
-## Local audio processes
+## Local audio processes and per-app gain
 
-The process service reads Core Audio process objects, watches the process list and
-each process's running-output property, and publishes only processes with active
-output I/O. It starts when the expanded Audio page is visible and removes its
-listeners when the page closes. The page filters to foreground-capable apps and
-allows an app to be activated or pinned for ordering. A pinned app appears again
-when it next produces local audio. Spotify playback on another device does not
-create a local process row.
+The process service reads Core Audio process objects and watches the process list,
+running-output state, and output-device routes. Before publishing a process, it
+creates a private nonmuting probe tap for each active physical output and verifies
+the same stereo Float32 input format required by the mixer. Successful routes are
+cached for the process lifetime. Processes without a verified route, Notchium's
+own process, and internal output devices never reach the page. This event-driven
+listener remains available while Audio is enabled so a saved gain can be applied
+when an app becomes audible. The page also requires a foreground-capable owning
+application and a verified route to the current output. Spotify playback on
+another device does not create a local process row.
 
-Core Audio's public process properties provide output activity but no general
-per-application gain or mute setter for another app. A process tap can capture or
-mute original output, but implementing independent gain with that route requires
-rerouting and mixing captured audio. Stage 6 deliberately does not create an audio
-driver or virtual device. Accordingly the page does not show per-app sliders or
-mute/reset actions that would not work. Active output I/O does not prove that
-samples are non-silent, so an app with a running silent stream may appear.
+Per-app gain uses public Core Audio process taps and installs no system audio
+driver. Apps at 100% and unmuted continue directly to the selected output. For each
+audible app that needs attenuation or mute, the mixer creates one stereo tap scoped
+to the current output. The taps and physical output form one private aggregate
+device. Each tap uses `mutedWhenTapped`, so direct output is suppressed only while
+Notchium's IOProc is actively reading it. The IOProc mixes the captured streams
+through per-app gain slots and writes the result to the physical output. Removing
+the IOProc, a setup failure, normal termination, or process death releases
+suppression and restores normal direct audio.
+
+Volume and mute values persist by bundle identifier. Process appearance, exit, PID
+replacement, and output-device changes rebuild the immutable tap topology off the
+real-time thread. Plain gain changes update preallocated atomic slots without
+rebuilding. The render callback is implemented in `NotchiumRealtimeAudio`: it has
+no allocation, locks, logging, UI publication, or I/O and uses compile-time-checked
+lock-free 32-bit atomics. It performs only bounded Float32 stereo mixing and final
+clipping.
+
+Creating the first process tap, including an eligibility probe, can trigger macOS
+System Audio Recording consent using `NSAudioCaptureUsageDescription`. A denied
+probe is not published as controllable. If an active mixer loses access, the Audio
+page shows a compact permission menu with retry and Privacy & Security actions
+while direct app output remains active.
+
+Active output I/O does not prove that samples are non-silent, so an app with a
+running silent stream may appear.
 
 ## Notch HUD
 
@@ -49,6 +74,8 @@ changes Spotify Connect playback volume.
 
 ## Qualification
 
-The package build and deterministic tests cover navigation and HUD state. Hardware
-qualification still needs volume-key repeats, mute, device hot plug, built-in and
-Bluetooth outputs, Spaces/fullscreen placement, and CPU observation on a notched Mac.
+The package build and deterministic tests cover navigation, HUD state, persisted
+mix targets, direct-output restoration, atomic gain, sample mixing, and the 54 pt
+row density. Hardware qualification still needs concurrent app playback, consent,
+volume-key repeats, mute, device hot plug, built-in and Bluetooth outputs,
+Spaces/fullscreen placement, and CPU observation on a notched Mac.
