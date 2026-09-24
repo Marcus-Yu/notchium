@@ -223,7 +223,10 @@ public final class RealAudioDevicesService: AudioDevicesService {
               size > 0 else { return [] }
         var ids = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
         guard AudioObjectGetPropertyData(system, &address, 0, nil, &size, &ids) == noErr else { return [] }
-        return ids.filter(Self.hasOutput)
+        return ids.filter { id in
+            Self.hasOutput(id)
+                && AudioDeviceVisibility.isUserVisible(uid: Self.deviceUID(id))
+        }
     }
 
     private static func hasOutput(_ id: AudioObjectID) -> Bool {
@@ -272,10 +275,14 @@ public final class RealAudioDevicesService: AudioDevicesService {
 
     private static func name(_ id: AudioObjectID) -> String? {
         var address = Self.address(kAudioObjectPropertyName)
-        var value: CFString? = nil
-        var size = UInt32(MemoryLayout<CFString?>.size)
+        var value: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
         guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, &value) == noErr else { return nil }
-        return value as String?
+        return value?.takeRetainedValue() as String?
+    }
+
+    private static func deviceUID(_ id: AudioObjectID) -> String? {
+        ProcessTapSupport.stringProperty(id, selector: kAudioDevicePropertyDeviceUID)
     }
 
     private static func scalar(_ id: AudioObjectID) -> Double? {
