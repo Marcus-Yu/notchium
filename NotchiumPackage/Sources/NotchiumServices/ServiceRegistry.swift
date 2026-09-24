@@ -9,6 +9,7 @@ public struct ServiceRegistry: Sendable {
     public let camera: any CameraService
     public let audioDevices: any AudioDevicesService
     public let audioProcesses: any AudioProcessesService
+    public let appAudioMixer: any AppAudioMixerService
     public let battery: any BatteryService
     public let caffeine: any CaffeineService
     public let keyboardLock: any KeyboardLockService
@@ -29,6 +30,7 @@ public struct ServiceRegistry: Sendable {
         camera: any CameraService,
         audioDevices: any AudioDevicesService,
         audioProcesses: any AudioProcessesService = MockAudioProcessesService(),
+        appAudioMixer: any AppAudioMixerService = MockAppAudioMixerService(),
         battery: any BatteryService,
         caffeine: any CaffeineService,
         keyboardLock: any KeyboardLockService,
@@ -48,6 +50,7 @@ public struct ServiceRegistry: Sendable {
         self.camera = camera
         self.audioDevices = audioDevices
         self.audioProcesses = audioProcesses
+        self.appAudioMixer = appAudioMixer
         self.battery = battery
         self.caffeine = caffeine
         self.keyboardLock = keyboardLock
@@ -70,6 +73,7 @@ public struct ServiceRegistry: Sendable {
             camera: RealCameraService(),
             audioDevices: RealAudioDevicesService(),
             audioProcesses: RealAudioProcessesService(),
+            appAudioMixer: RealAppAudioMixerService(),
             battery: RealBatteryService(),
             caffeine: RealCaffeineService(),
             keyboardLock: RealKeyboardLockService(),
@@ -93,6 +97,7 @@ public struct ServiceRegistry: Sendable {
             camera: MockCameraService(),
             audioDevices: MockAudioDevicesService(),
             audioProcesses: MockAudioProcessesService(),
+            appAudioMixer: MockAppAudioMixerService(),
             battery: MockBatteryService(),
             caffeine: MockCaffeineService(),
             keyboardLock: MockKeyboardLockService(),
