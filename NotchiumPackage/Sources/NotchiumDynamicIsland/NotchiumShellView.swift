@@ -67,6 +67,7 @@ public struct NotchiumShellView: View {
             }
         }
         .preferredColorScheme(renderConfiguration.appearance.colorScheme)
+        .environment(\.notchAuxiliaryInteraction, model.auxiliaryInteractionHandler)
         .onAppear {
             model.setReduceMotion(accessibility.reduceMotion)
         }
@@ -117,7 +118,9 @@ private struct NotchShellOuterSurface: View {
             hardwareHeight: layout.collapsedVisibleFrame.height
         )
         let showMedia = model.showsCollapsedMedia
-        let showAudioHUD = model.visualState == .collapsed && model.audioHUD != nil
+        let showAudioHUD = model.visualState == .collapsed
+            && model.activityCoordinator.presentationMode == .compactHUD
+            && model.audioHUD != nil
         let reminderWidth = NotchReminderGeometry.width(for: layout)
         let shape = NotchShellSurface(
             width: showAudioHUD ? 292 : (showMedia ? mediaGeometry.width : layout.surfaceSize.width),
@@ -153,13 +156,17 @@ private struct NotchShellOuterSurface: View {
                 .frame(height: layout.collapsedVisibleFrame.height)
 
                 if showAudioHUD, let hud = model.audioHUD {
-                    NotchAudioHUDView(hud: hud)
+                    NotchAudioHUDView(
+                        hud: hud,
+                        action: model.activateCurrentActivity,
+                        hoverChanged: model.activityCoordinator.setHovered
+                    )
                         .frame(width: 264, height: 74)
                         .padding(.bottom, 4)
                 }
 
                 if model.showsCalendarReminder, let renderer = model.calendarRenderer {
-                    renderer.reminderBanner()
+                    renderer.reminderBanner(action: model.activateCurrentActivity)
                         .frame(width: reminderWidth)
                         .fixedSize(horizontal: false, vertical: true)
                         .onGeometryChange(for: CGFloat.self) { proxy in
@@ -185,7 +192,11 @@ private struct NotchShellOuterSurface: View {
                 .zIndex(10)
 
             if model.surfaceState != .collapsed {
-                NotchUtilityControls(close: model.collapse)
+                NotchUtilityControls(
+                    caffeine: model.caffeineController,
+                    keyboardLock: model.keyboardLockController,
+                    close: model.collapse
+                )
                     .padding(.trailing, NotchGeometryResolver.expandedContentHorizontalInset)
                     .padding(.top, 8)
                     .frame(width: layout.expandedSize.width, alignment: .trailing)
@@ -225,7 +236,7 @@ private struct NotchShellOuterSurface: View {
         Group {
             Group {
                 if model.presentationState == .activity,
-                   let activity = model.activityCoordinator.activeActivity,
+                   let activity = model.activityCoordinator.activeTransient,
                    activity.kind != .media && activity.kind != .calendar {
                     NotchActivityView(activity: activity)
                 } else {
