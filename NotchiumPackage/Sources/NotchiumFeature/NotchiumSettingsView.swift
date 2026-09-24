@@ -1,4 +1,5 @@
 import NotchiumCore
+import NotchiumCaffeineFeature
 import NotchiumCalendarFeature
 import SwiftUI
 import NotchiumMediaFeature
@@ -6,14 +7,17 @@ import NotchiumServices
 
 public struct NotchiumSettingsView: View {
     private let environment: AppEnvironment
+    private let caffeineModel: CaffeineControlModel?
     private let audioMeter: SystemAudioMeter?
     private let calendarModel: CalendarActivityModel?
     private let menuBarInsertion: Binding<Bool>?
 
     public init(environment: AppEnvironment, audioMeter: SystemAudioMeter? = nil,
                 calendarModel: CalendarActivityModel? = nil,
-                menuBarInsertion: Binding<Bool>? = nil) {
+                menuBarInsertion: Binding<Bool>? = nil,
+                caffeineModel: CaffeineControlModel? = nil) {
         self.environment = environment
+        self.caffeineModel = caffeineModel
         self.audioMeter = audioMeter
         self.calendarModel = calendarModel
         self.menuBarInsertion = menuBarInsertion
@@ -33,6 +37,9 @@ public struct NotchiumSettingsView: View {
             }
             if let audioMeter { AudioMeterPermissionView(meter: audioMeter) }
             if let calendarModel { CalendarSettingsSection(model: calendarModel) }
+            if environment.distributionProfile == .developerID, let caffeineModel {
+                LidAwakeSettingsSection(controller: caffeineModel.lidAwake)
+            }
             Section("Distribution") {
                 Text(environment.distributionProfile.rawValue)
             }
