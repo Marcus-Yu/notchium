@@ -26,12 +26,23 @@ final class ArchitectureTests: XCTestCase {
         XCTAssertFalse(flags[.spotifyAudioWaveform])
     }
 
+    func testStageSevenEnablesCoordinatorAndHeaderUtilities() {
+        let flags = FeatureFlags.stageSevenActivities
+        XCTAssertTrue(flags[.notchShell])
+        XCTAssertTrue(flags[.media])
+        XCTAssertTrue(flags[.calendar])
+        XCTAssertTrue(flags[.audioDevices])
+        XCTAssertTrue(flags[.activities])
+        XCTAssertTrue(flags[.caffeine])
+        XCTAssertTrue(flags[.keyboardLock])
+    }
+
     func testUnimplementedRealProvidersFailClosedAndMediaRequiresConnection() async {
         let services = ServiceRegistry.real()
 
         for service in ServiceKind.allCases {
             let availability = await services.availability(for: service)
-            if service == .audioDevices {
+            if [.audioDevices, .caffeine, .keyboardLock].contains(service) {
                 XCTAssertEqual(availability, .available)
             } else if service == .calendar {
                 XCTAssertTrue([.available, .unavailable(.permissionNotDetermined),
@@ -91,7 +102,8 @@ final class ArchitectureTests: XCTestCase {
 
         XCTAssertTrue(policy.mouseRemainsUsable)
         XCTAssertTrue(policy.unlockOnTapFailure)
-        XCTAssertEqual(policy.emergencyHoldDuration, .seconds(3))
+        XCTAssertEqual(policy.emergencyChord, "Command–Option–Escape")
+        XCTAssertEqual(policy.emergencyHoldDuration, .seconds(2))
     }
 
     func testApplicationDependenciesCanBeReplacedAtTheRoot() {
