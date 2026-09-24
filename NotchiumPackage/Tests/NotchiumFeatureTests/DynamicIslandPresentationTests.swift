@@ -1,3 +1,4 @@
+import AppKit
 import NotchiumCore
 @testable import NotchiumDynamicIsland
 import XCTest
@@ -5,7 +6,10 @@ import XCTest
 @MainActor
 final class DynamicIslandPresentationTests: XCTestCase {
     func testAudioHUDUpdatesInPlaceAndDoesNotTakeOverExpandedPage() async {
-        let clock = ControlledAppClock()
+        let clock = TestAppClock(
+            now: Date(timeIntervalSince1970: 0),
+            automaticallyAdvances: false
+        )
         let model = DynamicIslandPresentationModel(clock: clock)
         let first = NotchAudioHUD(kind: .volume, deviceName: "Speakers", volume: 0.4, isMuted: false)
         let repeatEvent = NotchAudioHUD(kind: .volume, deviceName: "Speakers", volume: 0.5, isMuted: false)
@@ -14,14 +18,16 @@ final class DynamicIslandPresentationTests: XCTestCase {
         XCTAssertEqual(model.audioHUD, first)
         model.showAudioHUD(repeatEvent)
         XCTAssertEqual(model.audioHUD, repeatEvent)
-        await waitForPendingSleep(clock)
-        await clock.releaseAll()
+        await clock.waitForPendingSleeps()
+        await clock.advance(by: .milliseconds(1250))
         await drainMainActorTasks()
         XCTAssertNil(model.audioHUD)
 
         model.present(.expanded, animated: false)
         model.showAudioHUD(first)
-        XCTAssertNil(model.audioHUD)
+        XCTAssertEqual(model.audioHUD, first)
+        XCTAssertEqual(model.presentationState, .expanded)
+        XCTAssertEqual(model.visualState, .expanded)
     }
 
     func testHoverEntryIsDelayedAndCompletesDeterministically() async {
@@ -189,6 +195,60 @@ final class DynamicIslandPresentationTests: XCTestCase {
         await clock.releaseAll()
         await drainMainActorTasks()
         XCTAssertEqual(model.visualState, .expanded)
+    }
+
+    func testAuxiliaryInteractionHoldsHoverOpenUntilItCloses() async {
+        let clock = ControlledAppClock()
+        let model = DynamicIslandPresentationModel(phase: .hovered, clock: clock)
+
+        model.setAuxiliaryInteractionPresented(true)
+        model.setHovered(true)
+        model.setHovered(false)
+        await drainMainActorTasks()
+
+        XCTAssertTrue(model.isAuxiliaryInteractionPresented)
+        XCTAssertEqual(model.visualState, .hovered)
+        let pendingWhileOpen = await clock.pendingCount()
+        XCTAssertEqual(pendingWhileOpen, 0)
+
+        model.setAuxiliaryInteractionPresented(false)
+        await waitForPendingSleep(clock)
+        await clock.releaseAll()
+        await drainMainActorTasks()
+        await waitForPendingSleep(clock)
+        await clock.releaseAll()
+        await drainMainActorTasks()
+
+        XCTAssertFalse(model.isAuxiliaryInteractionPresented)
+        XCTAssertEqual(model.visualState, .collapsed)
+    }
+
+    func testPanelResignKeyCannotCollapseDuringAuxiliaryInteraction() {
+        let model = DynamicIslandPresentationModel(phase: .expanded)
+        let controller = NotchiumPanelController(model: model)
+        defer { controller.hide() }
+
+        model.setAuxiliaryInteractionPresented(true)
+        controller.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification))
+        XCTAssertEqual(model.visualState, .expanded)
+
+        model.setAuxiliaryInteractionPresented(false)
+        controller.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification))
+        XCTAssertEqual(model.visualState, .collapsed)
+    }
+
+    func testAuxiliaryActionClickIsConsumedAcrossEitherAppKitCallbackOrder() {
+        let clickBeforeClose = DynamicIslandPresentationModel(phase: .expanded)
+        clickBeforeClose.setAuxiliaryInteractionPresented(true)
+        XCTAssertTrue(clickBeforeClose.consumePointerClickForAuxiliaryInteraction())
+        clickBeforeClose.endAuxiliaryInteraction(actionSelected: true)
+        XCTAssertFalse(clickBeforeClose.consumePointerClickForAuxiliaryInteraction())
+
+        let clickAfterClose = DynamicIslandPresentationModel(phase: .expanded)
+        clickAfterClose.setAuxiliaryInteractionPresented(true)
+        clickAfterClose.endAuxiliaryInteraction(actionSelected: true)
+        XCTAssertTrue(clickAfterClose.consumePointerClickForAuxiliaryInteraction())
+        XCTAssertFalse(clickAfterClose.consumePointerClickForAuxiliaryInteraction())
     }
 
     func testSwipeOverlayNeverInterceptsPointerHitTesting() {
