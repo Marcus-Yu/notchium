@@ -18,9 +18,10 @@ let package = Package(
             name: "NotchiumDiagnostics",
             dependencies: ["NotchiumCore"]
         ),
+        .target(name: "NotchiumRealtimeAudio", publicHeadersPath: "include"),
         .target(
             name: "NotchiumServices",
-            dependencies: ["NotchiumCore"]
+            dependencies: ["NotchiumCore", "NotchiumRealtimeAudio"]
         ),
         .target(
             name: "NotchiumPersistence",
@@ -53,11 +54,11 @@ let package = Package(
         ),
         .target(
             name: "NotchiumCaffeineFeature",
-            dependencies: ["NotchiumCore", "NotchiumServices"]
+            dependencies: ["NotchiumCore", "NotchiumServices", "NotchiumDynamicIsland"]
         ),
         .target(
             name: "NotchiumKeyboardLockFeature",
-            dependencies: ["NotchiumCore", "NotchiumServices"]
+            dependencies: ["NotchiumCore", "NotchiumServices", "NotchiumDynamicIsland"]
         ),
         .target(
             name: "NotchiumClipboardFeature",
@@ -126,13 +127,17 @@ let package = Package(
             name: "NotchiumFeatureTests",
             dependencies: [
                 "NotchiumCore",
+                "NotchiumAudioFeature",
+                "NotchiumCaffeineFeature",
                 "NotchiumCalendarFeature",
                 "NotchiumDiagnostics",
                 "NotchiumDynamicIsland",
                 "NotchiumFeature",
+                "NotchiumKeyboardLockFeature",
                 "NotchiumServices",
                 "NotchiumTestFixtures",
                 "NotchiumMediaFeature",
+                "NotchiumRealtimeAudio",
             ]
         ),
     ]
