@@ -13,14 +13,11 @@ public final class CalendarActivityModel: NotchCalendarRendering {
     @ObservationIgnored private let service: any CalendarService
     public let reminders: CalendarReminderCoordinator
     @ObservationIgnored private var observation: Task<Void, Never>?
-    @ObservationIgnored private let openPage: @MainActor () -> Void
 
     public init(service: any CalendarService, coordinator: ActivityCoordinator,
-                clock: any AppClock = ContinuousAppClock(),
-                openPage: @escaping @MainActor () -> Void = {}) {
+                clock: any AppClock = ContinuousAppClock()) {
         self.service = service
         self.reminders = CalendarReminderCoordinator(activities: coordinator, clock: clock)
-        self.openPage = openPage
     }
 
     public var reminderVisible: Bool { reminders.current != nil }
@@ -52,15 +49,13 @@ public final class CalendarActivityModel: NotchCalendarRendering {
 
     public func dismissReminder() { reminders.dismiss() }
     public func setReminderHovered(_ hovered: Bool) { reminders.setHovered(hovered) }
-    public func openReminder() {
-        reminders.dismiss()
-        openPage()
-    }
     public func joinReminder() {
         guard let url = reminders.current?.event.meetingURL else { return }
         NSWorkspace.shared.open(url)
         reminders.dismiss()
     }
-    public func reminderBanner() -> AnyView { AnyView(CalendarReminderView(model: self)) }
+    public func reminderBanner(action: @escaping @MainActor () -> Void) -> AnyView {
+        AnyView(CalendarReminderView(model: self, openActivity: action))
+    }
     public func expandedCalendar() -> AnyView { AnyView(CalendarActivityView(model: self)) }
 }
