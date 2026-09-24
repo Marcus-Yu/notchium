@@ -20,6 +20,37 @@ public struct NotchAudioHUD: Equatable, Sendable {
     func setPageVisible(_ visible: Bool)
 }
 
+public struct NotchAuxiliaryInteractionHandler: Equatable {
+    private final class Storage {
+        weak var model: DynamicIslandPresentationModel?
+        init(model: DynamicIslandPresentationModel?) { self.model = model }
+    }
+
+    private let storage: Storage
+
+    public init() { storage = Storage(model: nil) }
+
+    @MainActor
+    init(model: DynamicIslandPresentationModel) {
+        storage = Storage(model: model)
+    }
+
+    @MainActor
+    public func begin() {
+        storage.model?.setAuxiliaryInteractionPresented(true)
+    }
+
+    @MainActor
+    public func end(actionSelected: Bool) {
+        storage.model?.endAuxiliaryInteraction(actionSelected: actionSelected)
+    }
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.storage === rhs.storage
+    }
+}
+
 extension EnvironmentValues {
     @Entry public var notchAudioPageVisible = false
+    @Entry public var notchAuxiliaryInteraction = NotchAuxiliaryInteractionHandler()
 }
