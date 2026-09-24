@@ -189,7 +189,8 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
     }
 
     func windowDidResignKey(_ notification: Notification) {
-        guard model.visualState == .expanded else { return }
+        guard model.visualState == .expanded,
+              !model.isAuxiliaryInteractionPresented else { return }
         model.collapse()
     }
 
@@ -272,6 +273,13 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
 
     func handleClick(at point: CGPoint) {
         guard let currentLayout else { return }
+        guard !model.consumePointerClickForAuxiliaryInteraction() else { return }
+        if model.activityCoordinator.presentationMode == .compactHUD,
+           let frame = transientFrame(for: currentLayout),
+           NotchHoverRegion.contains(point, in: frame) {
+            // The compact HUD's SwiftUI button owns the click.
+            return
+        }
         if model.showsCalendarReminder,
            NotchHoverRegion.contains(point, in: reminderFrame(for: currentLayout)) {
             // The banner's SwiftUI buttons own its click, including Join and dismiss.
@@ -295,12 +303,22 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
 
     private func handleMouseMoved(at point: CGPoint) {
         guard let currentLayout else { return }
+        let insideAudioHUD = model.activityCoordinator.presentationMode == .compactHUD
+            && transientFrame(for: currentLayout).map { NotchHoverRegion.contains(point, in: $0) } == true
         let insideReminder = model.showsCalendarReminder
             && NotchHoverRegion.contains(point, in: reminderFrame(for: currentLayout))
         model.calendarRenderer?.setReminderHovered(insideReminder)
+        if insideAudioHUD {
+            model.activityCoordinator.setHovered(true)
+            model.setHovered(false)
+            return
+        }
         if insideReminder {
             model.setHovered(false)
             return
+        }
+        if model.activityCoordinator.presentationMode == .compactHUD {
+            model.activityCoordinator.setHovered(false)
         }
         let zone = model.surfaceState == .collapsed
             ? currentLayout.collapsedHoverFrame
@@ -314,9 +332,19 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
 
     private func updateHitTesting(at point: CGPoint) {
         guard let currentLayout else { return }
+        let insideAudioHUD = model.activityCoordinator.presentationMode == .compactHUD
+            && transientFrame(for: currentLayout).map { NotchHoverRegion.contains(point, in: $0) } == true
         let insideReminder = model.showsCalendarReminder
             && NotchHoverRegion.contains(point, in: reminderFrame(for: currentLayout))
-        panel.ignoresMouseEvents = model.surfaceState == .collapsed && !insideReminder
+        panel.ignoresMouseEvents = model.surfaceState == .collapsed && !insideReminder && !insideAudioHUD
+    }
+
+    private func transientFrame(for layout: NotchPanelLayout) -> CGRect? {
+        NotchGeometryResolver.transientFrame(
+            for: layout,
+            mode: model.activityCoordinator.presentationMode,
+            reminderHeight: model.calendarReminderHeight
+        )
     }
 
     private func removePointerMonitors() {
