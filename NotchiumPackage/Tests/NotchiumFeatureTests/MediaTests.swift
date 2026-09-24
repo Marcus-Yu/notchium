@@ -44,7 +44,7 @@ private actor MemoryMediaSnapshotStore: MediaSnapshotStoring {
         await drain()
         capture.levels?(Array(repeating: 0.8, count: 7))
         await drain()
-        XCTAssertEqual(presentation.activityCoordinator.activeActivity?.priority, 20)
+        XCTAssertEqual(presentation.activityCoordinator.activeActivity?.priority, .low)
         XCTAssertTrue(presentation.showsCollapsedMedia)
         XCTAssertEqual(presentation.surfaceState, .collapsed)
         XCTAssertEqual(presentation.pageModel.selectedPage, .music)
@@ -110,7 +110,8 @@ private actor MemoryMediaSnapshotStore: MediaSnapshotStoring {
         let alert = NotchActivity(id: UUID(), kind: .notification, title: "Test alert", subtitle: nil, priority: 100, duration: nil)
         presentation.activityCoordinator.present(alert)
         for _ in 0..<100 { model.receive(playing) }
-        XCTAssertEqual(presentation.activityCoordinator.queueCount, 1)
+        XCTAssertEqual(presentation.activityCoordinator.queueCount, 0)
+        XCTAssertEqual(presentation.activityCoordinator.persistentActivity?.id, id)
         XCTAssertFalse(presentation.showsCollapsedMedia)
         presentation.activityCoordinator.dismissActive()
         XCTAssertEqual(presentation.activityCoordinator.activeActivity?.id, id)
