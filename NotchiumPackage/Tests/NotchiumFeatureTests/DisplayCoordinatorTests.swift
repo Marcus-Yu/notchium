@@ -107,13 +107,20 @@ final class DisplayCoordinatorTests: XCTestCase {
         let model = coordinator.presentationModel
         let passiveLayout = panel.layout
         model.activityCoordinator.present(NotchActivity(
-            id: UUID(), kind: .media, title: "Mock song", subtitle: nil,
-            priority: 20, duration: nil
+            id: UUID(), kind: .calendar, title: "Standup", subtitle: "5 min",
+            priority: .high, duration: .seconds(10)
         ))
         await drainMainActorTasks()
         XCTAssertEqual(model.presentationState, .activity)
         XCTAssertEqual(model.visualState, .collapsed)
-        XCTAssertEqual(panel.layout?.surfaceSize, NotchGeometryResolver.expandedNotchSize)
+        XCTAssertEqual(panel.layout?.surfaceSize, passiveLayout?.surfaceSize)
+        XCTAssertNotNil(panel.layout.flatMap {
+            NotchGeometryResolver.transientFrame(
+                for: $0,
+                mode: model.activityCoordinator.presentationMode,
+                reminderHeight: model.calendarReminderHeight
+            )
+        })
         XCTAssertEqual(panel.layout?.panelFrame, passiveLayout?.panelFrame)
         model.activityCoordinator.dismissActive()
         await drainMainActorTasks()
@@ -146,7 +153,9 @@ final class DisplayCoordinatorTests: XCTestCase {
         XCTAssertEqual(model.presentationState, .activity)
         XCTAssertEqual(model.visualState, .collapsed)
         XCTAssertNotNil(model.activityCoordinator.activeActivity)
-        XCTAssertEqual(model.activityCoordinator.queueCount, 1)
+        XCTAssertEqual(model.activityCoordinator.queueCount, 0)
+        XCTAssertNotNil(model.activityCoordinator.persistentActivity)
+        XCTAssertNotNil(model.activityCoordinator.activeTransient)
         XCTAssertEqual(model.pageModel.selectedPage, .calendar)
         await drainMainActorTasks()
         XCTAssertEqual(model.presentationState, .activity)
