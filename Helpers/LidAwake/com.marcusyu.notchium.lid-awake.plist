@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>com.marcusyu.notchium.lid-awake</string>
+<key>BundleProgram</key><string>Contents/Library/HelperTools/NotchiumLidAwake</string>
+<key>MachServices</key><dict><key>com.marcusyu.notchium.lid-awake</key><true/></dict>
+<key>RunAtLoad</key><true/>
+<key>KeepAlive</key><true/>
+<key>ThrottleInterval</key><integer>3</integer>
+</dict></plist>
