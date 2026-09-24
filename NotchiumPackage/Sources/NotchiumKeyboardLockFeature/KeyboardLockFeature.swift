@@ -6,6 +6,6 @@ public enum KeyboardLockFeature: FeatureModule {
         id: .keyboardLock,
         name: "Keyboard Cleaning Lock",
         summary: "Fail-open session event suppression with a fixed escape chord.",
-        requiredPermissions: [.accessibility, .inputMonitoring]
+        requiredPermissions: [.accessibility]
     )
 }
