@@ -5,6 +5,6 @@
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Notchium reads your selected calendars to show upcoming events and meeting links around the notch.</string>
 	<key>NSAudioCaptureUsageDescription</key>
-	<string>Notchium analyzes Spotify audio in memory to generate the live media waveform.</string>
+	<string>Notchium captures app audio in memory to control each app’s volume and generate the Spotify waveform. Audio is never saved.</string>
 </dict>
 </plist>
