@@ -17,6 +17,14 @@ public enum FeatureID: String, CaseIterable, Codable, Hashable, Sendable {
     case developerPanel
 }
 
+public enum CaffeineMode: String, Codable, CaseIterable, Equatable, Sendable {
+    case off
+    case system
+    case systemAndDisplay
+
+    public var isActive: Bool { self != .off }
+}
+
 public enum AvailabilityReason: String, Codable, Hashable, Sendable {
     case available
     case disabledByFeatureFlag
