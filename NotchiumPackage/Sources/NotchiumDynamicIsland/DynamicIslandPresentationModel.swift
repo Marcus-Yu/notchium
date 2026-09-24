@@ -48,29 +48,34 @@ public enum NotchPresentationPhase: Equatable, Sendable {
 public final class DynamicIslandPresentationModel {
     public private(set) var phase: NotchPresentationPhase
     public private(set) var reduceMotion = false
+    public private(set) var isAuxiliaryInteractionPresented = false
 
     public let activityCoordinator: ActivityCoordinator
     public let pageModel: NotchPageModel
     public var mediaRenderer: (any NotchMediaRendering)?
     public var calendarRenderer: (any NotchCalendarRendering)?
     public var audioRenderer: (any NotchAudioRendering)?
-    public private(set) var audioHUD: NotchAudioHUD?
+    public var caffeineController: (any NotchCaffeineControlling)?
+    public var keyboardLockController: (any NotchKeyboardLockControlling)?
+    public var audioHUD: NotchAudioHUD? {
+        guard case let .audio(hud) = activityCoordinator.activeTransient?.payload else { return nil }
+        return hud
+    }
     // Measured at the banner's fixed target width; shared with AppKit hit testing.
     var calendarReminderHeight: CGFloat = NotchReminderGeometry.minimumHeight
 
     public var showsCalendarReminder: Bool {
         _ = activityRevision
         return calendarRenderer?.reminderVisible == true
-            && audioHUD == nil
-            && activityCoordinator.activeActivity?.kind == .calendar && visualState == .collapsed
+            && activityCoordinator.activeTransient?.kind == .calendar
+            && [.downwardBanner, .combined].contains(activityCoordinator.presentationMode)
+            && visualState == .collapsed
     }
 
     public var showsCollapsedMedia: Bool {
         _ = activityRevision
-        let activity = activityCoordinator.activeActivity?.kind
         return mediaRenderer?.collapsedMediaVisible == true
-            && audioHUD == nil
-            && (activity == .media || activity == .calendar)
+            && [.mediaSides, .combined].contains(activityCoordinator.presentationMode)
             && visualState == .collapsed
     }
 
@@ -85,18 +90,13 @@ public final class DynamicIslandPresentationModel {
     /// The sole presentation decision; Stage 2 phase remains manual interaction state.
     public var presentationState: NotchPresentationState {
         _ = activityRevision
-        if let activity = activityCoordinator.activeActivity {
-            if activity.kind == .notification && activity.priority == 100 { return .activity }
-            if visualState == .collapsed { return .activity }
-        }
+        if activityCoordinator.presentationMode != .none, visualState == .collapsed { return .activity }
         return visualState == .collapsed ? .passive : .expanded
     }
 
     /// Activities reuse the existing open shell geometry without becoming pinned.
     public var surfaceState: NotchStableState {
-        ((mediaRenderer != nil && activityCoordinator.activeActivity?.kind == .media
-          || calendarRenderer != nil && activityCoordinator.activeActivity?.kind == .calendar)
-         && visualState == .collapsed)
+        (activityCoordinator.presentationMode != .none && visualState == .collapsed)
             ? .collapsed : (presentationState == .activity ? .hovered : visualState)
     }
 
@@ -108,9 +108,12 @@ public final class DynamicIslandPresentationModel {
     @ObservationIgnored private var pendingHoverTask: Task<Void, Never>?
     @ObservationIgnored private var pendingCollapseTask: Task<Void, Never>?
     @ObservationIgnored private var transitionTask: Task<Void, Never>?
-    @ObservationIgnored private var audioHUDTask: Task<Void, Never>?
+    @ObservationIgnored private let audioActivityID = UUID()
     @ObservationIgnored private var hoverGeneration = 0
     @ObservationIgnored private var transitionGeneration = 0
+    @ObservationIgnored lazy var auxiliaryInteractionHandler = NotchAuxiliaryInteractionHandler(model: self)
+    @ObservationIgnored private var auxiliaryInteractionObservedClick = false
+    @ObservationIgnored private var suppressNextAuxiliaryActionClick = false
 
     private let hoverEntryDelay: Duration = .milliseconds(120)
     private let hoverExitDelay: Duration = .milliseconds(200)
@@ -124,24 +127,65 @@ public final class DynamicIslandPresentationModel {
         self.clock = clock
         activityCoordinator = ActivityCoordinator(clock: clock)
         pageModel = NotchPageModel()
-        activityObservation = activityCoordinator.$activeActivity.sink { [weak self] activity in
+        activityObservation = activityCoordinator.$activeTransient
+            .combineLatest(activityCoordinator.$persistentActivity)
+            .sink { [weak self] activity, _ in
             guard let self else { return }
             self.activityRevision &+= 1
             // A collapsed activity opens on its own page. Expanded navigation remains user-owned.
             if self.visualState == .collapsed {
                 self.selectPage(for: activity)
             }
-        }
+            }
     }
 
     public func setHovered(_ isHovered: Bool) {
         guard pointerIsInside != isHovered else { return }
         pointerIsInside = isHovered
+        guard !isAuxiliaryInteractionPresented else {
+            if isHovered { pendingCollapseTask?.cancel() }
+            return
+        }
         if isHovered {
             scheduleHoverExpansion()
         } else {
             scheduleCollapse()
         }
+    }
+
+    public func setAuxiliaryInteractionPresented(_ presented: Bool) {
+        if presented {
+            guard !isAuxiliaryInteractionPresented else { return }
+            isAuxiliaryInteractionPresented = true
+            auxiliaryInteractionObservedClick = false
+            suppressNextAuxiliaryActionClick = false
+            pendingCollapseTask?.cancel()
+            hoverGeneration &+= 1
+        } else {
+            endAuxiliaryInteraction(actionSelected: false)
+        }
+    }
+
+    func endAuxiliaryInteraction(actionSelected: Bool) {
+        guard isAuxiliaryInteractionPresented else { return }
+        isAuxiliaryInteractionPresented = false
+        suppressNextAuxiliaryActionClick = actionSelected && !auxiliaryInteractionObservedClick
+        auxiliaryInteractionObservedClick = false
+        if !pointerIsInside {
+            scheduleCollapse()
+        }
+    }
+
+    func consumePointerClickForAuxiliaryInteraction() -> Bool {
+        if isAuxiliaryInteractionPresented {
+            auxiliaryInteractionObservedClick = true
+            return true
+        }
+        if suppressNextAuxiliaryActionClick {
+            suppressNextAuxiliaryActionClick = false
+            return true
+        }
+        return false
     }
 
     public func toggleExpanded() {
@@ -183,8 +227,6 @@ public final class DynamicIslandPresentationModel {
     }
 
     public func reset() {
-        audioHUDTask?.cancel()
-        audioHUD = nil
         activityCoordinator.clearAll()
         pendingHoverTask?.cancel()
         pendingCollapseTask?.cancel()
@@ -192,6 +234,9 @@ public final class DynamicIslandPresentationModel {
         hoverGeneration &+= 1
         transitionGeneration &+= 1
         pointerIsInside = false
+        isAuxiliaryInteractionPresented = false
+        auxiliaryInteractionObservedClick = false
+        suppressNextAuxiliaryActionClick = false
         phase = .collapsed
     }
 
@@ -200,31 +245,42 @@ public final class DynamicIslandPresentationModel {
         self.reduceMotion = reduceMotion
     }
 
-    /// Repeated volume events update the same HUD instance and only extend its deadline.
+    /// Repeated events coalesce into the coordinator's single Audio slot and reset its deadline.
     public func showAudioHUD(_ hud: NotchAudioHUD) {
-        guard visualState == .collapsed else { return }
-        audioHUDTask?.cancel()
-        if audioHUD == nil {
-            withAnimation(reduceMotion ? NotchMotion.reduced : .smooth(duration: 0.24)) {
-                audioHUD = hud
-            }
-        } else {
-            audioHUD = hud
+        let kind: NotchActivityKind = hud.kind == .outputChanged ? .audioDevice : .systemHUD
+        activityCoordinator.present(.init(
+            id: audioActivityID,
+            kind: kind,
+            title: hud.deviceName,
+            subtitle: hud.kind == .outputChanged ? "Output changed" : "Volume",
+            priority: hud.kind == .outputChanged ? .medium : .low,
+            presentationStyle: .compactHUD,
+            lifetime: .transient,
+            destination: .audio,
+            duration: .milliseconds(1250),
+            payload: .audio(hud)
+        ))
+    }
+
+    public func activateCurrentActivity() {
+        guard let activity = activityCoordinator.activeTransient else { return }
+        activityCoordinator.dismiss(id: activity.id)
+        if let destination = activity.destination {
+            selectPage(destination)
         }
-        audioHUDTask = Task { [weak self, clock] in
-            do { try await clock.sleep(for: .milliseconds(1250)) } catch { return }
-            guard !Task.isCancelled, let self else { return }
-            withAnimation(self.reduceMotion ? NotchMotion.reduced : .smooth(duration: 0.22)) {
-                self.audioHUD = nil
-            }
-        }
+        setExpanded(true)
     }
 
     private func selectPage(for activity: NotchActivity?) {
-        switch activity?.kind {
-        case .media: pageModel.selectedPage = .music
+        guard let destination = activity?.destination else { return }
+        selectPage(destination)
+    }
+
+    private func selectPage(_ destination: NotchActivityDestination) {
+        switch destination {
+        case .music: pageModel.selectedPage = .music
         case .calendar: pageModel.selectedPage = .calendar
-        default: break
+        case .audio: pageModel.selectedPage = .audio
         }
     }
 
@@ -277,7 +333,9 @@ public final class DynamicIslandPresentationModel {
     }
 
     private func completeScheduledCollapse(generation: Int) {
-        guard generation == hoverGeneration, visualState != .expanded else { return }
+        guard generation == hoverGeneration,
+              !isAuxiliaryInteractionPresented,
+              visualState != .expanded else { return }
         setExpanded(false)
     }
 
