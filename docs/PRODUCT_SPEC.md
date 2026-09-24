@@ -169,22 +169,23 @@ The feasibility basis and distribution consequences for each row are defined in 
 
 ### 5.8 Caffeine
 
-- The primary toggle starts or releases an idle-system-sleep assertion.
-- Secondary actions offer 15 minutes, 30 minutes, 1 hour, 2 hours, until a chosen clock time, and indefinite.
-- The same duration choices are available from the feature's right-click/context menu without requiring the expanded view.
-- Hover reveals the remaining duration for timed assertions.
+- Three session-only states: off (neutral), system awake (green), and system plus display awake (blue).
+- An ordinary click toggles off → system awake, or either active state → off.
+- Holding from off or system awake for 0.75 seconds selects system plus display awake. A completed hold consumes the click.
+- A continuous border fills over the hold; early release performs the ordinary click and resets the border. Dragging out or cancelling the gesture performs no action.
+- The control is icon-only with a tooltip; no caption or duration selector.
 - Assertions are released when the user disables the feature and when the process exits.
-- The UI states that power assertions are advisory and may not override low-power or thermal protection.
+- Optional [closed-lid mode](LID_AWAKE.md) applies to both active states after separate administrator approval. It uses a short-lived privileged lease, defaults off at launch, and stops under low battery or high thermal pressure.
 
 ### 5.9 Keyboard Cleaning Lock
 
 - Enabling requires a successful public session-level active event tap and the required system trust.
 - Mouse and trackpad movement and clicks remain usable.
 - Clicking the notch or menu-bar lock indicator unlocks immediately.
-- Holding Control–Option–Command–Escape for three continuous seconds unlocks. The escape chord itself is recognized but not forwarded while locked.
-- Event-tap disablement, timeout, loss of trust, callback failure, app termination, or internal watchdog failure releases the lock immediately.
+- Holding Command–Option–Escape for approximately two continuous seconds unlocks. The escape chord itself is recognized before suppression but is not forwarded while locked.
+- Event-tap disablement or timeout triggers an immediate verified re-enable; failed recovery, loss of trust, callback failure, app termination, or internal watchdog failure releases the lock immediately.
 - The feature never uses a root/HID event tap and never claims to suppress power, Touch ID, Secure Input, firmware, or all reserved system keys.
-- If trust is denied or the event tap cannot be established, the app does not enter a visually locked state.
+- If trust is denied, Secure Input is active, or the event tap cannot be established with the full keyboard mask, the app remains unlocked and explains why. Secure Input becoming active also ends an existing lock.
 
 ### 5.10 Clipboard History
 
