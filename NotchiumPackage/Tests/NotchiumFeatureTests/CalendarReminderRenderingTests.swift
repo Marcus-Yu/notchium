@@ -98,7 +98,7 @@ final class CalendarReminderRenderingTests: XCTestCase {
                         startDate: base.addingTimeInterval(1800), endDate: base.addingTimeInterval(3600),
                         meetingURL: meeting ? URL(string: "https://meet.google.com/abc-defg-hij") : nil)
                     await calendar.reminders.update(events: [event])
-                    let bitmap = try render(CalendarReminderView(model: calendar)
+                    let bitmap = try render(CalendarReminderView(model: calendar, openActivity: {})
                         .frame(width: 356).foregroundStyle(.white).background(.black),
                         name: "title-\(index)-\(meeting ? "join" : "no-link")-\(Int(scale))x", scale: scale)
                     heights.append(Int(CGFloat(bitmap.pixelsHigh) / scale))
@@ -136,7 +136,7 @@ final class CalendarReminderRenderingTests: XCTestCase {
                     location: "Engineering conference room, North campus")
                 await calendar.reminders.update(events: [event])
                 XCTAssertNotNil(calendar.reminders.current)
-                let bitmap = try render(CalendarReminderView(model: calendar)
+                let bitmap = try render(CalendarReminderView(model: calendar, openActivity: {})
                     .frame(width: 356).foregroundStyle(.white).background(.black),
                     name: "centered-\(name)-\(Int(scale))x", scale: scale)
                 if meeting {
