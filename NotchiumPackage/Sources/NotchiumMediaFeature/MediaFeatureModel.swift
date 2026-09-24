@@ -251,7 +251,12 @@ public final class MediaSessionController {
         if errorMessage != next.issue { errorMessage = next.issue }
         if next.hasMedia {
             coordinator.present(.init(id: activityID, kind: .media, title: "Media",
-                                      subtitle: nil, priority: 20, duration: nil))
+                                      subtitle: nil, priority: .low,
+                                      presentationStyle: .mediaSides,
+                                      lifetime: .persistent,
+                                      isDismissible: false,
+                                      destination: .music,
+                                      duration: nil))
         } else { coordinator.dismiss(id: activityID) }
     }
     private func updateCollapsedVisibility(_ value: MediaState) {
