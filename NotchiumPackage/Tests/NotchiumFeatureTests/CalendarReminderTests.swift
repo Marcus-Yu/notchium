@@ -28,6 +28,7 @@ final class CalendarReminderTests: XCTestCase {
 
         await reminders.update(events: [upcoming])
         XCTAssertEqual(reminders.current?.label, "in 1 hr")
+        XCTAssertEqual(activities.activeTransient?.priority, .medium)
         XCTAssertEqual(activities.activeActivity?.kind, .calendar)
         reminders.dismiss()
         XCTAssertEqual(activities.activeActivity, media)
@@ -37,10 +38,12 @@ final class CalendarReminderTests: XCTestCase {
         await clock.advance(by: .seconds(1800))
         await reminders.update(events: [upcoming])
         XCTAssertEqual(reminders.current?.label, "30 min")
+        XCTAssertEqual(activities.activeTransient?.priority, .medium)
         reminders.dismiss()
         await clock.advance(by: .seconds(1500))
         await reminders.update(events: [upcoming])
         XCTAssertEqual(reminders.current?.label, "5 min")
+        XCTAssertEqual(activities.activeTransient?.priority, .high)
         reminders.dismiss()
         XCTAssertEqual(activities.activeActivity, media)
         reminders.stop()
@@ -70,7 +73,7 @@ final class CalendarReminderTests: XCTestCase {
         reminders.stop()
     }
 
-    func testSoonestEventWinsAndHigherPriorityActivitySuppressesStaleAlert() async {
+    func testSoonestEventWinsAndHigherPriorityActivityBuffersOneCalendarAlert() async {
         let clock = TestAppClock(now: base, automaticallyAdvances: false)
         let activities = ActivityCoordinator(clock: clock)
         let reminders = CalendarReminderCoordinator(activities: activities, clock: clock)
@@ -85,8 +88,9 @@ final class CalendarReminderTests: XCTestCase {
         activities.present(critical)
         let another = event(minutesAway: 6)
         await reminders.update(events: [another])
-        XCTAssertNil(reminders.current)
-        XCTAssertEqual(activities.queueCount, 0)
+        XCTAssertEqual(reminders.current?.event.id, another.id)
+        XCTAssertEqual(activities.activeTransient?.id, critical.id)
+        XCTAssertEqual(activities.queueCount, 1)
         reminders.stop()
     }
 
@@ -278,7 +282,9 @@ private final class ReminderMediaRenderer: NotchMediaRendering {
 @MainActor
 private final class ReminderCalendarRenderer: NotchCalendarRendering {
     var reminderVisible = true
-    func reminderBanner() -> AnyView { AnyView(Color.clear) }
+    func reminderBanner(action: @escaping @MainActor () -> Void) -> AnyView {
+        AnyView(Color.clear)
+    }
     func setReminderHovered(_ hovered: Bool) {}
     func expandedCalendar() -> AnyView { AnyView(Color.clear) }
 }
