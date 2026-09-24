@@ -5,7 +5,7 @@ public enum CaffeineFeature: FeatureModule {
     public static let descriptor = FeatureDescriptor(
         id: .caffeine,
         name: "Caffeine",
-        summary: "Time-bounded or indefinite public power assertions.",
+        summary: "Session-scoped system or system-and-display power assertions.",
         requiredPermissions: []
     )
 }
