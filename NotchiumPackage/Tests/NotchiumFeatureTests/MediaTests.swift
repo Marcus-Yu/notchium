@@ -64,6 +64,52 @@ private actor MemoryMediaSnapshotStore: MediaSnapshotStoring {
         XCTAssertFalse(presentation.showsCollapsedMedia)
         XCTAssertNotNil(presentation.activityCoordinator.activeActivity)
     }
+    func testCompactMediaGeometryPreservesHardwareAndHostFrames() {
+        let placement = NotchShellPlacement(display: builtInDisplay(), mode: .physicalNotch)
+        let original = NotchGeometryResolver.layout(for: placement, state: .collapsed)
+        let compact = NotchGeometryResolver.layout(for: placement, state: .collapsed,
+                                                   expandedSize: NotchGeometryResolver.expandedMediaSize)
+        XCTAssertEqual(compact.collapsedVisibleFrame, original.collapsedVisibleFrame)
+        XCTAssertEqual(compact.collapsedHoverFrame, original.collapsedHoverFrame)
+        XCTAssertEqual(compact.panelFrame, original.panelFrame)
+        let expanded = NotchGeometryResolver.layout(for: placement, state: .expanded,
+                                                    expandedSize: NotchGeometryResolver.expandedMediaSize)
+        XCTAssertEqual(expanded.surfaceSize, CGSize(width: 524, height: 266))
+        XCTAssertEqual(expanded.visibleSurfaceFrame.maxY, original.visibleSurfaceFrame.maxY)
+    }
+
+    func testCollapseCompletesWhilePlayingArtworkAndWaveformChange() async throws {
+        let clock = ControlledAppClock()
+        let presentation = DynamicIslandPresentationModel(clock: clock)
+        let provider = MockMediaProvider()
+        let capture = TestAudioCapture()
+        let meter = SystemAudioMeter(capture: capture, permissionGranted: { true })
+        let model = MediaFeatureModel(provider: provider, coordinator: presentation.activityCoordinator,
+                                      audioMeter: meter)
+        presentation.mediaRenderer = model
+        try await provider.apply(.play)
+        model.receive(await provider.snapshot)
+        await drain()
+        capture.levels?(Array(repeating: 0.8, count: 7))
+        await drain()
+        presentation.present(.expanded, animated: false)
+        presentation.collapse()
+        await waitForPendingSleep(clock)
+        XCTAssertEqual(presentation.phase, .transitioning(from: .expanded, to: .collapsed))
+        var updated = model.state
+        updated.artwork = URL(string: "notchium-fixture://changed-artwork")
+        model.receive(updated)
+        capture.levels?([0.2, 0.9, 0.4, 0.8, 0.3, 0.7, 0.5])
+        await drain()
+        XCTAssertTrue(model.state.isPlaying)
+        XCTAssertTrue(meter.isAudioActive)
+        await clock.releaseAll()
+        await drain()
+        XCTAssertEqual(presentation.phase, .collapsed)
+        XCTAssertTrue(presentation.showsCollapsedMedia)
+        XCTAssertEqual(model.state.artwork, updated.artwork)
+    }
+
     func testCalendarPageDoesNotHideCollapsedArtwork() async throws {
         let presentation = presentation()
         let provider = MockMediaProvider()
