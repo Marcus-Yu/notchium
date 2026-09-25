@@ -43,6 +43,8 @@ public enum NotchGeometryResolver {
         width: 560,
         height: 302
     )
+    public static let expandedMediaSize = CGSize(width: 524, height: 266)
+
     public static let panelSize = CGSize(
         width: 740,
         height: 322
@@ -54,7 +56,8 @@ public enum NotchGeometryResolver {
 
     public static func layout(
         for placement: NotchShellPlacement,
-        state: NotchStableState
+        state: NotchStableState,
+        expandedSize: CGSize = expandedNotchSize
     ) -> NotchPanelLayout {
         let hardwareGeometry = hardwareNotchGeometry(for: placement)
         let hasHardwareNotch = hardwareGeometry != nil
@@ -70,7 +73,7 @@ public enum NotchGeometryResolver {
         let surfaceSize = visibleSurfaceSize(
             state: state,
             collapsedSize: collapsedFrame.size,
-            expandedSize: expandedNotchSize
+            expandedSize: expandedSize
         )
         let surfaceCenterX = state == .collapsed ? collapsedFrame.midX : panelFrame.midX
         let visibleSurfaceFrame = CGRect(
@@ -87,7 +90,7 @@ public enum NotchGeometryResolver {
             collapsedHoverFrame: collapsedHoverFrame(from: collapsedFrame),
             hardwareNotchGeometry: hardwareGeometry,
             surfaceSize: surfaceSize,
-            expandedSize: expandedNotchSize,
+            expandedSize: expandedSize,
             hasHardwareNotch: hasHardwareNotch,
             topCornerRadius: topCornerRadius(for: placement.mode, state: state),
             bottomCornerRadius: bottomCornerRadius(for: placement.mode, state: state)
