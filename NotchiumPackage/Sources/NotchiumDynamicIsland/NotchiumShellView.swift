@@ -1,18 +1,16 @@
 import SwiftUI
 
 enum NotchMotion {
-    // Pointer/tap-driven motion is critically damped: responsive, interruptible, and bounce-free.
-    static let open = Animation.smooth(duration: 0.34)
-    static let close = Animation.smooth(duration: 0.30)
+    // Deliberate, bounce-free shell motion. Both dimensions and the content positions
+    // inherit this transaction. Zero bounce keeps arrival controlled while the native
+    // spring preserves presentation position/velocity when the target reverses.
+    static let open = Animation.smooth(duration: 0.75, extraBounce: 0)
+    static let close = Animation.smooth(duration: 0.65, extraBounce: 0)
 
     static func morph(opening: Bool) -> Animation { opening ? open : close }
     static func duration(opening: Bool) -> Duration {
-        opening ? .milliseconds(340) : .milliseconds(300)
+        opening ? .milliseconds(750) : .milliseconds(650)
     }
-
-    static let contentIn = Animation.smooth(duration: 0.22)
-
-    static let contentOut = Animation.smooth(duration: 0.14)
 
     static let reminderResize = Animation.smooth(duration: 0.32)
     static let reminderContentIn = Animation.easeOut(duration: 0.10).delay(0.20)
@@ -89,7 +87,6 @@ private struct NotchShellOuterSurface: View {
     @Bindable var model: DynamicIslandPresentationModel
     @ObservedObject private var pageModel: NotchPageModel
     let layout: NotchPanelLayout
-    @State private var contentVisible = false
 
     init(model: DynamicIslandPresentationModel, layout: NotchPanelLayout) {
         self.model = model
@@ -117,16 +114,21 @@ private struct NotchShellOuterSurface: View {
             hardwareWidth: layout.hardwareNotchGeometry?.frame.width ?? 0,
             hardwareHeight: layout.collapsedVisibleFrame.height
         )
+        let isMorphing: Bool = if case .transitioning = model.phase { true } else { false }
+        let auxiliaryAnimation = model.reduceMotion ? NotchMotion.reduced
+            : (isMorphing ? NotchMotion.morph(opening: model.surfaceState != .collapsed) : NotchMotion.reminderResize)
         let showMedia = model.showsCollapsedMedia
+        let collapsedMediaEligible = [.mediaSides, .combined].contains(model.activityCoordinator.presentationMode)
         let showAudioHUD = model.visualState == .collapsed
             && model.activityCoordinator.presentationMode == .compactHUD
             && model.audioHUD != nil
         let reminderWidth = NotchReminderGeometry.width(for: layout)
         let shape = NotchShellSurface(
-            width: showAudioHUD ? 292 : (showMedia ? mediaGeometry.width : layout.surfaceSize.width),
+            width: showAudioHUD ? 292 : (model.surfaceState != .collapsed ? layout.expandedSize.width
+                : (showMedia ? mediaGeometry.width : layout.collapsedVisibleFrame.width)),
             height: showAudioHUD ? layout.collapsedVisibleFrame.height + 78
                 : (model.surfaceState == .collapsed ? layout.collapsedVisibleFrame.height : layout.expandedSize.height),
-            centerX: layout.visibleSurfaceFrame.midX - layout.panelFrame.minX,
+            centerX: model.surfaceState == .collapsed ? passiveShape.centerX : layout.panelFrame.width / 2,
             bottomRadius: model.surfaceState == .collapsed ? passiveShape.bottomCornerRadius : 28,
             passiveShape: passiveShape,
             reminderHeight: model.surfaceState == .collapsed ? model.calendarReminderHeight : 0,
@@ -134,101 +136,90 @@ private struct NotchShellOuterSurface: View {
             reminderProgress: model.showsCalendarReminder ? 1 : 0
         )
 
-        ZStack(alignment: .top) {
-            shape.fill(Color.black)
-                .allowsHitTesting(false)
-                .zIndex(0)
+        NotchTransitionSurface(
+            progress: model.surfaceState == .collapsed ? 0 : 1,
+            shape: shape,
+            expandedSize: layout.expandedSize,
+            isTransitioning: isMorphing
+        ) { motion in
+            ZStack(alignment: .top) {
+                // Both rows share the shell's fill and mask. The top row owns the
+                // attachment edge, including when there is no media to render.
+                VStack(spacing: 0) {
+                    ZStack {
+                        Color.clear.allowsHitTesting(false)
+                        if model.mediaRenderer?.collapsedMediaVisible == true,
+                           let renderer = model.mediaRenderer {
+                            renderer.collapsedMedia(hardwareWidth: mediaGeometry.hardwareWidth, hardwareHeight: mediaGeometry.height)
+                                .frame(width: mediaGeometry.width, height: mediaGeometry.height)
+                                .modifier(NotchPresentationClip(visible: !motion.showsExpanded && collapsedMediaEligible))
+                                .allowsHitTesting(showMedia)
+                                .accessibilityHidden(!showMedia)
+                        }
+                    }
+                    .frame(height: layout.collapsedVisibleFrame.height)
 
-            // Both rows share the shell's fill and mask. The top row owns the
-            // attachment edge, including when there is no media to render.
-            VStack(spacing: 0) {
-                ZStack {
-                    Color.clear.allowsHitTesting(false)
-                    if model.mediaRenderer?.collapsedMediaVisible == true,
-                       let renderer = model.mediaRenderer {
-                        renderer.collapsedMedia(hardwareWidth: mediaGeometry.hardwareWidth, hardwareHeight: mediaGeometry.height)
-                            .frame(width: mediaGeometry.width, height: mediaGeometry.height)
-                            .opacity(showMedia ? 1 : 0)
-                            .allowsHitTesting(showMedia)
-                            .accessibilityHidden(!showMedia)
+                    if showAudioHUD, let hud = model.audioHUD {
+                        NotchAudioHUDView(
+                            hud: hud,
+                            action: model.activateCurrentActivity,
+                            hoverChanged: model.activityCoordinator.setHovered
+                        )
+                            .frame(width: 264, height: 74)
+                            .padding(.bottom, 4)
+                    }
+
+                    if model.showsCalendarReminder, let renderer = model.calendarRenderer {
+                        renderer.reminderBanner(action: model.activateCurrentActivity)
+                            .frame(width: reminderWidth)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .onGeometryChange(for: CGFloat.self) { proxy in
+                                max(NotchReminderGeometry.minimumHeight, ceil(proxy.size.height))
+                            } action: { height in
+                                model.calendarReminderHeight = height
+                            }
+                            .transition(.asymmetric(
+                                insertion: .opacity.animation(model.reduceMotion ? NotchMotion.reduced : NotchMotion.reminderContentIn),
+                                removal: .opacity.animation(model.reduceMotion ? NotchMotion.reduced : NotchMotion.reminderContentOut)
+                            ))
                     }
                 }
-                .frame(height: layout.collapsedVisibleFrame.height)
+                .frame(width: showAudioHUD ? 292 : mediaGeometry.width, alignment: .top)
+                .zIndex(3)
 
-                if showAudioHUD, let hud = model.audioHUD {
-                    NotchAudioHUDView(
-                        hud: hud,
-                        action: model.activateCurrentActivity,
-                        hoverChanged: model.activityCoordinator.setHovered
+                ZStack(alignment: .topTrailing) {
+                    shellContent
+                    NotchUtilityControls(
+                        caffeine: model.caffeineController,
+                        keyboardLock: model.keyboardLockController,
+                        close: model.collapse
                     )
-                        .frame(width: 264, height: 74)
-                        .padding(.bottom, 4)
-                }
-
-                if model.showsCalendarReminder, let renderer = model.calendarRenderer {
-                    renderer.reminderBanner(action: model.activateCurrentActivity)
-                        .frame(width: reminderWidth)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .onGeometryChange(for: CGFloat.self) { proxy in
-                            max(NotchReminderGeometry.minimumHeight, ceil(proxy.size.height))
-                        } action: { height in
-                            model.calendarReminderHeight = height
-                        }
-                        .transition(.asymmetric(
-                            insertion: .opacity.animation(model.reduceMotion ? NotchMotion.reduced : NotchMotion.reminderContentIn),
-                            removal: .opacity.animation(model.reduceMotion ? NotchMotion.reduced : NotchMotion.reminderContentOut)
-                        ))
-                }
-            }
-            .frame(width: showAudioHUD ? 292 : mediaGeometry.width, alignment: .top)
-            .zIndex(3)
-
-            shellContent
-                .frame(
-                    width: layout.expandedSize.width,
-                    height: layout.expandedSize.height,
-                    alignment: .top
-                )
-                .zIndex(10)
-
-            if model.surfaceState != .collapsed {
-                NotchUtilityControls(
-                    caffeine: model.caffeineController,
-                    keyboardLock: model.keyboardLockController,
-                    close: model.collapse
-                )
                     .padding(.trailing, NotchGeometryResolver.expandedContentHorizontalInset)
                     .padding(.top, 8)
-                    .frame(width: layout.expandedSize.width, alignment: .trailing)
-                    .zIndex(11)
-            }
-
-            NotchShellStateMarker(state: model.surfaceState).allowsHitTesting(false)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .overlayPreferenceValue(MediaArtworkAnchorKey.self) { anchor in
-            GeometryReader { proxy in
-                if model.showsSharedMediaArtwork,
-                   let anchor, let renderer = model.mediaRenderer {
-                    let rect = proxy[anchor]
-                    renderer.mediaArtwork(size: rect.width)
-                        .position(x: rect.midX, y: rect.midY)
-                        .allowsHitTesting(false)
                 }
+                .frame(width: layout.expandedSize.width, height: layout.expandedSize.height, alignment: .top)
+                .notchRetractingContent()
+                .coordinateSpace(.named("notch.expandedContent"))
+                .modifier(NotchPresentationClip(visible: motion.showsExpanded))
+                .allowsHitTesting(model.surfaceState != .collapsed)
+                .accessibilityHidden(model.surfaceState == .collapsed)
+                .zIndex(10)
+
+                NotchShellStateMarker(state: model.surfaceState).allowsHitTesting(false)
             }
-            .allowsHitTesting(false)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        .mask(shape)
         .contentShape(Rectangle())
         .environment(\.notchMediaRenderer, model.mediaRenderer)
-        .environment(\.notchSharedMediaArtwork, true)
+        .environment(\.notchSharedMediaArtwork, false)
         .environment(\.notchMediaExpanded, model.surfaceState != .collapsed)
         .foregroundStyle(.white)
-        .animation(model.reduceMotion ? NotchMotion.reduced : NotchMotion.reminderResize,
+        .animation(auxiliaryAnimation,
                    value: model.showsCalendarReminder)
-        .animation(model.reduceMotion ? NotchMotion.reduced : NotchMotion.reminderResize,
+        .animation(auxiliaryAnimation,
                    value: model.calendarReminderHeight)
-        .animation(model.reduceMotion ? NotchMotion.reduced : .smooth(duration: 0.24),
+        .animation(model.reduceMotion ? NotchMotion.reduced
+                   : (isMorphing ? auxiliaryAnimation : .smooth(duration: 0.24)),
                    value: showAudioHUD)
     }
 
@@ -248,21 +239,6 @@ private struct NotchShellOuterSurface: View {
                 }
             }
             .padding(.top, layout.collapsedVisibleFrame.height)
-        }
-        .opacity(contentVisible ? 1 : 0)
-        .blur(radius: contentVisible || model.reduceMotion ? 0 : 3)
-        .allowsHitTesting(contentVisible && model.surfaceState != .collapsed)
-        .accessibilityHidden(!contentVisible)
-        .task(id: model.surfaceState != .collapsed) {
-            guard model.surfaceState != .collapsed else {
-                withAnimation(model.reduceMotion ? NotchMotion.reduced : NotchMotion.contentOut) {
-                    contentVisible = false
-                }
-                return
-            }
-            withAnimation(model.reduceMotion ? NotchMotion.reduced : NotchMotion.contentIn) {
-                contentVisible = true
-            }
         }
     }
 }
