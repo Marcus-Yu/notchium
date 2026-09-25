@@ -121,7 +121,7 @@ final class DynamicIslandPresentationTests: XCTestCase {
 
         XCTAssertEqual(model.phase, .expanded)
         let history = await clock.sleepHistory()
-        XCTAssertEqual(history, [.milliseconds(340)])
+        XCTAssertEqual(history, [.milliseconds(750)])
     }
 
     func testHoverReentryCancelsPendingCollapse() async {
@@ -150,6 +150,33 @@ final class DynamicIslandPresentationTests: XCTestCase {
         await drainMainActorTasks()
 
         XCTAssertEqual(model.phase, .collapsed)
+    }
+
+    func testClosingUsesSoftShorterDuration() async {
+        let clock = TestAppClock(now: Date(timeIntervalSince1970: 0))
+        let model = DynamicIslandPresentationModel(phase: .expanded, clock: clock)
+        model.collapse()
+        await drainMainActorTasks()
+        XCTAssertEqual(model.phase, .collapsed)
+        let history = await clock.sleepHistory()
+        XCTAssertEqual(history, [.milliseconds(650)])
+    }
+
+    func testRapidReversalsSettleAtLatestTarget() async {
+        for finalExpanded in [false, true] {
+            let clock = ControlledAppClock()
+            let model = DynamicIslandPresentationModel(clock: clock)
+            for _ in 0..<12 {
+                model.toggleExpanded()
+                await waitForPendingSleep(clock)
+            }
+            model.setExpanded(finalExpanded)
+            await waitForPendingSleep(clock)
+            await clock.releaseAll()
+            await drainMainActorTasks()
+            XCTAssertEqual(model.phase, finalExpanded ? .expanded : .collapsed)
+            XCTAssertEqual(model.surfaceState, finalExpanded ? .expanded : .collapsed)
+        }
     }
 
     func testReduceMotionUsesDeterministicShortTransition() async {
