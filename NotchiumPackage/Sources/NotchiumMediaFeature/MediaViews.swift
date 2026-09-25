@@ -54,6 +54,7 @@ public struct CollapsedMediaView: View {
 
 public struct MediaPageView: View {
     let model: MediaFeatureModel
+    @Environment(\.notchShellIsTransitioning) private var shellIsTransitioning
     @State private var selectedSurface = MediaSurface.player
     @State private var showsDevices = false
     @Environment(\.notchMediaExpanded) private var isExpanded
@@ -65,9 +66,8 @@ public struct MediaPageView: View {
         Group {
             switch model.state.experienceState {
             case .playing, .paused:
-                VStack(spacing: 8) {
+                VStack(spacing: 4) {
                     MediaSurfacePicker(selection: $selectedSurface)
-                        .padding(.top, 16)
                     Group {
                         switch selectedSurface {
                         case .player:
@@ -80,7 +80,7 @@ public struct MediaPageView: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.985, anchor: .top)))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .padding(.horizontal, NotchGeometryResolver.expandedContentHorizontalInset)
+                .padding(.horizontal, NotchGeometryResolver.expandedContentHorizontalInset * 0.92)
                 .animation(MediaMotion.surface(reduceMotion: reduceMotion), value: selectedSurface)
             case .initializing:
                 statusView(title: "Spotify", message: "Restoring your Spotify session…", showsProgress: true)
@@ -106,8 +106,8 @@ public struct MediaPageView: View {
         .task(id: isExpanded && isPageVisible) {
             await model.setExpandedVisible(isExpanded && isPageVisible)
         }
-        .onChange(of: isExpanded) { _, expanded in
-            if !expanded {
+        .onChange(of: !isExpanded && !shellIsTransitioning) { _, settledClosed in
+            if settledClosed {
                 selectedSurface = .player
                 showsDevices = false
             }
@@ -151,20 +151,22 @@ public struct MediaPageView: View {
     private var player: some View {
         let trackIdentity = model.state.trackID ?? model.state.title ?? "unknown-track"
         return ZStack(alignment: .bottomTrailing) {
-            HStack(spacing: 20) {
-                MediaArtworkSlot(url: model.state.artwork, size: 92, expanded: true)
-                VStack(alignment: .leading, spacing: 7) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(model.state.title ?? "").font(.system(size: 17, weight: .semibold))
+            HStack(spacing: 18) {
+                MediaArtworkSlot(url: model.state.artwork, size: 84, expanded: true)
+                VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 3.5) {
+                        Text(model.state.title ?? "").font(.system(size: 16, weight: .semibold))
                             .lineLimit(1).truncationMode(.tail)
                         HStack(spacing: 8) {
                             Text(model.state.artist ?? "")
-                                .font(.system(size: 13, weight: .regular))
+                                .font(.system(size: 12, weight: .regular))
                                 .foregroundStyle(.gray)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                             Spacer(minLength: 0)
                             MediaWaveform(isPlaying: model.state.isPlaying, meter: model.audioMeter)
+                                .scaleEffect(0.92)
+                                .frame(width: 22, height: 15)
                         }
                     }
                     .id(trackIdentity)
@@ -172,8 +174,8 @@ public struct MediaPageView: View {
                     .animation(MediaMotion.track(reduceMotion: reduceMotion), value: trackIdentity)
                     .opacity(model.isShowingCachedTrack ? 0.94 : 1)
                     .animation(MediaMotion.track(reduceMotion: reduceMotion), value: model.isShowingCachedTrack)
-                    MediaProgressView(model: model).padding(.top, 5)
-                    controls.padding(.top, 5)
+                    MediaProgressView(model: model).padding(.top, 4.5)
+                    controls.padding(.top, 4.5)
                     SpotifySecondaryControls(model: model, showsDevices: $showsDevices)
                         .padding(.top, 4)
                 }
@@ -211,22 +213,22 @@ public struct MediaPageView: View {
             HStack(spacing: 0) {
                 control("Shuffle", symbol: "shuffle", command: .setShuffle(model.state.shuffle != true),
                         enabled: model.state.canShuffle, active: model.state.shuffle == true, inactiveOpacity: 0.6)
-                Spacer().frame(width: 24)
+                Spacer().frame(width: 22)
                 control("Previous Track", symbol: "backward.fill", command: .previous,
                         enabled: model.state.canSkipBackward, pending: model.isPreviousPending)
-                Spacer().frame(width: 28)
+                Spacer().frame(width: 25)
                 control(model.state.isPlaying ? "Pause" : "Play", symbol: model.state.isPlaying ? "pause.fill" : "play.fill",
                         command: .playPause, enabled: model.state.canPlayPause)
-                Spacer().frame(width: 28)
+                Spacer().frame(width: 25)
                 control("Next Track", symbol: "forward.fill", command: .next, enabled: model.state.canSkipForward)
-                Spacer().frame(width: 24)
+                Spacer().frame(width: 22)
                 control("Repeat", symbol: model.state.repeatMode == .track ? "repeat.1" : "repeat",
                         command: .setRepeatMode(model.state.repeatMode == .off ? .context : model.state.repeatMode == .context ? .track : .off),
                         enabled: model.state.canRepeat, active: model.state.repeatMode != nil && model.state.repeatMode != .off,
                         inactiveOpacity: 0.6)
             }
         }
-        .buttonStyle(MediaControlButtonStyle()).font(.system(size: 14))
+        .buttonStyle(MediaControlButtonStyle()).font(.system(size: 13))
         .frame(maxWidth: .infinity)
     }
     private func control(_ label: String, symbol: String, command: MediaCommand, enabled: Bool,
