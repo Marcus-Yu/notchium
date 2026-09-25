@@ -10,7 +10,7 @@ Stage 2 implements the shell and placeholder content only. No Stage 3 providers,
 
 `AppKitDisplaySource` reads public screen geometry into immutable snapshots. `NotchiumDisplayCoordinator` selects only a built-in display with valid auxiliary top areas and a positive notch gap. When none exists, it hides the panel; the menu-bar fallback remains available. Existing virtual geometry helpers and explicit DEBUG overrides remain fixtures, not live external-display support.
 
-The measured hardware footprint, screen coordinate calculations, expanded dimensions (450 × 190 pt), and fixed transparent host (640 × 210 pt) are unchanged. `NotchiumPanelController` positions the host only when display identity or screen frame changes. It never animates the NSPanel frame. The top edge remains at the absolute screen top.
+The measured hardware footprint, screen coordinate calculations, fixed transparent host (740 × 322 pt), and panel positioning are preserved. Expanded Media uses 524 × 266 pt; Calendar and Audio retain 560 × 302 pt. `NotchiumPanelController` positions the host only when display identity or screen frame changes. It never animates the NSPanel frame. The top edge remains at the absolute screen top.
 
 `NotchPanel` is borderless, nonopaque, non-key, clear, shadowless, nonactivating, and uses `.canJoinAllSpaces`, `.stationary`, `.fullScreenAuxiliary`, and `.ignoresCycle`. Space-change notifications first call the existing `collapse()` method, which cancels pending hover timers and uses `setExpanded(false)` to close hovered or pinned presentations with the normal animation. They then reassert the existing panel without selecting another display, recreating it, or repositioning it. The shell remains passive until fresh hover entry or a click. Fullscreen uses the same panel contract.
 
@@ -32,12 +32,16 @@ Expansion reveals the shape's growing perimeter directly around the hardware foo
 - Hover leave grace: 200 ms.
 - Click: pin immediately; second click collapses.
 - Pinned ignores pointer exit; outside click and Esc collapse.
-- Both hover and click use `Animation.spring(response: 0.60, dampingFraction: 0.88, blendDuration: 0.10)` in both directions.
-- Reduce Motion uses a native 0.18 s ease-in-out transition, including explicit DEBUG overrides.
+- Both hover and click use zero-bounce `Animation.smooth`: 0.75 s opening and 0.65 s closing. The native spring preserves presentation continuity when interrupted.
+- Reduce Motion uses a native 0.12 s ease-out geometry transition, including explicit DEBUG overrides; media remains opaque.
 
 Injected clock tasks track hover delays and presentation phase. Cancellation and generation checks reject stale completions; input remains enabled during motion, and SwiftUI retargets the existing shape. Phase timing is bookkeeping, not a frame loop.
 
-Hover and pinned presentations share content. A cancellable view task waits 170 ms after opening before starting a 0.18 s opacity fade. Closing starts an 0.08 s opacity fade immediately, without a delay. Content never scales or slides, and pinning an already-hovered shell does not replay its reveal.
+Hover and pinned presentations share persistent, fixed-size content. `NotchTransitionSurface` owns one interpolated vector containing progress and shell geometry (width, height, center, radius and auxiliary geometry). The expanded arrangement derives its positional offset from that presentation progress and translates as a rigid group toward the top center. Its dimensions and relative component positions stay fixed, avoiding collisions between artwork, text, controls and navigation. The side edges clip the layout as width contracts, while the top and bottom clip its vertical translation. The shell fill and clip use the same interpolated shape. No media opacity, scale, or matched geometry participates in opening/closing.
+
+Expanded and collapsed layouts stay separately mounted. Complementary geometric clips switch their visibility only below 2.5% expansion, when translated expanded content is already behind the physical notch. There are no delayed callbacks or latched handover states, so reversal retraces the same geometry. Reduce Motion uses the same no-fade geometry with a short 0.12 s transition. During motion, descendant transactions disable independent artwork, metadata, page and control animations; media/audio state still updates normally. After settling, normal control interaction animations resume. Services receive target-state visibility changes, never per-frame progress.
+
+Motion reference: [BoringNotch ContentView at 25bde69](https://github.com/TheBoredTeam/boring.notch/blob/25bde69c465d03a3296aacb9cd2b1750e54db262/boringNotch/ContentView.swift), inspected September 24, 2026. Its coordinated layout and clipping informed this implementation; no source was copied. Notchium deliberately omits the reference's matched artwork geometry and uses the requested longer timings.
 
 ## Validation and acceptance
 
