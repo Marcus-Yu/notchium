@@ -16,7 +16,7 @@ struct NotchPagesView: View {
     var body: some View {
         VStack(spacing: 0) {
             navigation
-                .frame(height: 42)
+                .frame(height: model.selectedPage == .music ? 32 : 42)
 
             ZStack {
                 Group {
