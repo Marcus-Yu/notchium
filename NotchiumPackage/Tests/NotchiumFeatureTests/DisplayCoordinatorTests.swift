@@ -125,7 +125,31 @@ final class DisplayCoordinatorTests: XCTestCase {
         model.activityCoordinator.dismissActive()
         await drainMainActorTasks()
         XCTAssertEqual(model.presentationState, .passive)
-        XCTAssertEqual(panel.layout, passiveLayout)
+        // Calendar changes the next expanded size, but not the passive footprint.
+        XCTAssertEqual(panel.layout?.visibleSurfaceFrame, passiveLayout?.visibleSurfaceFrame)
+        XCTAssertEqual(panel.layout?.collapsedVisibleFrame, passiveLayout?.collapsedVisibleFrame)
+        XCTAssertEqual(panel.layout?.collapsedHoverFrame, passiveLayout?.collapsedHoverFrame)
+        XCTAssertEqual(panel.layout?.panelFrame, passiveLayout?.panelFrame)
+    }
+
+    func testPageSelectionUsesCompactMediaSizeWithoutMovingHost() async {
+        let source = MockDisplaySource(displays: [builtInDisplay()])
+        let panel = MockPanelController()
+        let coordinator = makeCoordinator(source: source, panel: panel,
+            clock: TestAppClock(now: Date(timeIntervalSince1970: 0)))
+        coordinator.start()
+        defer { coordinator.stop() }
+        let frame = panel.layout?.panelFrame
+        coordinator.presentationModel.present(.expanded, animated: false)
+        await drainMainActorTasks()
+        XCTAssertEqual(panel.layout?.surfaceSize, NotchGeometryResolver.expandedMediaSize)
+        for page in [NotchPage.calendar, .audio, .music] {
+            coordinator.presentationModel.pageModel.selectedPage = page
+            await drainMainActorTasks()
+            XCTAssertEqual(panel.layout?.surfaceSize, page == .music
+                ? NotchGeometryResolver.expandedMediaSize : NotchGeometryResolver.expandedNotchSize)
+            XCTAssertEqual(panel.layout?.panelFrame, frame)
+        }
     }
 
     func testSpaceChangePreservesActivitiesQueueAndUnpinsWithoutMovingPanel() async {
