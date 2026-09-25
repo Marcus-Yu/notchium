@@ -42,7 +42,7 @@ struct MediaProgressView: View {
                     Spacer()
                     Text(model.state.validDuration.map(Self.time) ?? "–:––")
                 }
-                .font(.system(size: 11, weight: .medium)).monospacedDigit().foregroundStyle(.gray)
+                .font(.system(size: 10.5, weight: .medium)).monospacedDigit().foregroundStyle(.gray)
             }
         }
         .onChange(of: model.state) { old, new in
