@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import NotchiumCore
 import Observation
 
@@ -14,6 +15,7 @@ public final class NotchiumDisplayCoordinator: NSObject {
 
     @ObservationIgnored private let displaySource: any NotchiumDisplaySnapshotting
     @ObservationIgnored private let panelController: any NotchPanelControlling
+    @ObservationIgnored private var pageObservation: AnyCancellable?
     @ObservationIgnored private var isStarted = false
     @ObservationIgnored private var isSleeping = false
     @ObservationIgnored private var presentationObservationGeneration = 0
@@ -76,6 +78,13 @@ public final class NotchiumDisplayCoordinator: NSObject {
     public func start() {
         guard !isStarted else { return }
         isStarted = true
+        pageObservation = presentationModel.pageModel.$selectedPage.removeDuplicates().dropFirst().sink { [weak self] _ in
+            // Published emits before assignment; reconcile after the selection has changed.
+            Task { @MainActor [weak self] in
+                guard let self, self.isStarted, !self.isSleeping else { return }
+                self.reconcilePanel(animated: true)
+            }
+        }
 
         NotificationCenter.default.addObserver(
             self,
@@ -203,7 +212,9 @@ public final class NotchiumDisplayCoordinator: NSObject {
 
         let layout = NotchGeometryResolver.layout(
             for: shellPlacement,
-            state: presentationModel.surfaceState
+            state: presentationModel.surfaceState,
+            expandedSize: presentationModel.pageModel.selectedPage == .music
+                ? NotchGeometryResolver.expandedMediaSize : NotchGeometryResolver.expandedNotchSize
         )
 #if DEBUG
         debugModel.updateRuntimeGeometry(placement: shellPlacement, layout: layout)
