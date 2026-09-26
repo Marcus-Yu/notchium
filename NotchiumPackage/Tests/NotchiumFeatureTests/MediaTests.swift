@@ -47,7 +47,7 @@ private actor MemoryMediaSnapshotStore: MediaSnapshotStoring {
         XCTAssertEqual(presentation.activityCoordinator.activeActivity?.priority, .low)
         XCTAssertTrue(presentation.showsCollapsedMedia)
         XCTAssertEqual(presentation.surfaceState, .collapsed)
-        XCTAssertEqual(presentation.pageModel.selectedPage, .music)
+        XCTAssertEqual(presentation.pageModel.selectedPage, .home, "Activity updates do not navigate before expansion")
         try await provider.apply(.pause)
         model.receive(await provider.snapshot)
         XCTAssertFalse(model.state.isPlaying)
@@ -55,7 +55,7 @@ private actor MemoryMediaSnapshotStore: MediaSnapshotStoring {
         presentation.present(.hovered, animated: false)
         XCTAssertEqual(presentation.surfaceState, .hovered)
         XCTAssertFalse(presentation.showsCollapsedMedia)
-        XCTAssertEqual(NotchGeometryResolver.expandedNotchSize, CGSize(width: 560, height: 302))
+        XCTAssertEqual(NotchGeometryResolver.expandedNotchSize, CGSize(width: 524, height: 266))
         presentation.present(.collapsed, animated: false)
         try await provider.apply(.stop)
         model.receive(await provider.snapshot)
@@ -64,18 +64,15 @@ private actor MemoryMediaSnapshotStore: MediaSnapshotStoring {
         XCTAssertFalse(presentation.showsCollapsedMedia)
         XCTAssertNotNil(presentation.activityCoordinator.activeActivity)
     }
-    func testCompactMediaGeometryPreservesHardwareAndHostFrames() {
+    func testExpandedGeometryPreservesHardwareAndHostFrames() {
         let placement = NotchShellPlacement(display: builtInDisplay(), mode: .physicalNotch)
-        let original = NotchGeometryResolver.layout(for: placement, state: .collapsed)
-        let compact = NotchGeometryResolver.layout(for: placement, state: .collapsed,
-                                                   expandedSize: NotchGeometryResolver.expandedMediaSize)
-        XCTAssertEqual(compact.collapsedVisibleFrame, original.collapsedVisibleFrame)
-        XCTAssertEqual(compact.collapsedHoverFrame, original.collapsedHoverFrame)
-        XCTAssertEqual(compact.panelFrame, original.panelFrame)
-        let expanded = NotchGeometryResolver.layout(for: placement, state: .expanded,
-                                                    expandedSize: NotchGeometryResolver.expandedMediaSize)
+        let collapsed = NotchGeometryResolver.layout(for: placement, state: .collapsed)
+        let expanded = NotchGeometryResolver.layout(for: placement, state: .expanded)
+        XCTAssertEqual(expanded.collapsedVisibleFrame, collapsed.collapsedVisibleFrame)
+        XCTAssertEqual(expanded.collapsedHoverFrame, collapsed.collapsedHoverFrame)
+        XCTAssertEqual(expanded.panelFrame, collapsed.panelFrame)
         XCTAssertEqual(expanded.surfaceSize, CGSize(width: 524, height: 266))
-        XCTAssertEqual(expanded.visibleSurfaceFrame.maxY, original.visibleSurfaceFrame.maxY)
+        XCTAssertEqual(expanded.visibleSurfaceFrame.maxY, collapsed.visibleSurfaceFrame.maxY)
     }
 
     func testCollapseCompletesWhilePlayingArtworkAndWaveformChange() async throws {
@@ -303,7 +300,7 @@ private actor MemoryMediaSnapshotStore: MediaSnapshotStoring {
         try await provider.apply(.queue)
         let model = MediaFeatureModel(provider: provider, coordinator: presentation().activityCoordinator)
         model.receive(await provider.snapshot)
-        let expanded = ImageRenderer(content: MediaPageView(model: model).frame(width: 560, height: 222).background(.black))
+        let expanded = ImageRenderer(content: MediaPageView(model: model).frame(width: ExpandedNotchLayout.size.width, height: ExpandedNotchLayout.size.height - 38 - ExpandedNotchLayout.navigationHeight).background(.black))
         let collapsed = ImageRenderer(content: CollapsedMediaView(model: model, hardwareWidth: 180)
             .frame(width: 380, height: 32).background(.black))
         let upNext = ImageRenderer(content: UpNextView(state: model.state)
@@ -335,7 +332,7 @@ private actor MemoryMediaSnapshotStore: MediaSnapshotStoring {
         for (name, state) in states {
             model.receive(state)
             let renderer = ImageRenderer(content: MediaPageView(model: model)
-                .frame(width: 560, height: 222).background(.black))
+                .frame(width: ExpandedNotchLayout.size.width, height: ExpandedNotchLayout.size.height - 38 - ExpandedNotchLayout.navigationHeight).background(.black))
             let image = try XCTUnwrap(renderer.nsImage)
             let tiff = try XCTUnwrap(image.tiffRepresentation)
             let png = try XCTUnwrap(NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]))
