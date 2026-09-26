@@ -272,3 +272,7 @@ Stage 2 is verified with the installed Xcode 26.6 toolchain using isolated Deriv
 - Ambient Edge multiplies display/window lifecycle, renderer scheduling, color-space, and energy risk; its failure must never affect feature or notch correctness.
 - Best-effort suppression cannot guarantee full-screen video, presentation, game, or third-party screen-sharing detection and must retain manual controls.
 - The unresolved API, policy, hardware, browser-extension, clipboard-attribution, download-inference, and review risks listed in the Stage 0 documents remain open.
+
+## Stage 8 Home dashboard
+
+Home is the idle/default page and contains only a fixed Music-left / Calendar-right composition inside the canonical expanded shell. Existing application-lifetime Media and Calendar models supply compact renderers, while ActivityCoordinator preserves the established Music-priority default selection. There is no Home customization or Window Snapping in this phase. See [HOME_DASHBOARD.md](HOME_DASHBOARD.md) for layout, ownership, behavior, and validation boundaries.
