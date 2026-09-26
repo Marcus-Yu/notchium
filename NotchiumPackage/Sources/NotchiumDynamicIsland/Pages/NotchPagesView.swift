@@ -16,9 +16,12 @@ struct NotchPagesView: View {
     var body: some View {
         VStack(spacing: 0) {
             navigation
-                .frame(height: model.selectedPage == .music ? 32 : 42)
+                .frame(height: ExpandedNotchLayout.navigationHeight)
 
             ZStack {
+                if model.selectedPage == .home {
+                    HomeDashboardView(pages: model, media: mediaRenderer, calendar: calendarRenderer)
+                }
                 Group {
                     if let mediaRenderer {
                         mediaRenderer.expandedMedia()
@@ -69,10 +72,10 @@ struct NotchPagesView: View {
             audioRenderer?.setPageVisible(visible)
         }
         .onDisappear { audioRenderer?.setPageVisible(false) }
-        .overlay { NotchPageSwipeSurface(model: model) }
+        .overlay { if model.selectedPage != .home { NotchPageSwipeSurface(model: model) } }
         .accessibilityElement(children: .contain)
         .accessibilityValue(model.selectedPage.title)
-        .accessibilityHint("Swipe horizontally to change page")
+        .accessibilityHint(model.selectedPage == .home ? "Use page buttons to navigate" : "Swipe horizontally to change page")
         .accessibilityAdjustableAction { direction in
             switch direction {
             case .increment: model.moveSelection(forward: true)
