@@ -213,11 +213,27 @@ final class CalendarReminderRenderingTests: XCTestCase {
                 coordinator: ActivityCoordinator(clock: clock), clock: clock)
             calendar.start()
             for _ in 0..<30 { await Task.yield() }
-            let bitmap = try render(CalendarActivityView(model: calendar)
-                .frame(width: 560, height: 264).background(.black)
+            let content = CalendarActivityView(model: calendar)
+                .frame(width: ExpandedNotchLayout.size.width,
+                       height: ExpandedNotchLayout.size.height - 38 - ExpandedNotchLayout.navigationHeight).background(.black)
                 .environment(\.notchCalendarPageVisible, false)
-                .environment(\.colorScheme, .dark), name: "page-\(meeting ? "join" : "no-link")")
-            XCTAssertEqual(longestWhiteRun(bitmap, rows: 35..<85) > 40, meeting)
+                .environment(\.colorScheme, .dark)
+            let host = NSHostingView(rootView: content)
+            host.frame = CGRect(x: 0, y: 0, width: 524, height: 196)
+            let window = NSWindow(contentRect: CGRect(x: -10000, y: -10000, width: 524, height: 196),
+                                  styleMask: .borderless, backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = host
+            window.orderBack(nil)
+            defer { window.close() }
+            host.layoutSubtreeIfNeeded()
+            try await Task.sleep(for: .milliseconds(100))
+            host.needsDisplay = true
+            host.displayIfNeeded()
+            let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            let scale = bitmap.pixelsHigh / 196
+            XCTAssertEqual(longestWhiteRun(bitmap, rows: (140 * scale)..<(180 * scale)) > 40 * scale, meeting)
             calendar.stop()
         }
     }
