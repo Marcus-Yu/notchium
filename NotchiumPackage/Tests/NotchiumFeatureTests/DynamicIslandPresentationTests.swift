@@ -121,7 +121,7 @@ final class DynamicIslandPresentationTests: XCTestCase {
 
         XCTAssertEqual(model.phase, .expanded)
         let history = await clock.sleepHistory()
-        XCTAssertEqual(history, [.milliseconds(750)])
+        XCTAssertEqual(history, [.milliseconds(400)])
     }
 
     func testHoverReentryCancelsPendingCollapse() async {
@@ -159,7 +159,7 @@ final class DynamicIslandPresentationTests: XCTestCase {
         await drainMainActorTasks()
         XCTAssertEqual(model.phase, .collapsed)
         let history = await clock.sleepHistory()
-        XCTAssertEqual(history, [.milliseconds(650)])
+        XCTAssertEqual(history, [.milliseconds(400)])
     }
 
     func testRapidReversalsSettleAtLatestTarget() async {
