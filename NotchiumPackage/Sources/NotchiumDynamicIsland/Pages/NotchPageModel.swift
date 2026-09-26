@@ -16,9 +16,9 @@ public final class NotchPageModel: ObservableObject {
     }
     @Published public var defaultPage: NotchPage
 
-    public init(selectedPage: NotchPage = .music,
+    public init(selectedPage: NotchPage = .home,
                 enabledPages: [NotchPage] = NotchPage.allCases,
-                defaultPage: NotchPage = .music) {
+                defaultPage: NotchPage = .home) {
         let pages = Self.normalize(enabledPages)
         self.enabledPages = pages
         self.defaultPage = defaultPage
@@ -42,6 +42,6 @@ public final class NotchPageModel: ObservableObject {
         var unique: [NotchPage] = []
         for page in pages where !unique.contains(page) { unique.append(page) }
         // Keep a valid selection even if a future settings client disables everything.
-        return unique.isEmpty ? [.music] : unique
+        return unique.isEmpty ? [.home] : unique
     }
 }
