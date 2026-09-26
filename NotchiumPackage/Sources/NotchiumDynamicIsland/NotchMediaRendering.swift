@@ -4,6 +4,7 @@ import SwiftUI
 @MainActor public protocol NotchMediaRendering: AnyObject {
     var collapsedMediaVisible: Bool { get }
     func collapsedMedia(hardwareWidth: CGFloat, hardwareHeight: CGFloat) -> AnyView
+    func homeMedia(openMusic: @escaping @MainActor () -> Void) -> AnyView
     func expandedMedia() -> AnyView
     func mediaArtwork(size: CGFloat) -> AnyView
 }
@@ -37,4 +38,8 @@ public struct CollapsedMediaGeometry: Equatable {
         leadingWidth = max(0, min(24, hardwareHeight - 8)) + 16
         trailingWidth = leadingWidth
     }
+}
+
+public extension NotchMediaRendering {
+    func homeMedia(openMusic: @escaping @MainActor () -> Void) -> AnyView { AnyView(Button("Open Music", action: openMusic).buttonStyle(.plain)) }
 }
