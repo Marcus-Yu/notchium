@@ -53,6 +53,7 @@ public enum NotchActivityDestination: Equatable, Sendable {
 
 public enum NotchActivityPayload: Equatable, Sendable {
     case none
+    case mediaPlayback(isPlaying: Bool)
     case audio(NotchAudioHUD)
 }
 
