@@ -13,6 +13,20 @@ public final class ActivityCoordinator: ObservableObject {
 
     public var activeActivity: NotchActivity? { activeTransient ?? persistentActivity }
 
+    /// Fresh expansion policy is independent of transient presentation priority.
+    /// A retained paused track is useful on Home, but does not make Music the default.
+    public var preferredExpandedPage: NotchPage {
+        if let activeTransient,
+           activeTransient.kind == .media || activeTransient.destination == .music {
+            return .music
+        }
+        if persistentActivity?.kind == .media,
+           case .mediaPlayback(isPlaying: true) = persistentActivity?.payload {
+            return .music
+        }
+        return .home
+    }
+
     public func contains(id: UUID) -> Bool {
         persistentActivity?.id == id
             || activeEntry?.activity.id == id
