@@ -156,18 +156,9 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         in hostingView: NotchHostingView,
         animated: Bool
     ) {
-        guard animated else {
-            var transaction = Transaction(animation: nil)
-            transaction.disablesAnimations = true
-            withTransaction(transaction) {
-                hostingView.rootView = rootView
-            }
-            return
-        }
-
-        withAnimation(model.reduceMotion ? NotchMotion.reduced : NotchMotion.morph(opening: model.surfaceState != .collapsed)) {
-            hostingView.rootView = rootView
-        }
+        // The stable SwiftUI shell owns its geometry animation and completion.
+        // Root updates must not animate the page layout or restart the spring.
+        hostingView.rootView = rootView
     }
 
     func orderFrontRegardless() {
