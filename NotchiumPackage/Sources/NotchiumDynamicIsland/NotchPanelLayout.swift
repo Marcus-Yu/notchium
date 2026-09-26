@@ -37,13 +37,17 @@ public struct NotchPanelLayout: Equatable, Sendable {
     }
 }
 
+/// Shared expanded shell contract for every page; based on the Music layout.
+public enum ExpandedNotchLayout {
+    public static let size = CGSize(width: 524, height: 266)
+    public static let topCornerRadius: CGFloat = 12
+    public static let bottomCornerRadius: CGFloat = 26
+    public static let navigationHeight: CGFloat = 32
+}
+
 public enum NotchGeometryResolver {
     public static let expandedContentHorizontalInset: CGFloat = 30
-    public static let expandedNotchSize = CGSize(
-        width: 560,
-        height: 302
-    )
-    public static let expandedMediaSize = CGSize(width: 524, height: 266)
+    public static let expandedNotchSize = ExpandedNotchLayout.size
 
     public static let panelSize = CGSize(
         width: 740,
@@ -56,8 +60,7 @@ public enum NotchGeometryResolver {
 
     public static func layout(
         for placement: NotchShellPlacement,
-        state: NotchStableState,
-        expandedSize: CGSize = expandedNotchSize
+        state: NotchStableState
     ) -> NotchPanelLayout {
         let hardwareGeometry = hardwareNotchGeometry(for: placement)
         let hasHardwareNotch = hardwareGeometry != nil
@@ -73,7 +76,7 @@ public enum NotchGeometryResolver {
         let surfaceSize = visibleSurfaceSize(
             state: state,
             collapsedSize: collapsedFrame.size,
-            expandedSize: expandedSize
+            expandedSize: expandedNotchSize
         )
         let surfaceCenterX = state == .collapsed ? collapsedFrame.midX : panelFrame.midX
         let visibleSurfaceFrame = CGRect(
@@ -90,7 +93,7 @@ public enum NotchGeometryResolver {
             collapsedHoverFrame: collapsedHoverFrame(from: collapsedFrame),
             hardwareNotchGeometry: hardwareGeometry,
             surfaceSize: surfaceSize,
-            expandedSize: expandedSize,
+            expandedSize: expandedNotchSize,
             hasHardwareNotch: hasHardwareNotch,
             topCornerRadius: topCornerRadius(for: placement.mode, state: state),
             bottomCornerRadius: bottomCornerRadius(for: placement.mode, state: state)
@@ -191,7 +194,7 @@ public enum NotchGeometryResolver {
     ) -> CGFloat {
         switch (mode, state) {
         case (_, .collapsed): 0
-        case (.physicalNotch, .hovered), (.physicalNotch, .expanded): 12
+        case (.physicalNotch, .hovered), (.physicalNotch, .expanded): ExpandedNotchLayout.topCornerRadius
         case (.virtualPill, .hovered), (.virtualPill, .expanded): 0
         }
     }
@@ -203,7 +206,7 @@ public enum NotchGeometryResolver {
         switch (mode, state) {
         case (.physicalNotch, .collapsed): 8
         case (.virtualPill, .collapsed): 12
-        case (_, .hovered), (_, .expanded): 26
+        case (_, .hovered), (_, .expanded): ExpandedNotchLayout.bottomCornerRadius
         }
     }
 }
