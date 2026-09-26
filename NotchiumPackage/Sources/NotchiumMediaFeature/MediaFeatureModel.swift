@@ -20,6 +20,8 @@ public final class MediaSessionController {
     public let audioMeter: SystemAudioMeter
     public private(set) var collapsedMediaVisible = false
     public private(set) var isShowingCachedTrack = false
+    /// Connection truth stays separate from the cached paused presentation.
+    public var homeMediaConnected: Bool { authoritativeState.connectionState == .authenticated }
     @ObservationIgnored private let visibilityClock: any AppClock
     @ObservationIgnored private let controlClock: any AppClock
     @ObservationIgnored private let snapshotStore: any MediaSnapshotStoring
@@ -256,7 +258,8 @@ public final class MediaSessionController {
                                       lifetime: .persistent,
                                       isDismissible: false,
                                       destination: .music,
-                                      duration: nil))
+                                      duration: nil,
+                                      payload: .mediaPlayback(isPlaying: next.isPlaying)))
         } else { coordinator.dismiss(id: activityID) }
     }
     private func updateCollapsedVisibility(_ value: MediaState) {
