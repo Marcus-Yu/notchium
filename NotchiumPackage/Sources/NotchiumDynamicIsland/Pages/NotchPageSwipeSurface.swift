@@ -40,6 +40,12 @@ struct NotchPageSwipeSurface: NSViewRepresentable {
         required init?(coder: NSCoder) { nil }
 
         override func scrollWheel(with event: NSEvent) {
+            // A retiring navigation surface may still receive a queued event during a page transition.
+            guard model.selectedPage != .home else {
+                horizontalDistance = 0
+                switched = false
+                return
+            }
             if event.phase.contains(.began) {
                 horizontalDistance = 0
                 switched = false
