@@ -3,9 +3,11 @@ import XCTest
 
 @MainActor
 final class NotchPageModelTests: XCTestCase {
-    func testMusicCalendarAndAudioAreOrderedTopLevelPages() {
+    func testHomeMusicCalendarAndAudioAreOrderedTopLevelPages() {
         let model = NotchPageModel()
-        XCTAssertEqual(model.enabledPages, [.music, .calendar, .audio])
+        XCTAssertEqual(model.enabledPages, [.home, .music, .calendar, .audio])
+        XCTAssertEqual(model.selectedPage, .home)
+        model.moveSelection(forward: true)
         XCTAssertEqual(model.selectedPage, .music)
         XCTAssertEqual(NotchPage.music.title, "Music")
         XCTAssertEqual(NotchPage.calendar.symbol, "calendar")
@@ -38,12 +40,12 @@ final class NotchPageModelTests: XCTestCase {
 
     func testEmptyAndDuplicateListsKeepValidSelection() {
         let model = NotchPageModel(enabledPages: [])
-        XCTAssertEqual(model.enabledPages, [.music])
+        XCTAssertEqual(model.enabledPages, [.home])
         model.enabledPages = [.calendar, .calendar, .music]
         XCTAssertEqual(model.enabledPages, [.calendar, .music])
         model.moveSelection(forward: true)
-        XCTAssertEqual(model.selectedPage, .calendar)
-        model.enabledPages = []
         XCTAssertEqual(model.selectedPage, .music)
+        model.enabledPages = []
+        XCTAssertEqual(model.selectedPage, .home)
     }
 }
