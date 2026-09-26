@@ -52,6 +52,14 @@ public struct CollapsedMediaView: View {
     }
 }
 
+private enum MusicPlayerSpacing {
+    static let surfacePickerHeight: CGFloat = 20
+    static let trackToProgress: CGFloat = 10.5
+    static let progressToPlayback: CGFloat = 6
+    static let playbackToOutput: CGFloat = 18
+    static let bottomInset: CGFloat = 8
+}
+
 public struct MediaPageView: View {
     let model: MediaFeatureModel
     @Environment(\.notchShellIsTransitioning) private var shellIsTransitioning
@@ -66,7 +74,7 @@ public struct MediaPageView: View {
         Group {
             switch model.state.experienceState {
             case .playing, .paused:
-                VStack(spacing: 4) {
+                VStack(spacing: 0) {
                     MediaSurfacePicker(selection: $selectedSurface)
                     Group {
                         switch selectedSurface {
@@ -151,9 +159,10 @@ public struct MediaPageView: View {
     private var player: some View {
         let trackIdentity = model.state.trackID ?? model.state.title ?? "unknown-track"
         return ZStack(alignment: .bottomTrailing) {
-            HStack(spacing: 18) {
+            HStack(alignment: .top, spacing: 18) {
                 MediaArtworkSlot(url: model.state.artwork, size: 84, expanded: true)
-                VStack(alignment: .leading, spacing: 6) {
+                    .padding(.top, 6)
+                VStack(alignment: .leading, spacing: 0) {
                     VStack(alignment: .leading, spacing: 3.5) {
                         Text(model.state.title ?? "").font(.system(size: 16, weight: .semibold))
                             .lineLimit(1).truncationMode(.tail)
@@ -174,13 +183,15 @@ public struct MediaPageView: View {
                     .animation(MediaMotion.track(reduceMotion: reduceMotion), value: trackIdentity)
                     .opacity(model.isShowingCachedTrack ? 0.94 : 1)
                     .animation(MediaMotion.track(reduceMotion: reduceMotion), value: model.isShowingCachedTrack)
-                    MediaProgressView(model: model).padding(.top, 4.5)
-                    controls.padding(.top, 4.5)
+                    MediaProgressView(model: model).padding(.top, MusicPlayerSpacing.trackToProgress)
+                    controls.padding(.top, MusicPlayerSpacing.progressToPlayback)
                     SpotifySecondaryControls(model: model, showsDevices: $showsDevices)
-                        .padding(.top, 4)
+                        .padding(.top, MusicPlayerSpacing.playbackToOutput)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .padding(.bottom, MusicPlayerSpacing.bottomInset)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
             if showsDevices {
                 Button {
@@ -472,7 +483,7 @@ private struct MediaSurfacePicker: View {
                         .font(.system(size: 11, weight: surface == selection ? .semibold : .medium))
                         .foregroundStyle(.white.opacity(surface == selection ? 1 : 0.62))
                         .padding(.horizontal, 9)
-                        .frame(height: 24)
+                        .frame(height: MusicPlayerSpacing.surfacePickerHeight)
                         .glassEffect(
                             surface == selection
                                 ? .regular.tint(.white.opacity(0.1)).interactive()
