@@ -125,14 +125,14 @@ final class DisplayCoordinatorTests: XCTestCase {
         model.activityCoordinator.dismissActive()
         await drainMainActorTasks()
         XCTAssertEqual(model.presentationState, .passive)
-        // Calendar changes the next expanded size, but not the passive footprint.
+        // Calendar selection preserves the passive footprint.
         XCTAssertEqual(panel.layout?.visibleSurfaceFrame, passiveLayout?.visibleSurfaceFrame)
         XCTAssertEqual(panel.layout?.collapsedVisibleFrame, passiveLayout?.collapsedVisibleFrame)
         XCTAssertEqual(panel.layout?.collapsedHoverFrame, passiveLayout?.collapsedHoverFrame)
         XCTAssertEqual(panel.layout?.panelFrame, passiveLayout?.panelFrame)
     }
 
-    func testPageSelectionUsesCompactMediaSizeWithoutMovingHost() async {
+    func testPageSelectionPreservesEntireExpandedShellGeometry() async {
         let source = MockDisplaySource(displays: [builtInDisplay()])
         let panel = MockPanelController()
         let coordinator = makeCoordinator(source: source, panel: panel,
@@ -142,12 +142,13 @@ final class DisplayCoordinatorTests: XCTestCase {
         let frame = panel.layout?.panelFrame
         coordinator.presentationModel.present(.expanded, animated: false)
         await drainMainActorTasks()
-        XCTAssertEqual(panel.layout?.surfaceSize, NotchGeometryResolver.expandedMediaSize)
-        for page in [NotchPage.calendar, .audio, .music] {
+        XCTAssertEqual(panel.layout?.surfaceSize, NotchGeometryResolver.expandedNotchSize)
+        let musicLayout = panel.layout
+        for page in [NotchPage.home, .music, .calendar, .audio] {
             coordinator.presentationModel.pageModel.selectedPage = page
             await drainMainActorTasks()
-            XCTAssertEqual(panel.layout?.surfaceSize, page == .music
-                ? NotchGeometryResolver.expandedMediaSize : NotchGeometryResolver.expandedNotchSize)
+            XCTAssertEqual(panel.layout, musicLayout)
+            XCTAssertEqual(panel.layout?.surfaceSize, CGSize(width: 524, height: 266))
             XCTAssertEqual(panel.layout?.panelFrame, frame)
         }
     }
