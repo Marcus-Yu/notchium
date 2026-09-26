@@ -6,6 +6,8 @@ import SwiftUI
 public struct CalendarActivityView: View {
     @Bindable var model: CalendarActivityModel
     @Environment(\.notchCalendarPageVisible) private var isPageVisible
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     public init(model: CalendarActivityModel) { self.model = model }
 
     public var body: some View {
@@ -40,73 +42,121 @@ public struct CalendarActivityView: View {
     }
 
     private func eventContent(_ event: CalendarEventSummary) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 16) {
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack(spacing: 7) {
-                        Circle().fill(color(event.calendarColor)).frame(width: 6, height: 6)
-                        Text(event.calendarName).font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.62))
-                    }
-                    Text(event.title).font(.system(size: 18, weight: .semibold))
-                        .lineLimit(1)
-                    HStack(spacing: 8) {
-                        Text(event.isAllDay ? "All day" : "\(event.startDate.formatted(date: .omitted, time: .shortened))–\(event.endDate.formatted(date: .omitted, time: .shortened))")
-                        if let location = event.location {
-                            Text("·")
-                            Text(location).lineLimit(1)
+        GeometryReader { geometry in
+            let columnWidth = geometry.size.width - 14
+            HStack(alignment: .top, spacing: 14) {
+                mainEvent(event)
+                    .frame(width: columnWidth * 0.54, height: geometry.size.height)
+                upcomingEvents
+                    .frame(width: columnWidth * 0.46, height: geometry.size.height)
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 8)
+        .padding(.bottom, 12)
+    }
+
+    private func mainEvent(_ event: CalendarEventSummary) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                Circle().fill(color(event.calendarColor)).frame(width: 5, height: 5)
+                Text(event.calendarName)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.6))
+                    .lineLimit(1)
+            }
+            Text(event.title)
+                .font(.system(size: 17, weight: .semibold))
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 5)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(CalendarEventText.timeRange(event))
+                    .foregroundStyle(.white.opacity(0.65))
+                Group {
+                    if isPageVisible {
+                        TimelineView(.periodic(from: .now, by: 1)) { context in
+                            Text(countdown(event, at: context.date))
                         }
+                    } else {
+                        Text(countdown(event, at: .now))
                     }
+                }
+                .fontWeight(.medium)
+                .monospacedDigit()
+                .foregroundStyle(.white.opacity(0.85))
+            }
+            .font(.system(size: 11))
+            .padding(.top, 6)
+            if let detail = CalendarEventText.detail(event) {
+                Text(detail)
                     .font(.system(size: 11))
                     .foregroundStyle(.white.opacity(0.6))
-                }
-                Spacer(minLength: 0)
-                VStack(alignment: .trailing, spacing: 8) {
-                    Group {
-                        if isPageVisible {
-                            TimelineView(.periodic(from: .now, by: 1)) { context in
-                                Text(countdown(event, at: context.date))
-                            }
-                        } else {
-                            Text(countdown(event, at: .now))
-                        }
-                    }
-                    .font(.system(size: 12, weight: .semibold).monospacedDigit())
-                    .foregroundStyle(.white.opacity(0.82))
-                    if let url = event.meetingURL {
-                        Button {
-                            NSWorkspace.shared.open(url)
-                        } label: {
-                            Label("Join", systemImage: "video.fill")
-                        }
-                        .buttonStyle(CalendarJoinButtonStyle())
-                        .controlSize(.small)
-                        .accessibilityIdentifier("notchium.calendar.join")
-                    }
-                }
+                    .lineLimit(1)
+                    .padding(.top, 6)
             }
-            Rectangle().fill(.white.opacity(0.12)).frame(height: 1)
-            Text("UP NEXT")
-                .font(.system(size: 10, weight: .semibold))
-                .tracking(1.3)
-                .foregroundStyle(.white.opacity(0.48))
-            VStack(spacing: 5) {
-                ForEach(Array(model.snapshot.upcomingEvents.dropFirst().prefix(4))) { item in
-                    HStack(spacing: 8) {
-                        Circle().fill(color(item.calendarColor)).frame(width: 5, height: 5)
-                        Text(item.title).lineLimit(1)
-                        Spacer(minLength: 8)
-                        Text(item.startDate.formatted(.dateTime.weekday(.abbreviated).hour().minute()))
-                            .foregroundStyle(.white.opacity(0.5))
-                    }
-                    .font(.system(size: 11))
+            if event.meetingURL != nil {
+                Spacer(minLength: 6)
+                Button { model.joinEvent(event.id) } label: {
+                    Label("Join", systemImage: "video.fill")
                 }
+                .buttonStyle(CalendarJoinButtonStyle())
+                .controlSize(.small)
+                .accessibilityIdentifier("notchium.calendar.join")
             }
-            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 32)
-        .padding(.top, 16)
-        .padding(.bottom, 12)
+        .padding(10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity,
+               alignment: event.meetingURL == nil ? .leading : .topLeading)
+        .background {
+            if reduceTransparency {
+                RoundedRectangle(cornerRadius: 14).fill(Color(white: 0.09))
+            }
+        }
+        .glassEffect(reduceTransparency ? .identity : .clear, in: RoundedRectangle(cornerRadius: 14))
+        .accessibilityIdentifier("notchium.calendar.main")
+    }
+
+    private var upcomingEvents: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("UP NEXT")
+                .font(.system(size: 9, weight: .semibold))
+                .tracking(1)
+                .foregroundStyle(.white.opacity(0.48))
+                .padding(.horizontal, 8)
+            if model.secondaryEvents.isEmpty {
+                Text("No more upcoming events")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.5))
+                    .padding(8)
+                    .frame(maxHeight: .infinity, alignment: .top)
+            } else {
+                ScrollViewReader { scroll in
+                    ScrollView {
+                        LazyVStack(spacing: 6) {
+                            ForEach(model.secondaryEvents) { item in
+                                CalendarUpcomingEventRow(event: item,
+                                    isExpanded: model.selectedEventID == item.id,
+                                    toggle: { model.toggleEvent(item.id) },
+                                    join: { model.joinEvent(item.id) })
+                                    .id(item.id)
+                            }
+                        }
+                        .animation(expansionAnimation, value: model.selectedEventID)
+                    }
+                    .onChange(of: model.selectedEventID) { _, id in
+                        if let id {
+                            withAnimation(expansionAnimation) { scroll.scrollTo(id, anchor: .bottom) }
+                        }
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var expansionAnimation: Animation {
+        reduceMotion ? .easeOut(duration: 0.12) : .smooth(duration: 0.25)
     }
 
     private func permissionView<Action: View>(_ title: String, detail: String,
