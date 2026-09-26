@@ -212,9 +212,7 @@ public final class NotchiumDisplayCoordinator: NSObject {
 
         let layout = NotchGeometryResolver.layout(
             for: shellPlacement,
-            state: presentationModel.surfaceState,
-            expandedSize: presentationModel.pageModel.selectedPage == .music
-                ? NotchGeometryResolver.expandedMediaSize : NotchGeometryResolver.expandedNotchSize
+            state: presentationModel.surfaceState
         )
 #if DEBUG
         debugModel.updateRuntimeGeometry(placement: shellPlacement, layout: layout)
