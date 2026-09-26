@@ -290,19 +290,19 @@ final class NotchGeometryResolverTests: XCTestCase {
 
         XCTAssertEqual(
             NotchGeometryResolver.layout(for: physical, state: .hovered).surfaceSize,
-            CGSize(width: 560, height: 302)
+            CGSize(width: 524, height: 266)
         )
         XCTAssertEqual(
             NotchGeometryResolver.layout(for: virtual, state: .hovered).surfaceSize,
-            CGSize(width: 560, height: 302)
+            CGSize(width: 524, height: 266)
         )
         XCTAssertEqual(
             NotchGeometryResolver.layout(for: physical, state: .expanded).surfaceSize,
-            CGSize(width: 560, height: 302)
+            CGSize(width: 524, height: 266)
         )
         XCTAssertEqual(
             NotchGeometryResolver.layout(for: virtual, state: .expanded).surfaceSize,
-            CGSize(width: 560, height: 302)
+            CGSize(width: 524, height: 266)
         )
     }
 
