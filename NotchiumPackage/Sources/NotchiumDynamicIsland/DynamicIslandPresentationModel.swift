@@ -129,13 +129,8 @@ public final class DynamicIslandPresentationModel {
         pageModel = NotchPageModel()
         activityObservation = activityCoordinator.$activeTransient
             .combineLatest(activityCoordinator.$persistentActivity)
-            .sink { [weak self] activity, _ in
-            guard let self else { return }
-            self.activityRevision &+= 1
-            // A collapsed activity opens on its own page. Expanded navigation remains user-owned.
-            if self.visualState == .collapsed {
-                self.selectPage(for: activity)
-            }
+            .sink { [weak self] _, _ in
+                self?.activityRevision &+= 1
             }
     }
 
@@ -205,13 +200,10 @@ public final class DynamicIslandPresentationModel {
         target: NotchStableState = .expanded
     ) {
         if expanded && visualState == .collapsed {
-            selectPage(for: activityCoordinator.activeActivity)
+            let page = activityCoordinator.preferredExpandedPage
+            if pageModel.selectedPage != page { pageModel.selectedPage = page }
         }
-        let animation = reduceMotion ? NotchMotion.reduced : NotchMotion.morph(opening: expanded)
-
-        withAnimation(animation) {
-            transition(to: expanded ? target : .collapsed)
-        }
+        transition(to: expanded ? target : .collapsed)
     }
 
     public func present(_ state: NotchStableState, animated: Bool = true) {
@@ -265,15 +257,10 @@ public final class DynamicIslandPresentationModel {
     public func activateCurrentActivity() {
         guard let activity = activityCoordinator.activeTransient else { return }
         activityCoordinator.dismiss(id: activity.id)
+        setExpanded(true)
         if let destination = activity.destination {
             selectPage(destination)
         }
-        setExpanded(true)
-    }
-
-    private func selectPage(for activity: NotchActivity?) {
-        guard let destination = activity?.destination else { return }
-        selectPage(destination)
     }
 
     private func selectPage(_ destination: NotchActivityDestination) {
