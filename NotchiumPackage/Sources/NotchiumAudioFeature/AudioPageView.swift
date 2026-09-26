@@ -185,7 +185,7 @@ struct AudioPageView: View {
                 }
             }
             .scrollIndicators(.hidden)
-            .frame(minHeight: AudioPageMetrics.twoRowViewportHeight)
+            .frame(maxHeight: AudioPageMetrics.twoRowViewportHeight)
         }
     }
 
