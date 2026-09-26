@@ -1,16 +1,11 @@
 import SwiftUI
 
 enum NotchMotion {
-    // Deliberate, bounce-free shell motion. Both dimensions and the content positions
-    // inherit this transaction. Zero bounce keeps arrival controlled while the native
-    // spring preserves presentation position/velocity when the target reverses.
-    static let open = Animation.smooth(duration: 0.75, extraBounce: 0)
-    static let close = Animation.smooth(duration: 0.65, extraBounce: 0)
+    // Symmetric, lightly damped motion requested for the black shell only.
+    static let shell = Animation.interactiveSpring(response: 0.40, dampingFraction: 0.80, blendDuration: 0)
 
-    static func morph(opening: Bool) -> Animation { opening ? open : close }
-    static func duration(opening: Bool) -> Duration {
-        opening ? .milliseconds(750) : .milliseconds(650)
-    }
+    static func morph(opening: Bool) -> Animation { shell }
+    static func duration(opening: Bool) -> Duration { .milliseconds(400) }
 
     static let reminderResize = Animation.smooth(duration: 0.32)
     static let reminderContentIn = Animation.easeOut(duration: 0.10).delay(0.20)
@@ -114,9 +109,6 @@ private struct NotchShellOuterSurface: View {
             hardwareWidth: layout.hardwareNotchGeometry?.frame.width ?? 0,
             hardwareHeight: layout.collapsedVisibleFrame.height
         )
-        let isMorphing: Bool = if case .transitioning = model.phase { true } else { false }
-        let auxiliaryAnimation = model.reduceMotion ? NotchMotion.reduced
-            : (isMorphing ? NotchMotion.morph(opening: model.surfaceState != .collapsed) : NotchMotion.reminderResize)
         let showMedia = model.showsCollapsedMedia
         let collapsedMediaEligible = [.mediaSides, .combined].contains(model.activityCoordinator.presentationMode)
         let showAudioHUD = model.visualState == .collapsed
@@ -137,11 +129,10 @@ private struct NotchShellOuterSurface: View {
         )
 
         NotchTransitionSurface(
-            progress: model.surfaceState == .collapsed ? 0 : 1,
+            expanded: model.surfaceState != .collapsed,
             shape: shape,
-            expandedSize: layout.expandedSize,
-            isTransitioning: isMorphing
-        ) { motion in
+            reduceMotion: model.reduceMotion
+        ) { phase in
             ZStack(alignment: .top) {
                 // Both rows share the shell's fill and mask. The top row owns the
                 // attachment edge, including when there is no media to render.
@@ -152,7 +143,7 @@ private struct NotchShellOuterSurface: View {
                            let renderer = model.mediaRenderer {
                             renderer.collapsedMedia(hardwareWidth: mediaGeometry.hardwareWidth, hardwareHeight: mediaGeometry.height)
                                 .frame(width: mediaGeometry.width, height: mediaGeometry.height)
-                                .modifier(NotchPresentationClip(visible: !motion.showsExpanded && collapsedMediaEligible))
+                                .modifier(NotchPresentationClip(visible: phase == .collapsed && collapsedMediaEligible))
                                 .allowsHitTesting(showMedia)
                                 .accessibilityHidden(!showMedia)
                         }
@@ -198,9 +189,7 @@ private struct NotchShellOuterSurface: View {
                     .padding(.top, 8)
                 }
                 .frame(width: layout.expandedSize.width, height: layout.expandedSize.height, alignment: .top)
-                .notchRetractingContent()
-                .coordinateSpace(.named("notch.expandedContent"))
-                .modifier(NotchPresentationClip(visible: motion.showsExpanded))
+                .modifier(NotchPresentationClip(visible: phase == .expanded))
                 .allowsHitTesting(model.surfaceState != .collapsed)
                 .accessibilityHidden(model.surfaceState == .collapsed)
                 .zIndex(10)
@@ -208,19 +197,14 @@ private struct NotchShellOuterSurface: View {
                 NotchShellStateMarker(state: model.surfaceState).allowsHitTesting(false)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .mask(shape)
         }
         .contentShape(Rectangle())
         .environment(\.notchMediaRenderer, model.mediaRenderer)
         .environment(\.notchSharedMediaArtwork, false)
         .environment(\.notchMediaExpanded, model.surfaceState != .collapsed)
         .foregroundStyle(.white)
-        .animation(auxiliaryAnimation,
-                   value: model.showsCalendarReminder)
-        .animation(auxiliaryAnimation,
-                   value: model.calendarReminderHeight)
-        .animation(model.reduceMotion ? NotchMotion.reduced
-                   : (isMorphing ? auxiliaryAnimation : .smooth(duration: 0.24)),
-                   value: showAudioHUD)
+
     }
 
     private var shellContent: some View {
