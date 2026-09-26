@@ -235,7 +235,7 @@ public final class RealCalendarService: CalendarService {
         }
         eventIDs = currentIDs
         events.sort { $0.startDate == $1.startDate ? $0.endDate < $1.endDate : $0.startDate < $1.startDate }
-        publish(.init(availability: .available, upcomingEvents: Array(events.prefix(6)),
+        publish(.init(availability: .available, upcomingEvents: events,
                       permission: .granted, calendars: calendars))
         scheduleBoundary(for: events, at: now)
     }
