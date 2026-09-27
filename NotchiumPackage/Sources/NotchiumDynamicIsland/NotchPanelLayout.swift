@@ -158,7 +158,7 @@ public enum NotchGeometryResolver {
         let size: CGSize
         switch mode {
         case .compactHUD:
-            size = CGSize(width: 292, height: layout.collapsedVisibleFrame.height + 78)
+            size = NotchNotificationGeometry.size(for: .audio, layout: layout)
         case .downwardBanner, .combined:
             size = CGSize(
                 width: NotchReminderGeometry.width(for: layout),
