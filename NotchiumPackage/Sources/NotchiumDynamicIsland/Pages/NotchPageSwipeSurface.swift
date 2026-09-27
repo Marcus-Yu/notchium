@@ -1,66 +1,50 @@
 import AppKit
 import SwiftUI
 
-// Horizontal trackpad scrolling avoids consuming Stage 2's click-to-pin gesture.
+/// A hit-tested view in unused navigation space; never monitors control events.
 struct NotchPageSwipeSurface: NSViewRepresentable {
     let model: NotchPageModel
+    let isEnabled: Bool
+    var reduceMotion = false
 
     func makeNSView(context: Context) -> SwipeView { SwipeView(model: model) }
-    func updateNSView(_ nsView: SwipeView, context: Context) { nsView.model = model }
+    func updateNSView(_ view: SwipeView, context: Context) {
+        view.model = model
+        view.isEnabled = isEnabled
+        view.reduceMotion = reduceMotion
+        if !isEnabled { view.session.cancel() }
+    }
 
     final class SwipeView: NSView {
         var model: NotchPageModel
-        private var horizontalDistance: CGFloat = 0
-        private var switched = false
-        // AppKit monitor token is installed on main and only released at teardown.
-        nonisolated(unsafe) private var scrollMonitor: Any?
-
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            if let scrollMonitor { NSEvent.removeMonitor(scrollMonitor); self.scrollMonitor = nil }
-            guard window != nil else { return }
-            scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-                guard let self, event.window === self.window,
-                      self.bounds.contains(self.convert(event.locationInWindow, from: nil)) else { return event }
-                self.scrollWheel(with: event)
-                return event
-            }
-        }
-
-        deinit { if let scrollMonitor { NSEvent.removeMonitor(scrollMonitor) } }
-
+        var isEnabled = false
+        var reduceMotion = false
+        var session = PageSwipeSession()
 
         init(model: NotchPageModel) {
             self.model = model
             super.init(frame: .zero)
+            toolTip = "Swipe horizontally to change page"
+            setAccessibilityElement(false)
         }
 
         required init?(coder: NSCoder) { nil }
 
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            isEnabled ? super.hitTest(point) : nil
+        }
+
         override func scrollWheel(with event: NSEvent) {
-            // A retiring navigation surface may still receive a queued event during a page transition.
-            guard model.selectedPage != .home else {
-                horizontalDistance = 0
-                switched = false
-                return
+            guard isEnabled, event.hasPreciseScrollingDeltas,
+                  event.momentumPhase.isEmpty, !event.phase.isEmpty else { return }
+            if event.phase.contains(.cancelled) { session.cancel(); return }
+            if event.phase.contains(.began) { session.begin() }
+            if let forward = session.update(x: event.scrollingDeltaX, y: event.scrollingDeltaY) {
+                withAnimation(reduceMotion ? NotchMotion.reduced : NotchMotion.page) {
+                    model.moveSelection(forward: forward)
+                }
             }
-            if event.phase.contains(.began) {
-                horizontalDistance = 0
-                switched = false
-            }
-            guard event.momentumPhase.isEmpty else { return }
-            guard abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) else { return }
-            horizontalDistance += event.scrollingDeltaX
-            if !switched, abs(horizontalDistance) >= 30 {
-                model.moveSelection(forward: horizontalDistance < 0)
-                switched = true
-            }
-            if event.phase.isEmpty || event.phase.contains(.ended) || event.phase.contains(.cancelled) {
-                horizontalDistance = 0
-                switched = false
-            }
+            if event.phase.contains(.ended) { session.cancel() }
         }
     }
 }
