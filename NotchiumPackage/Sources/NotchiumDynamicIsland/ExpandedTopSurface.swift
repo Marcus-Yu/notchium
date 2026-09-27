@@ -35,14 +35,15 @@ struct NotchShellSurface: Shape {
     var reminderHeight: CGFloat = 0
     var reminderWidth: CGFloat = 0
     var reminderProgress: CGFloat = 1
+    var shoulderRadius: CGFloat = 0
 
     var animatableData: AnimatablePair<
-        AnimatablePair<AnimatablePair<CGFloat, CGFloat>, AnimatablePair<CGFloat, CGFloat>>,
+        AnimatablePair<AnimatablePair<CGFloat, CGFloat>, AnimatablePair<CGFloat, AnimatablePair<CGFloat, CGFloat>>>,
         AnimatablePair<CGFloat, CGFloat>
     > {
         get {
             AnimatablePair(
-                AnimatablePair(AnimatablePair(width, height), AnimatablePair(centerX, bottomRadius)),
+                AnimatablePair(AnimatablePair(width, height), AnimatablePair(centerX, AnimatablePair(bottomRadius, shoulderRadius))),
                 AnimatablePair(reminderHeight, reminderProgress)
             )
         }
@@ -50,7 +51,8 @@ struct NotchShellSurface: Shape {
             width = newValue.first.first.first
             height = newValue.first.first.second
             centerX = newValue.first.second.first
-            bottomRadius = newValue.first.second.second
+            bottomRadius = newValue.first.second.second.first
+            shoulderRadius = newValue.first.second.second.second
             reminderHeight = newValue.second.first
             reminderProgress = newValue.second.second
         }
@@ -62,6 +64,13 @@ struct NotchShellSurface: Shape {
         let totalHeight = height + max(0, reminderHeight) * reveal.height
         let isExpanded = reminderHeight * reveal.height > 0 || surfaceWidth > passiveShape.width || totalHeight > passiveShape.height
         if isExpanded {
+            if shoulderRadius > 0 {
+                // Soft concave shoulders meet the screen edge; broad lower curves
+                // form the same black object, with no separate banner outline.
+                return NotchShape(width: surfaceWidth, height: totalHeight, centerX: centerX,
+                                  topCornerRadius: shoulderRadius,
+                                  bottomCornerRadius: bottomRadius).path(in: rect)
+            }
             return ExpandedTopSurface(bottomRadius: max(0, bottomRadius))
                 .path(in: CGRect(x: 0, y: 0, width: surfaceWidth, height: totalHeight))
                 .applying(CGAffineTransform(translationX: centerX - surfaceWidth / 2, y: rect.minY))
