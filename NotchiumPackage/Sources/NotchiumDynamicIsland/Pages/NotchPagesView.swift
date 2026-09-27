@@ -7,10 +7,14 @@ struct NotchPagesView: View {
     let calendarRenderer: (any NotchCalendarRendering)?
     let audioRenderer: (any NotchAudioRendering)?
     let isExpanded: Bool
+    var auxiliaryInteractionPresented = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var pageAnimation: Animation {
-        reduceMotion ? .easeOut(duration: 0.12) : .smooth(duration: 0.22)
+    private func pageOffset(_ page: NotchPage) -> CGFloat {
+        guard !reduceMotion, page != model.selectedPage,
+              let pageIndex = model.enabledPages.firstIndex(of: page),
+              let selectedIndex = model.enabledPages.firstIndex(of: model.selectedPage) else { return 0 }
+        return pageIndex < selectedIndex ? -4 : 4
     }
 
     var body: some View {
@@ -19,9 +23,12 @@ struct NotchPagesView: View {
                 .frame(height: ExpandedNotchLayout.navigationHeight)
 
             ZStack {
-                if model.selectedPage == .home {
-                    HomeDashboardView(pages: model, media: mediaRenderer, calendar: calendarRenderer)
-                }
+                HomeDashboardView(pages: model, media: mediaRenderer, calendar: calendarRenderer)
+                    .opacity(model.selectedPage == .home ? 1 : 0)
+                    .offset(x: pageOffset(.home))
+                    .disabled(model.selectedPage != .home)
+                    .allowsHitTesting(model.selectedPage == .home)
+                    .accessibilityHidden(model.selectedPage != .home)
                 Group {
                     if let mediaRenderer {
                         mediaRenderer.expandedMedia()
@@ -31,7 +38,8 @@ struct NotchPagesView: View {
                 }
                 .environment(\.notchMediaPageVisible, model.selectedPage == .music)
                 .opacity(model.selectedPage == .music ? 1 : 0)
-                .offset(y: reduceMotion || model.selectedPage == .music ? 0 : 3)
+                .offset(x: pageOffset(.music))
+                .disabled(model.selectedPage != .music)
                 .allowsHitTesting(model.selectedPage == .music)
                 .accessibilityHidden(model.selectedPage != .music)
 
@@ -46,7 +54,8 @@ struct NotchPagesView: View {
                 }
                 .environment(\.notchCalendarPageVisible, model.selectedPage == .calendar)
                 .opacity(model.selectedPage == .calendar ? 1 : 0)
-                .offset(y: reduceMotion || model.selectedPage == .calendar ? 0 : 3)
+                .offset(x: pageOffset(.calendar))
+                .disabled(model.selectedPage != .calendar)
                 .allowsHitTesting(model.selectedPage == .calendar)
                 .accessibilityHidden(model.selectedPage != .calendar)
 
@@ -61,21 +70,21 @@ struct NotchPagesView: View {
                 }
                 .environment(\.notchAudioPageVisible, model.selectedPage == .audio)
                 .opacity(model.selectedPage == .audio ? 1 : 0)
-                .offset(y: reduceMotion || model.selectedPage == .audio ? 0 : 3)
+                .offset(x: pageOffset(.audio))
+                .disabled(model.selectedPage != .audio)
                 .allowsHitTesting(model.selectedPage == .audio)
                 .accessibilityHidden(model.selectedPage != .audio)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .animation(pageAnimation, value: model.selectedPage)
+        .disabled(!isExpanded)
         .onChange(of: isExpanded && model.selectedPage == .audio, initial: true) { _, visible in
             audioRenderer?.setPageVisible(visible)
         }
         .onDisappear { audioRenderer?.setPageVisible(false) }
-        .overlay { if model.selectedPage != .home { NotchPageSwipeSurface(model: model) } }
         .accessibilityElement(children: .contain)
         .accessibilityValue(model.selectedPage.title)
-        .accessibilityHint(model.selectedPage == .home ? "Use page buttons to navigate" : "Swipe horizontally to change page")
+        .accessibilityHint("Use page buttons, or swipe horizontally in the empty space beside them")
         .accessibilityAdjustableAction { direction in
             switch direction {
             case .increment: model.moveSelection(forward: true)
@@ -112,7 +121,9 @@ struct NotchPagesView: View {
                     }
                 }
             }
-            Spacer(minLength: 0)
+            NotchPageSwipeSurface(model: model, isEnabled: isExpanded && !auxiliaryInteractionPresented,
+                                  reduceMotion: reduceMotion)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .padding(.horizontal, NotchGeometryResolver.expandedContentHorizontalInset)
         .accessibilityElement(children: .contain)
