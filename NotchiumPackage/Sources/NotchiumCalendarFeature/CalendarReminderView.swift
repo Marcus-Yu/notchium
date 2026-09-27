@@ -8,94 +8,77 @@ struct CalendarReminderView: View {
 
     var body: some View {
         if let reminder = model.reminders.current {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .top, spacing: 8) {
-                    Button(action: openActivity) {
-                        HStack(alignment: .top, spacing: 10) {
-                            Circle()
-                                .fill(Color(red: reminder.event.calendarColor.red,
-                                            green: reminder.event.calendarColor.green,
-                                            blue: reminder.event.calendarColor.blue))
-                                .frame(width: 5, height: 5)
-                                .padding(.top, 5.5)
-                                .padding(.trailing, 1)
-                            Text(reminder.event.title)
-                                .font(.system(size: 13, weight: .medium))
-                                .lineLimit(2)
-                                .truncationMode(.tail)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .multilineTextAlignment(.leading)
-                            Text(reminder.label)
-                                .font(.system(size: 11, weight: .medium).monospacedDigit())
-                                .foregroundStyle(.white.opacity(0.66))
-                                .fixedSize()
-                                .padding(.top, 1)
-                        }
-                        .contentShape(Rectangle())
+            HStack(spacing: 12) {
+                Button(action: openActivity) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(reminder.event.title)
+                            .font(.system(size: 13, weight: .semibold))
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                        Text(reminder.label)
+                            .font(.system(size: 12).monospacedDigit())
+                            .foregroundStyle(.white.opacity(0.7))
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Open Calendar for \(reminder.event.title)")
-
-                    // Reserve the dismiss target so hovering never reflows the title.
-                    Button(action: model.dismissReminder) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.65))
-                            .frame(width: 18, height: 16)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .opacity(isHovered ? 1 : 0)
-                    .allowsHitTesting(isHovered)
-                    .accessibilityHidden(!isHovered)
-                    .accessibilityLabel("Dismiss Calendar reminder")
-                    .accessibilityIdentifier("notchium.calendar.reminder.dismiss")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Open Calendar for \(reminder.event.title), \(reminder.label)")
 
                 if reminder.event.meetingURL != nil {
                     Button(action: model.joinReminder) {
-                        HStack(spacing: 5) {
-                            Image(systemName: "video.fill")
-                            Text(reminder.isNow ? "Join Now" : "Join")
-                        }
+                        Label(reminder.isNow ? "Join Now" : "Join", systemImage: "video.fill")
                     }
-                    .buttonStyle(CalendarJoinButtonStyle(height: 26))
-                    .help(reminder.isNow ? "Join meeting now" : "Join meeting")
+                    .buttonStyle(NotificationJoinButtonStyle(prominent: reminder.isImminent))
+                    .help("Join meeting")
                     .accessibilityIdentifier("notchium.calendar.reminder.join")
-                    .frame(maxWidth: .infinity, alignment: .center)
                 }
 
-                if !reminder.isImminent, let location = reminder.event.location {
-                    Button(action: openActivity) {
-                        Text(location)
-                            .font(.system(size: 10))
-                            .foregroundStyle(.white.opacity(0.50))
-                            .lineLimit(1)
-                            .frame(maxWidth: .infinity,
-                                   alignment: reminder.event.meetingURL == nil ? .leading : .center)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.leading, reminder.event.meetingURL == nil ? 16 : 0)
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(minHeight: NotchReminderGeometry.minimumHeight)
-            .background {
-                Button(action: openActivity) {
-                    Color.clear.contentShape(Rectangle())
+                Button(action: model.dismissReminder) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.white.opacity(isHovered ? 0.85 : 0.5))
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityHidden(true)
+                .help("Dismiss reminder")
+                .accessibilityLabel("Dismiss Calendar reminder")
+                .accessibilityIdentifier("notchium.calendar.reminder.dismiss")
             }
-            .onHover { hovered in
-                isHovered = hovered
-                model.setReminderHovered(hovered)
-            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 16)
+            .frame(height: NotchReminderGeometry.minimumHeight)
+            .foregroundStyle(.white)
+            .environment(\.colorScheme, .dark)
+            .onHover { isHovered = $0 }
             .accessibilityElement(children: .contain)
+            .accessibilityAction(named: "Dismiss reminder", model.dismissReminder)
             .accessibilityIdentifier("notchium.calendar.reminder")
         }
+    }
+}
+
+private struct NotificationJoinButtonStyle: ButtonStyle {
+    let prominent: Bool
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.black)
+            .padding(.horizontal, 12)
+            .frame(height: 30)
+            .background {
+                if prominent {
+                    Capsule().fill(.white.opacity(configuration.isPressed ? 0.8 : 1))
+                } else if reduceTransparency {
+                    Capsule().fill(.white.opacity(configuration.isPressed ? 0.75 : 0.9))
+                } else {
+                    Capsule().fill(.white.opacity(0.9))
+                        .glassEffect(.clear.interactive(), in: .capsule)
+                }
+            }
+            .opacity(configuration.isPressed ? 0.85 : 1)
     }
 }
