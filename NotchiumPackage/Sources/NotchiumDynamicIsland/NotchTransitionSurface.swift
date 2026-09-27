@@ -32,15 +32,26 @@ struct NotchTransitionSurface<Content: View>: View {
     let expanded: Bool
     let shape: NotchShellSurface
     let reduceMotion: Bool
+    let notificationVisible: Bool
+    var retainsMedia = false
+    @State private var wasNotificationVisible: Bool
+    @State private var preservesNotificationContent = false
+    @State private var wasExpanded: Bool
+    @State private var isNotificationTransition = false
     @ViewBuilder var content: @MainActor (NotchVisualTransition.Phase) -> Content
     @State private var renderedShape: NotchShellSurface
     @State private var transition: NotchVisualTransition
 
-    init(expanded: Bool, shape: NotchShellSurface, reduceMotion: Bool,
+    init(expanded: Bool, shape: NotchShellSurface, reduceMotion: Bool, notificationVisible: Bool = false,
+         retainsMedia: Bool = false,
          @ViewBuilder content: @escaping @MainActor (NotchVisualTransition.Phase) -> Content) {
         self.expanded = expanded
         self.shape = shape
         self.reduceMotion = reduceMotion
+        self.notificationVisible = notificationVisible
+        self.retainsMedia = retainsMedia
+        _wasNotificationVisible = State(initialValue: notificationVisible)
+        _wasExpanded = State(initialValue: expanded)
         self.content = content
         _renderedShape = State(initialValue: shape)
         _transition = State(initialValue: NotchVisualTransition(expanded: expanded))
@@ -54,17 +65,29 @@ struct NotchTransitionSurface<Content: View>: View {
             shape: renderedShape,
             phase: transition.phase,
             expandedHeight: shape.height,
-            hidesPendingTarget: targetChanged,
+            hidesPendingTarget: targetChanged && !(notificationVisible && wasNotificationVisible && !expanded && !wasExpanded),
+            notificationVisible: notificationVisible,
+            keepsNotificationContent: preservesNotificationContent,
+            preservesCollapsedMedia: retainsMedia && !expanded
+                && (targetChanged ? !wasExpanded : (isNotificationTransition || !transition.isBlack)),
             content: content
         )
         .onChange(of: shape.animatableData) { _, _ in retarget() }
     }
 
     private func retarget() {
-        let generation = transition.begin(expanded: expanded)
+        preservesNotificationContent = notificationVisible && wasNotificationVisible && !expanded && !wasExpanded
+        let notificationMotion = !expanded && !wasExpanded && (notificationVisible || wasNotificationVisible)
+        isNotificationTransition = notificationMotion
+        let generation = transition.begin(expanded: expanded || notificationVisible)
+        let animation = notificationMotion
+            ? (notificationVisible ? NotchMotion.notificationIn : NotchMotion.notificationOut)
+            : NotchMotion.shell
+        wasExpanded = expanded
+        wasNotificationVisible = notificationVisible
         // Only this shape receives the animation. A reversal retargets the same
         // SwiftUI spring from its live presentation position and velocity.
-        withAnimation(reduceMotion ? NotchMotion.reduced : NotchMotion.shell,
+        withAnimation(reduceMotion ? NotchMotion.reduced : animation,
                       completionCriteria: .removed) {
             renderedShape = shape
         } completion: {
@@ -80,6 +103,9 @@ nonisolated struct NotchSurfaceFrame<Content: View>: View, Animatable {
     let phase: NotchVisualTransition.Phase
     let expandedHeight: CGFloat
     var hidesPendingTarget = false
+    var notificationVisible = false
+    var keepsNotificationContent = false
+    var preservesCollapsedMedia = false
     @ViewBuilder var content: @MainActor (NotchVisualTransition.Phase) -> Content
 
     var animatableData: NotchShellSurface.AnimatableData {
@@ -89,10 +115,12 @@ nonisolated struct NotchSurfaceFrame<Content: View>: View, Animatable {
 
     var contentPhase: NotchVisualTransition.Phase {
         guard !hidesPendingTarget else { return .closingBlack }
+        if notificationVisible && keepsNotificationContent { return .collapsed }
+        if notificationVisible && phase == .expanded { return .collapsed }
         if phase == .openingBlack {
             let collapsedHeight = shape.passiveShape.height
             let revealHeight = collapsedHeight + (expandedHeight - collapsedHeight) * 0.75
-            return shape.height >= revealHeight ? .expanded : .openingBlack
+            return shape.height >= revealHeight ? (notificationVisible ? .collapsed : .expanded) : .openingBlack
         }
         return phase
     }
@@ -103,11 +131,14 @@ nonisolated struct NotchSurfaceFrame<Content: View>: View, Animatable {
         ZStack(alignment: .top) {
             shape.fill(.black).allowsHitTesting(false)
             content(contentPhase)
-                .modifier(NotchPresentationClip(visible: visible))
+                .modifier(NotchPresentationClip(visible: visible || preservesCollapsedMedia))
                 .mask(shape)
+                .environment(\.notchPreservesCollapsedMedia, preservesCollapsedMedia)
                 .environment(\.notchShellIsTransitioning, transitioning)
-                .allowsHitTesting(visible)
-                .accessibilityHidden(!visible)
+                // Notification input can reverse entry before its content reveal
+                // finishes; main expand/collapse keeps the established black gate.
+                .allowsHitTesting(visible || notificationVisible || preservesCollapsedMedia)
+                .accessibilityHidden(!visible && !preservesCollapsedMedia)
         }
         // This wrapper has already interpolated geometry. Neither its shape nor
         // the fixed-size content should start a second animation on each sample.
@@ -122,6 +153,16 @@ nonisolated struct NotchSurfaceFrame<Content: View>: View, Animatable {
 
 extension EnvironmentValues {
     @Entry public var notchShellIsTransitioning = false
+    @Entry var notchPreservesCollapsedMedia = false
+}
+
+struct CollapsedMediaPresentation: ViewModifier {
+    let visible: Bool
+    @Environment(\.notchPreservesCollapsedMedia) private var preservesMedia
+
+    func body(content: Content) -> some View {
+        content.modifier(NotchPresentationClip(visible: visible || preservesMedia))
+    }
 }
 
 /// Binary visibility, with no insertion/removal, fade, scale or layout mutation.
