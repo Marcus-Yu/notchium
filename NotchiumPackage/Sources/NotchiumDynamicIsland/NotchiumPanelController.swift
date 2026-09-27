@@ -85,6 +85,20 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         panel.acceptsMouseMovedEvents = true
         panel.setAccessibilityLabel("Notchium shell")
         panel.setAccessibilityIdentifier("notchium.shell.panel")
+        NotificationCenter.default.addObserver(self, selector: #selector(menuBegan(_:)),
+            name: NSMenu.didBeginTrackingNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(menuEnded(_:)),
+            name: NSMenu.didEndTrackingNotification, object: nil)
+    }
+
+    @objc private func menuBegan(_ notification: Notification) {
+        guard model.surfaceState != .collapsed, let menu = notification.object as? NSMenu else { return }
+        model.setAuxiliaryInteractionPresented(true, source: "menu.\(ObjectIdentifier(menu))")
+    }
+
+    @objc private func menuEnded(_ notification: Notification) {
+        guard let menu = notification.object as? NSMenu else { return }
+        model.setAuxiliaryInteractionPresented(false, source: "menu.\(ObjectIdentifier(menu))")
     }
 
     func reconcile(
@@ -187,7 +201,7 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
 
     func handleEscapeCommand() {
         guard model.visualState == .expanded else { return }
-        model.collapse()
+        model.handleEscape()
     }
 
     private func configureHostingView(
@@ -265,15 +279,8 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
     func handleClick(at point: CGPoint) {
         guard let currentLayout else { return }
         guard !model.consumePointerClickForAuxiliaryInteraction() else { return }
-        if model.activityCoordinator.presentationMode == .compactHUD,
-           let frame = transientFrame(for: currentLayout),
-           NotchHoverRegion.contains(point, in: frame) {
-            // The compact HUD's SwiftUI button owns the click.
-            return
-        }
-        if model.showsCalendarReminder,
-           NotchHoverRegion.contains(point, in: reminderFrame(for: currentLayout)) {
-            // The banner's SwiftUI buttons own its click, including Join and dismiss.
+        if let frame = notificationFrame(for: currentLayout), frame.contains(point) {
+            // Notification actions, including Join and dismissal, own their clicks.
             return
         }
         let region = model.surfaceState == .collapsed
@@ -294,22 +301,12 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
 
     private func handleMouseMoved(at point: CGPoint) {
         guard let currentLayout else { return }
-        let insideAudioHUD = model.activityCoordinator.presentationMode == .compactHUD
-            && transientFrame(for: currentLayout).map { NotchHoverRegion.contains(point, in: $0) } == true
-        let insideReminder = model.showsCalendarReminder
-            && NotchHoverRegion.contains(point, in: reminderFrame(for: currentLayout))
-        model.calendarRenderer?.setReminderHovered(insideReminder)
-        if insideAudioHUD {
-            model.activityCoordinator.setHovered(true)
+        let insideNotification = notificationFrame(for: currentLayout)
+            .map { NotchHoverRegion.contains(point, in: $0) } == true
+        model.notificationCoordinator.setHovered(insideNotification)
+        if insideNotification, model.surfaceState == .collapsed {
             model.setHovered(false)
             return
-        }
-        if insideReminder {
-            model.setHovered(false)
-            return
-        }
-        if model.activityCoordinator.presentationMode == .compactHUD {
-            model.activityCoordinator.setHovered(false)
         }
         let zone = model.surfaceState == .collapsed
             ? currentLayout.collapsedHoverFrame
@@ -317,25 +314,19 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         model.setHovered(NotchHoverRegion.contains(point, in: zone))
     }
 
-    private func reminderFrame(for layout: NotchPanelLayout) -> CGRect {
-        NotchReminderGeometry.contentFrame(for: layout, height: model.calendarReminderHeight)
+    private func notificationFrame(for layout: NotchPanelLayout) -> CGRect? {
+        guard let notification = model.notificationCoordinator.active else { return nil }
+        guard model.surfaceState == .collapsed || model.showsExpandedNotification else { return nil }
+        return NotchNotificationGeometry.interactionFrame(for: notification.presentationStyle, layout: layout,
+                                                          expanded: model.surfaceState != .collapsed)
     }
 
     private func updateHitTesting(at point: CGPoint) {
         guard let currentLayout else { return }
-        let insideAudioHUD = model.activityCoordinator.presentationMode == .compactHUD
-            && transientFrame(for: currentLayout).map { NotchHoverRegion.contains(point, in: $0) } == true
-        let insideReminder = model.showsCalendarReminder
-            && NotchHoverRegion.contains(point, in: reminderFrame(for: currentLayout))
-        panel.ignoresMouseEvents = model.surfaceState == .collapsed && !insideReminder && !insideAudioHUD
-    }
-
-    private func transientFrame(for layout: NotchPanelLayout) -> CGRect? {
-        NotchGeometryResolver.transientFrame(
-            for: layout,
-            mode: model.activityCoordinator.presentationMode,
-            reminderHeight: model.calendarReminderHeight
-        )
+        let inside = notificationFrame(for: currentLayout)
+            .map { NotchHoverRegion.contains(point, in: $0) } == true
+        model.notificationCoordinator.setHovered(inside)
+        panel.ignoresMouseEvents = model.surfaceState == .collapsed && !inside
     }
 
     private func removePointerMonitors() {
@@ -354,6 +345,8 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard (event.keyCode == 53 || event.charactersIgnoringModifiers == "\u{1b}"),
                   let self,
+                  event.window === self.panel,
+                  !self.model.isAuxiliaryInteractionPresented,
                   self.model.visualState == .expanded else {
                 return event
             }
