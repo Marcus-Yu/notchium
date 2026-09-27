@@ -26,7 +26,7 @@ public final class CalendarReminderCoordinator {
     @ObservationIgnored private var activeID: UUID?
 
     public static let thresholds: [Int] = [3600, 1800, 300]
-    public static let displayDuration: TimeInterval = 10
+    public static let displayDuration: TimeInterval = 5
 
     public init(activities: ActivityCoordinator, clock: any AppClock = ContinuousAppClock()) {
         self.activities = activities
@@ -57,7 +57,7 @@ public final class CalendarReminderCoordinator {
 
     public func dismiss() {
         current = nil
-        if let activeID { activities.dismiss(id: activeID) }
+        if let activeID { activities.notifications.dismiss(id: activeID) }
         activeID = nil
     }
 
@@ -70,7 +70,7 @@ public final class CalendarReminderCoordinator {
 
     public func setHovered(_ hovered: Bool) {
         guard activities.activeTransient?.id == activeID else { return }
-        activities.setHovered(hovered)
+        activities.notifications.setHovered(hovered)
     }
 
     private func evaluate(at now: Date) {
@@ -92,18 +92,17 @@ public final class CalendarReminderCoordinator {
         let event = selected.0
         let seconds = event.startDate.timeIntervalSince(now)
         let label = Self.label(for: event, at: now)
-        dismiss()
         let id = UUID()
-        activeID = id
-        current = Reminder(event: event, label: label,
-                           isImminent: seconds <= 300, isNow: seconds <= 0)
-        let priority: NotchActivityPriority = seconds <= 300 ? .high : .medium
-        activities.present(.init(id: id, kind: .calendar, title: event.title,
-                                 subtitle: label, priority: priority,
-                                 presentationStyle: .downwardBanner,
-                                 lifetime: .transient,
-                                 destination: .calendar,
-                                 duration: .seconds(Self.displayDuration)))
+        let notification = NotchNotification(
+            id: id, kind: seconds <= 300 ? .reminder5 : (seconds <= 1800 ? .reminder30 : .reminder60),
+            duration: .seconds(Self.displayDuration), coalescingKey: "calendar.\(event.id)",
+            action: event.meetingURL.map { .join($0) } ?? .calendar,
+            presentationStyle: .calendar, content: .calendar(title: event.title, status: label))
+        if activities.notifications.present(notification) {
+            activeID = activities.notifications.active?.id
+            current = Reminder(event: event, label: label,
+                               isImminent: seconds <= 300, isNow: seconds <= 0)
+        }
     }
 
     private static func label(for event: CalendarEventSummary, at now: Date) -> String {
