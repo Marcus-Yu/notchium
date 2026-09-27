@@ -1,7 +1,7 @@
 import SwiftUI
 
 public enum NotchReminderGeometry {
-    public static let minimumHeight: CGFloat = 44
+    public static let minimumHeight: CGFloat = NotchNotificationGeometry.calendarHeight
 
     public static func width(for layout: NotchPanelLayout) -> CGFloat {
         let mediaWidth = CollapsedMediaGeometry(
