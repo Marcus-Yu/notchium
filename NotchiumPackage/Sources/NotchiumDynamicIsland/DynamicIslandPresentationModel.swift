@@ -49,8 +49,13 @@ public final class DynamicIslandPresentationModel {
     public private(set) var phase: NotchPresentationPhase
     public private(set) var reduceMotion = false
     public private(set) var isAuxiliaryInteractionPresented = false
+    private var auxiliarySources: Set<String> = []
 
     public let activityCoordinator: ActivityCoordinator
+    public var notificationCoordinator: NotificationCoordinator { activityCoordinator.notifications }
+    public var showsExpandedNotification: Bool {
+        surfaceState != .collapsed && notificationCoordinator.active != nil && !isAuxiliaryInteractionPresented
+    }
     public let pageModel: NotchPageModel
     public var mediaRenderer: (any NotchMediaRendering)?
     public var calendarRenderer: (any NotchCalendarRendering)?
@@ -61,8 +66,8 @@ public final class DynamicIslandPresentationModel {
         guard case let .audio(hud) = activityCoordinator.activeTransient?.payload else { return nil }
         return hud
     }
-    // Measured at the banner's fixed target width; shared with AppKit hit testing.
-    var calendarReminderHeight: CGFloat = NotchReminderGeometry.minimumHeight
+    // A stable Calendar height prevents title changes from resizing the shell.
+    var calendarReminderHeight: CGFloat { NotchReminderGeometry.minimumHeight }
 
     public var showsCalendarReminder: Bool {
         _ = activityRevision
@@ -108,7 +113,6 @@ public final class DynamicIslandPresentationModel {
     @ObservationIgnored private var pendingHoverTask: Task<Void, Never>?
     @ObservationIgnored private var pendingCollapseTask: Task<Void, Never>?
     @ObservationIgnored private var transitionTask: Task<Void, Never>?
-    @ObservationIgnored private let audioActivityID = UUID()
     @ObservationIgnored private var hoverGeneration = 0
     @ObservationIgnored private var transitionGeneration = 0
     @ObservationIgnored lazy var auxiliaryInteractionHandler = NotchAuxiliaryInteractionHandler(model: self)
@@ -148,20 +152,24 @@ public final class DynamicIslandPresentationModel {
         }
     }
 
-    public func setAuxiliaryInteractionPresented(_ presented: Bool) {
+    public func setAuxiliaryInteractionPresented(_ presented: Bool, source: String = "feature") {
         if presented {
+            auxiliarySources.insert(source)
             guard !isAuxiliaryInteractionPresented else { return }
             isAuxiliaryInteractionPresented = true
             auxiliaryInteractionObservedClick = false
             suppressNextAuxiliaryActionClick = false
             pendingCollapseTask?.cancel()
+            pendingHoverTask?.cancel()
             hoverGeneration &+= 1
         } else {
-            endAuxiliaryInteraction(actionSelected: false)
+            endAuxiliaryInteraction(actionSelected: false, source: source)
         }
     }
 
-    func endAuxiliaryInteraction(actionSelected: Bool) {
+    func endAuxiliaryInteraction(actionSelected: Bool, source: String = "feature") {
+        auxiliarySources.remove(source)
+        guard auxiliarySources.isEmpty else { return }
         guard isAuxiliaryInteractionPresented else { return }
         isAuxiliaryInteractionPresented = false
         suppressNextAuxiliaryActionClick = actionSelected && !auxiliaryInteractionObservedClick
@@ -193,6 +201,16 @@ public final class DynamicIslandPresentationModel {
         pendingHoverTask?.cancel()
         pendingCollapseTask?.cancel()
         setExpanded(false)
+    }
+
+    /// Child menus/popovers receive Escape first through the native responder chain.
+    public func handleEscape() {
+        guard !isAuxiliaryInteractionPresented else { return }
+        if notificationCoordinator.active?.dismissible == true {
+            notificationCoordinator.dismissByUser()
+        } else {
+            collapse()
+        }
     }
 
     public func setExpanded(
@@ -227,6 +245,7 @@ public final class DynamicIslandPresentationModel {
         transitionGeneration &+= 1
         pointerIsInside = false
         isAuxiliaryInteractionPresented = false
+        auxiliarySources.removeAll()
         auxiliaryInteractionObservedClick = false
         suppressNextAuxiliaryActionClick = false
         phase = .collapsed
@@ -239,19 +258,7 @@ public final class DynamicIslandPresentationModel {
 
     /// Repeated events coalesce into the coordinator's single Audio slot and reset its deadline.
     public func showAudioHUD(_ hud: NotchAudioHUD) {
-        let kind: NotchActivityKind = hud.kind == .outputChanged ? .audioDevice : .systemHUD
-        activityCoordinator.present(.init(
-            id: audioActivityID,
-            kind: kind,
-            title: hud.deviceName,
-            subtitle: hud.kind == .outputChanged ? "Output changed" : "Volume",
-            priority: hud.kind == .outputChanged ? .medium : .low,
-            presentationStyle: .compactHUD,
-            lifetime: .transient,
-            destination: .audio,
-            duration: .milliseconds(1250),
-            payload: .audio(hud)
-        ))
+        notificationCoordinator.present(.audio(hud))
     }
 
     public func activateCurrentActivity() {
@@ -315,7 +322,7 @@ public final class DynamicIslandPresentationModel {
     }
 
     private func completeHoverExpansion(generation: Int) {
-        guard generation == hoverGeneration else { return }
+        guard generation == hoverGeneration, notificationCoordinator.active == nil else { return }
         setExpanded(true, target: .hovered)
     }
 
