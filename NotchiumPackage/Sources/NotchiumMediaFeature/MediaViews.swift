@@ -62,9 +62,9 @@ private enum MusicPlayerSpacing {
 
 public struct MediaPageView: View {
     let model: MediaFeatureModel
-    @Environment(\.notchShellIsTransitioning) private var shellIsTransitioning
     @State private var selectedSurface = MediaSurface.player
     @State private var showsDevices = false
+    @Environment(\.notchAuxiliaryInteraction) private var auxiliaryInteraction
     @Environment(\.notchMediaExpanded) private var isExpanded
     @Environment(\.notchMediaPageVisible) private var isPageVisible
     @Environment(\.openSettings) private var openSettings
@@ -114,16 +114,27 @@ public struct MediaPageView: View {
         .task(id: isExpanded && isPageVisible) {
             await model.setExpandedVisible(isExpanded && isPageVisible)
         }
-        .onChange(of: !isExpanded && !shellIsTransitioning) { _, settledClosed in
-            if settledClosed {
-                selectedSurface = .player
+        .onChange(of: isExpanded) { _, expanded in
+            if !expanded {
                 showsDevices = false
             }
         }
         .onChange(of: selectedSurface) { _, _ in
             showsDevices = false
         }
+        .onChange(of: isPageVisible) { _, visible in
+            if !visible { showsDevices = false }
+        }
+        .onChange(of: showsDevices) { _, presented in
+            if presented { auxiliaryInteraction.begin() }
+            else { auxiliaryInteraction.end(actionSelected: false) }
+        }
+        .onExitCommand {
+            if showsDevices { showsDevices = false }
+            else { auxiliaryInteraction.handleEscape() }
+        }
         .onDisappear {
+            if showsDevices { auxiliaryInteraction.end(actionSelected: false) }
             model.setUpNextVisible(false)
             Task { await model.setExpandedVisible(false) }
         }
@@ -210,7 +221,7 @@ public struct MediaPageView: View {
                         model.transferPlayback(to: device)
                     }
                 }
-                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .bottomTrailing)))
+                .transition(.opacity)
                 .zIndex(1)
             }
         }
