@@ -50,3 +50,29 @@ Regression tests cover timing, pin persistence, timer cancellation, repeated poi
 These tests do not certify visual acceptance. The release gate is a real 60 fps recording on a built-in notched MacBook of passive → hover → expanded → collapse, plus click opening/closing, mid-animation reversal, fullscreen hover, and three-finger Space swipes. Inspect every frame for a separate software notch and horizontal drift. Do not mark PASS from geometry tests, mocked displays, still screenshots, or a synthetic animation recording.
 
 Black-transition regression coverage includes stale completion rejection, repeated reversals, full-size opaque endpoint content, and 60 Hz sampled raster invariants across sampled shell sizes. These are synthetic samples, not a live capture. The current computer-use interface exposes still screenshots but no video recording API; live 60 fps acceptance remains unverified.
+
+## Stage 9 notification geometry
+
+Calendar and Audio now use the shared notification target in the persistent
+`NotchTransitionSurface`. Its geometry has independently animatable 12 pt concave
+shoulders and 34 pt lower corners. Calendar content is 88 pt tall; Audio is 56 pt.
+Notification geometry uses response 0.26 / damping 1.0 on entry and response 0.20 /
+damping 1.0 on exit, with blend duration zero. This overrides neither the main
+0.40 / 0.80 expansion spring nor the canonical 524 × 266 expanded size.
+Content reveals at 75% of height growth at its final dimensions. Notification-to-
+notification resizing retains content under the live shape mask; equal-size replacement
+uses a 100 ms opacity transition. Dismissal hides content immediately before contraction.
+The target-shape mask was removed: only interpolated presentation geometry clips content,
+so reversals cannot prematurely crop to a closing endpoint.
+See [Unified notifications](STAGE9_NOTIFICATIONS.md) for ownership and validation.
+
+## Stage 10 activity and gesture coordination
+
+Notification transitions preserve the persistent media row independently of the content
+reveal gate. Main expand/collapse still uses the established black gate. Expanded
+notifications use the same content in a bottom overlay inside the fixed canonical shell;
+pages remain mounted and selected. Horizontal page navigation now receives native phased
+scroll events only in the empty navigation area, replacing the full-page event monitor.
+Source-keyed auxiliary retention protects native menus and the Spotify picker, and Escape
+defers to children. See [Stage 10 coordination](STAGE10_COORDINATION.md) for current
+priority, restoration, gesture thresholds, Reduce Motion, review findings, and test results.
