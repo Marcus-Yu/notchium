@@ -73,7 +73,7 @@ final class CalendarReminderTests: XCTestCase {
         reminders.stop()
     }
 
-    func testSoonestEventWinsAndHigherPriorityActivityBuffersOneCalendarAlert() async {
+    func testSoonestEventWinsAndHigherPriorityActivitySuppressesCalendarAlert() async {
         let clock = TestAppClock(now: base, automaticallyAdvances: false)
         let activities = ActivityCoordinator(clock: clock)
         let reminders = CalendarReminderCoordinator(activities: activities, clock: clock)
@@ -88,18 +88,20 @@ final class CalendarReminderTests: XCTestCase {
         activities.present(critical)
         let another = event(minutesAway: 6)
         await reminders.update(events: [another])
-        XCTAssertEqual(reminders.current?.event.id, another.id)
+        XCTAssertNil(reminders.current)
         XCTAssertEqual(activities.activeTransient?.id, critical.id)
-        XCTAssertEqual(activities.queueCount, 1)
+        XCTAssertEqual(activities.queueCount, 0)
         reminders.stop()
     }
 
-    func testTenSecondDismissalPausesWhileHovered() async {
+    func testFiveSecondDismissalPausesAndResumesRemainingTimeAfterHover() async {
         let clock = TestAppClock(now: base, automaticallyAdvances: false)
         let activities = ActivityCoordinator(clock: clock)
         let reminders = CalendarReminderCoordinator(activities: activities, clock: clock)
         await reminders.update(events: [event(minutesAway: 5)])
+        XCTAssertEqual(activities.notifications.active?.duration, .seconds(5))
         await clock.waitForPendingSleeps()
+        await clock.advance(by: .seconds(2))
         reminders.setHovered(true)
         while await clock.pendingSleepCount() != 0 { await Task.yield() }
         await clock.advance(by: .seconds(20))
@@ -108,7 +110,10 @@ final class CalendarReminderTests: XCTestCase {
 
         reminders.setHovered(false)
         await clock.waitForPendingSleeps()
-        await clock.advance(by: .seconds(10))
+        await clock.advance(by: .milliseconds(2_500))
+        for _ in 0..<10 { await Task.yield() }
+        XCTAssertNotNil(reminders.current)
+        await clock.advance(by: .milliseconds(500))
         for _ in 0..<10 { await Task.yield() }
         XCTAssertNil(reminders.current)
         XCTAssertNil(activities.activeActivity)
