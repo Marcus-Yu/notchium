@@ -47,7 +47,7 @@ final class ExpandedTopSurfaceTests: XCTestCase {
             shape.animatableData = AnimatablePair(
                 AnimatablePair(
                     AnimatablePair(212 + 238 * progress, 38 + 152 * progress),
-                    AnimatablePair(320, 8 + 20 * progress)
+                    AnimatablePair(320, AnimatablePair(8 + 20 * progress, 0))
                 ),
                 AnimatablePair(0, 0)
             )
