@@ -51,7 +51,7 @@ final class ActivityCoordinatorTests: XCTestCase {
         coordinator.present(music)
         coordinator.present(audio)
 
-        XCTAssertEqual(coordinator.presentationMode, .compactHUD)
+        XCTAssertEqual(coordinator.presentationMode, .combined)
         XCTAssertEqual(coordinator.persistentActivity, music)
         coordinator.dismissActive()
         XCTAssertEqual(coordinator.activeActivity, music)
@@ -72,7 +72,7 @@ final class ActivityCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.activeTransient, audio)
     }
 
-    func testEqualPriorityKeepsActiveAndBuffersOnePerFamily() {
+    func testEqualPriorityKeepsActiveAndPendingOutputIsNotReplacedByVolume() {
         let coordinator = ActivityCoordinator(clock: clock())
         let calendar = activity(.calendar, priority: .medium, duration: .seconds(10))
         let firstAudio = activity(.audioDevice, priority: .medium, duration: .seconds(2))
@@ -85,8 +85,8 @@ final class ActivityCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.activeTransient, calendar)
         XCTAssertEqual(coordinator.queueCount, 1)
         coordinator.dismissActive()
-        XCTAssertEqual(coordinator.activeTransient?.id, updatedAudio.id)
-        XCTAssertEqual(coordinator.activeTransient?.kind, .systemHUD)
+        XCTAssertEqual(coordinator.activeTransient?.id, firstAudio.id)
+        XCTAssertEqual(coordinator.activeTransient?.kind, .audioDevice)
         XCTAssertEqual(coordinator.activeTransient?.priority, .medium)
     }
 
