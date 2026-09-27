@@ -30,8 +30,9 @@ public final class NotchPageModel: ObservableObject {
 
     public func moveSelection(forward: Bool) {
         guard let index = enabledPages.firstIndex(of: selectedPage) else { return }
-        let offset = forward ? 1 : enabledPages.count - 1
-        selectedPage = enabledPages[(index + offset) % enabledPages.count]
+        let next = index + (forward ? 1 : -1)
+        guard enabledPages.indices.contains(next) else { return }
+        selectedPage = enabledPages[next]
     }
 
     private var fallbackPage: NotchPage {
