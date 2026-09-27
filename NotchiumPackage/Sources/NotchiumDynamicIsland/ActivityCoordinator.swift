@@ -6,12 +6,21 @@ import NotchiumCore
 /// Features submit semantic activities; display-specific geometry remains in the shell layer.
 @MainActor
 public final class ActivityCoordinator: ObservableObject {
+    public let notifications: NotificationCoordinator
+
     @Published public private(set) var persistentActivity: NotchActivity?
     @Published public private(set) var activeTransient: NotchActivity?
     @Published public private(set) var queueCount = 0
     @Published public private(set) var presentationMode: NotchPresentationMode = .none
 
     public var activeActivity: NotchActivity? { activeTransient ?? persistentActivity }
+
+    public var foregroundActivity: NotchActivity? { activeActivity }
+    public var underlyingActivity: NotchActivity? { persistentActivity }
+    public var transientActivity: NotchActivity? { activeTransient }
+
+    /// Presentation compatibility is independent of which transient wins priority.
+    public var retainsMediaPresentation: Bool { persistentActivity?.presentationStyle == .mediaSides }
 
     /// Fresh expansion policy is independent of transient presentation priority.
     /// A retained paused track is useful on Home, but does not make Music the default.
@@ -50,6 +59,8 @@ public final class ActivityCoordinator: ObservableObject {
 
     public init(clock: any AppClock) {
         self.clock = clock
+        notifications = NotificationCoordinator(clock: clock)
+        notifications.activities = self
     }
 
     deinit { timeoutTask?.cancel() }
@@ -61,11 +72,10 @@ public final class ActivityCoordinator: ObservableObject {
             return
         }
 
-        var incoming = Entry(activity: activity, expiresAt: nil, remaining: activity.duration)
+        let incoming = Entry(activity: activity, expiresAt: nil, remaining: activity.duration)
 
         if let activeEntry, activeEntry.activity.family == activity.family {
-            incoming.activity = coalesced(existing: activeEntry.activity, incoming: activity)
-            incoming.remaining = incoming.activity.duration
+            guard activity.priority >= activeEntry.activity.priority else { return }
             self.activeEntry = incoming
             publishState()
             scheduleTimeout()
@@ -73,8 +83,7 @@ public final class ActivityCoordinator: ObservableObject {
         }
 
         if let pending = pendingByFamily[activity.family] {
-            incoming.activity = coalesced(existing: pending.activity, incoming: activity)
-            incoming.remaining = incoming.activity.duration
+            guard activity.priority >= pending.activity.priority else { return }
         }
 
         guard let current = activeEntry else {
@@ -83,13 +92,25 @@ public final class ActivityCoordinator: ObservableObject {
         }
 
         if incoming.activity.priority > current.activity.priority {
-            pendingByFamily[current.activity.family] = current
+            if current.activity.id != notifications.active?.id {
+                pendingByFamily[current.activity.family] = current
+            }
             activate(incoming)
         } else {
             pendingByFamily[activity.family] = incoming
             publishState()
             scheduleTimeout()
         }
+    }
+
+    func presentNotification(_ activity: NotchActivity, replacing id: UUID?) {
+        if let id {
+            pendingByFamily = pendingByFamily.filter { $0.value.activity.id != id }
+        }
+        if let current = activeEntry, current.activity.id != id {
+            pendingByFamily[current.activity.family] = current
+        }
+        activate(Entry(activity: activity, expiresAt: nil, remaining: nil))
     }
 
     public func dismissActive() {
@@ -153,24 +174,6 @@ public final class ActivityCoordinator: ObservableObject {
         scheduleTimeout()
     }
 
-    private func coalesced(existing: NotchActivity, incoming: NotchActivity) -> NotchActivity {
-        guard incoming.family == .audio else { return incoming }
-        return NotchActivity(
-            id: incoming.id,
-            kind: incoming.kind,
-            title: incoming.title,
-            subtitle: incoming.subtitle,
-            priority: max(existing.priority, incoming.priority),
-            presentationStyle: incoming.presentationStyle,
-            lifetime: incoming.lifetime,
-            isDismissible: incoming.isDismissible,
-            destination: incoming.destination,
-            timestamp: incoming.timestamp,
-            duration: incoming.duration,
-            payload: incoming.payload
-        )
-    }
-
     private func activate(_ entry: Entry) {
         activeEntry = entry
         activeIsHovered = false
@@ -192,6 +195,7 @@ public final class ActivityCoordinator: ObservableObject {
     }
 
     private func publishState() {
+        notifications.activityChanged(activeEntry?.activity)
         activeTransient = activeEntry?.activity
         queueCount = pendingByFamily.count
         presentationMode = Self.presentationMode(
@@ -214,7 +218,7 @@ public final class ActivityCoordinator: ObservableObject {
             return transient.family == .calendar && persistent?.presentationStyle == .mediaSides
                 ? .combined
                 : .downwardBanner
-        case .compactHUD: return .compactHUD
+        case .compactHUD: return persistent?.presentationStyle == .mediaSides ? .combined : .compactHUD
         }
     }
 
