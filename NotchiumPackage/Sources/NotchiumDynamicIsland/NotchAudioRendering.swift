@@ -45,6 +45,9 @@ public struct NotchAuxiliaryInteractionHandler: Equatable {
         storage.model?.endAuxiliaryInteraction(actionSelected: actionSelected)
     }
 
+    @MainActor
+    public func handleEscape() { storage.model?.handleEscape() }
+
     public static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.storage === rhs.storage
     }
