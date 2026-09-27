@@ -3,12 +3,7 @@ public enum NotchActivityKind: String, CaseIterable, Hashable, Sendable {
     case meeting, download, screenshot, clipboard, focus, notification
 
     public var priority: NotchActivityPriority {
-        switch self {
-        case .media, .systemHUD: .low
-        case .charging, .audioDevice, .download, .screenshot, .calendar: .medium
-        case .focus, .battery, .meeting, .clipboard: .high
-        case .notification: .critical
-        }
+        ActivityPriorityPolicy.priority(for: self)
     }
 
     public var family: NotchActivityFamily {
