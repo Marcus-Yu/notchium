@@ -64,13 +64,17 @@ running silent stream may appear.
 
 ## Notch HUD
 
-The long-lived device stream detects keyboard volume and mute changes through HAL
-property notifications. It also detects a new default output. The presentation
-model updates one HUD value in place for key repeats, resets a 1.25-second expiry
-task, and uses the existing top-anchored panel and shell mask. It does not create
-another window. The HUD temporarily hides the collapsed Music and Calendar content;
-their state remains intact and reappears when the HUD expires. System volume never
-changes Spotify Connect playback volume.
+The long-lived device stream still detects keyboard volume/mute and default-output
+changes through HAL property notifications. `showAudioHUD` now submits typed notifications
+to the shared `NotificationCoordinator`. Volume and mute share one coalescing key and a
+1.25-second timeout; output changes use medium priority and a 3-second timeout. Repeats
+retain identity, update content immediately, and extend expiry without restarting geometry.
+Lower-priority feedback is discarded while Calendar is visible. The 56 pt Audio content
+area uses the same black shell and rounded shoulders as Calendar. Stage 10 keeps the
+Music flanks visible throughout Audio entry and exit. Expanded pages receive the same
+HUD in a fixed overlay strip without page changes or reflow. No Music notification kinds
+or producers exist. See [Unified notifications](STAGE9_NOTIFICATIONS.md) and
+[Stage 10 coordination](STAGE10_COORDINATION.md).
 
 ## Qualification
 
