@@ -3,7 +3,6 @@ import SwiftUI
 struct NotchAudioHUDView: View {
     let hud: NotchAudioHUD
     let action: () -> Void
-    let hoverChanged: (Bool) -> Void
 
     var body: some View {
         Button(action: action) {
@@ -12,7 +11,7 @@ struct NotchAudioHUDView: View {
                     Image(systemName: hud.kind == .outputChanged ? "headphones" : hud.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
                         .font(.system(size: 14, weight: .medium))
                         .frame(width: 18)
-                    Text(hud.deviceName)
+                    Text(hud.kind == .outputChanged ? hud.deviceName : (hud.isMuted ? "Muted" : "Volume"))
                         .font(.system(size: 12, weight: .semibold))
                         .lineLimit(1)
                     Spacer(minLength: 4)
@@ -24,9 +23,7 @@ struct NotchAudioHUDView: View {
                 }
                 if hud.kind == .volume {
                     if hud.isMuted {
-                        Text("Muted")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.7))
+                        EmptyView()
                     } else if let volume = hud.volume {
                         HStack(spacing: 10) {
                             GeometryReader { geometry in
@@ -53,10 +50,11 @@ struct NotchAudioHUDView: View {
         .buttonStyle(.plain)
         .foregroundStyle(.white)
         .padding(.horizontal, 5)
-        .onHover(perform: hoverChanged)
+
         .help("Open Audio")
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Open Audio for \(hud.deviceName)")
+        .accessibilityValue(hud.isMuted ? "Muted" : hud.volume.map { "\(Int(($0 * 100).rounded())) percent" } ?? "Volume unavailable")
         .accessibilityIdentifier("notchium.audio.hud")
     }
 }
