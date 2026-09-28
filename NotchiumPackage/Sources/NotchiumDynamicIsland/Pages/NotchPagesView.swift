@@ -1,4 +1,5 @@
 import SwiftUI
+import NotchiumDesignSystem
 
 /// One selection owns top-level navigation; feature renderers keep their models alive.
 struct NotchPagesView: View {
@@ -8,14 +9,10 @@ struct NotchPagesView: View {
     let audioRenderer: (any NotchAudioRendering)?
     let isExpanded: Bool
     var auxiliaryInteractionPresented = false
+    var caffeine: (any NotchCaffeineControlling)?
+    var quickActions: (any NotchQuickActionsRendering)?
+    var close: () -> Void = {}
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private func pageOffset(_ page: NotchPage) -> CGFloat {
-        guard !reduceMotion, page != model.selectedPage,
-              let pageIndex = model.enabledPages.firstIndex(of: page),
-              let selectedIndex = model.enabledPages.firstIndex(of: model.selectedPage) else { return 0 }
-        return pageIndex < selectedIndex ? -4 : 4
-    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -23,9 +20,8 @@ struct NotchPagesView: View {
                 .frame(height: ExpandedNotchLayout.navigationHeight)
 
             ZStack {
-                HomeDashboardView(pages: model, media: mediaRenderer, calendar: calendarRenderer)
+                HomeDashboardView(pages: model, media: mediaRenderer, calendar: calendarRenderer, quickActions: quickActions)
                     .opacity(model.selectedPage == .home ? 1 : 0)
-                    .offset(x: pageOffset(.home))
                     .disabled(model.selectedPage != .home)
                     .allowsHitTesting(model.selectedPage == .home)
                     .accessibilityHidden(model.selectedPage != .home)
@@ -38,7 +34,6 @@ struct NotchPagesView: View {
                 }
                 .environment(\.notchMediaPageVisible, model.selectedPage == .music)
                 .opacity(model.selectedPage == .music ? 1 : 0)
-                .offset(x: pageOffset(.music))
                 .disabled(model.selectedPage != .music)
                 .allowsHitTesting(model.selectedPage == .music)
                 .accessibilityHidden(model.selectedPage != .music)
@@ -54,7 +49,6 @@ struct NotchPagesView: View {
                 }
                 .environment(\.notchCalendarPageVisible, model.selectedPage == .calendar)
                 .opacity(model.selectedPage == .calendar ? 1 : 0)
-                .offset(x: pageOffset(.calendar))
                 .disabled(model.selectedPage != .calendar)
                 .allowsHitTesting(model.selectedPage == .calendar)
                 .accessibilityHidden(model.selectedPage != .calendar)
@@ -70,7 +64,6 @@ struct NotchPagesView: View {
                 }
                 .environment(\.notchAudioPageVisible, model.selectedPage == .audio)
                 .opacity(model.selectedPage == .audio ? 1 : 0)
-                .offset(x: pageOffset(.audio))
                 .disabled(model.selectedPage != .audio)
                 .allowsHitTesting(model.selectedPage == .audio)
                 .accessibilityHidden(model.selectedPage != .audio)
@@ -96,37 +89,50 @@ struct NotchPagesView: View {
 
     private var navigation: some View {
         HStack(spacing: 0) {
-            GlassEffectContainer(spacing: 6) {
-                HStack(spacing: 6) {
-                    ForEach(model.enabledPages) { page in
-                        Button {
-                            model.selectedPage = page
-                        } label: {
-                            Label(page.title, systemImage: page.symbol)
-                                .font(.system(size: 11, weight: page == model.selectedPage ? .semibold : .medium))
-                                .foregroundStyle(.white.opacity(page == model.selectedPage ? 1 : 0.58))
-                                .padding(.horizontal, 10)
-                                .frame(height: 27)
-                                .contentShape(.capsule)
-                                .glassEffect(
-                                    page == model.selectedPage
-                                        ? .regular.tint(.white.opacity(0.12)).interactive()
-                                        : .clear.interactive(),
-                                    in: .capsule
-                                )
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityAddTraits(page == model.selectedPage ? .isSelected : [])
-                        .accessibilityIdentifier("notchium.page.\(page.rawValue)")
+            HStack(spacing: ExpandedPageStyle.controlGap) {
+                ForEach(model.enabledPages) { page in
+                    NotchPageButton(page: page, isSelected: page == model.selectedPage) {
+                        model.selectedPage = page
                     }
                 }
             }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Main sections")
             NotchPageSwipeSurface(model: model, isEnabled: isExpanded && !auxiliaryInteractionPresented,
                                   reduceMotion: reduceMotion)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            NotchUtilityControls(caffeine: caffeine, quickReminder: quickActions, close: close)
         }
         .padding(.horizontal, NotchGeometryResolver.expandedContentHorizontalInset)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Pages")
+        .accessibilityLabel("Notchium header")
+    }
+}
+
+/// Compact desktop navigation with selection conveyed by contrast as well as VoiceOver.
+private struct NotchPageButton: View {
+    let page: NotchPage
+    let isSelected: Bool
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: page.symbol)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white.opacity(isSelected || isHovered ? 1 : 0.65))
+                .frame(width: ExpandedPageStyle.headerControlSize, height: ExpandedPageStyle.headerControlSize)
+                .background(.white.opacity(isSelected ? 0.18 : (isHovered ? 0.10 : 0.04)), in: .circle)
+                .overlay {
+                    Circle().strokeBorder(.white.opacity(isSelected ? 0.22 : 0), lineWidth: 1)
+                }
+                .contentShape(.circle)
+        }
+        .buttonStyle(NotchUtilityButtonStyle())
+        .onHover { isHovered = $0 }
+        .help(page.title)
+        .accessibilityLabel(page.title)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityIdentifier("notchium.page.\(page.rawValue)")
     }
 }
