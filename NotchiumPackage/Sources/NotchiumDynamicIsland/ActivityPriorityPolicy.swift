@@ -5,7 +5,7 @@ public enum ActivityPriorityPolicy {
         switch kind {
         case .reminder5: .high
         case .reminder30, .reminder60, .outputDeviceChanged: .medium
-        case .volume, .mute: .low
+        case .volume, .mute, .actionSucceeded, .actionFailed, .reminderAdded: .low
         }
     }
 
