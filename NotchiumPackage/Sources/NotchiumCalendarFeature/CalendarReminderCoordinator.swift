@@ -26,7 +26,6 @@ public final class CalendarReminderCoordinator {
     @ObservationIgnored private var activeID: UUID?
 
     public static let thresholds: [Int] = [3600, 1800, 300]
-    public static let displayDuration: TimeInterval = 5
 
     public init(activities: ActivityCoordinator, clock: any AppClock = ContinuousAppClock()) {
         self.activities = activities
@@ -95,7 +94,7 @@ public final class CalendarReminderCoordinator {
         let id = UUID()
         let notification = NotchNotification(
             id: id, kind: seconds <= 300 ? .reminder5 : (seconds <= 1800 ? .reminder30 : .reminder60),
-            duration: .seconds(Self.displayDuration), coalescingKey: "calendar.\(event.id)",
+            coalescingKey: "calendar.\(event.id)",
             action: event.meetingURL.map { .join($0) } ?? .calendar,
             presentationStyle: .calendar, content: .calendar(title: event.title, status: label))
         if activities.notifications.present(notification) {
