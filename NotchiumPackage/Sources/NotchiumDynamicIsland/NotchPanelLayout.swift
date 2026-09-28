@@ -1,4 +1,5 @@
 import Foundation
+import NotchiumDesignSystem
 
 public struct NotchPanelLayout: Equatable, Sendable {
     public let panelFrame: CGRect
@@ -42,11 +43,11 @@ public enum ExpandedNotchLayout {
     public static let size = CGSize(width: 524, height: 266)
     public static let topCornerRadius: CGFloat = 12
     public static let bottomCornerRadius: CGFloat = 26
-    public static let navigationHeight: CGFloat = 32
+    public static let navigationHeight: CGFloat = ExpandedPageStyle.headerHeight
 }
 
 public enum NotchGeometryResolver {
-    public static let expandedContentHorizontalInset: CGFloat = 30
+    public static let expandedContentHorizontalInset: CGFloat = ExpandedPageStyle.outerInset
     public static let expandedNotchSize = ExpandedNotchLayout.size
 
     public static let panelSize = CGSize(
