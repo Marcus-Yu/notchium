@@ -1,4 +1,5 @@
 import SwiftUI
+import NotchiumDesignSystem
 import NotchiumServices
 
 /// Date-dependent projection only; EventKit ownership stays in CalendarService.
@@ -37,25 +38,25 @@ struct HomeCalendarContent: View {
         let summary = HomeCalendarSummary(events: snapshot.upcomingEvents, at: date)
         Button(action: openCalendar) {
             VStack(alignment: .leading, spacing: 0) {
-                Text(date.formatted(.dateTime.month(.wide).year()).uppercased())
-                    .font(.system(size: 9, weight: .medium)).tracking(0.7)
-                    .foregroundStyle(.white.opacity(0.45)).lineLimit(1)
+                Text(date.formatted(.dateTime.month(.wide).year()))
+                    .font(ExpandedPageStyle.caption)
+                    .foregroundStyle(ExpandedPageStyle.secondary).lineLimit(1)
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(date.formatted(.dateTime.day())).font(.system(size: 34, weight: .light, design: .rounded))
                     Text(date.formatted(.dateTime.weekday(.wide)))
                         .font(.system(size: 11)).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
                 }.padding(.top, 3)
-                Rectangle().fill(.white.opacity(0.1)).frame(height: 1).padding(.vertical, 12)
+                Rectangle().fill(.white.opacity(0.1)).frame(height: 1).padding(.vertical, ExpandedPageStyle.groupGap)
                 if snapshot.permission != .granted {
                     status("Set up Calendar", detail: "Open Calendar to get started.")
                 } else if snapshot.availability != .available {
                     status("Calendar unavailable", detail: "Open Calendar to check access.")
                 } else if let event = summary.nextEvent {
-                    Text(summary.hasEventsToday ? "NEXT EVENT" : "NO EVENTS TODAY")
-                        .font(.system(size: 8, weight: .medium)).tracking(0.5)
-                        .foregroundStyle(.white.opacity(0.4)).lineLimit(1)
+                    Text(summary.hasEventsToday ? "Next event" : "No events today")
+                        .font(ExpandedPageStyle.caption)
+                        .foregroundStyle(ExpandedPageStyle.secondary).lineLimit(1)
                     Text(event.title).font(.system(size: 12, weight: .medium)).lineLimit(2).padding(.top, 5)
-                    Text(eventTime(event)).font(.system(size: 10)).foregroundStyle(.white.opacity(0.5))
+                    Text(eventTime(event)).font(.system(size: 10)).foregroundStyle(ExpandedPageStyle.secondary)
                         .lineLimit(1).padding(.top, 4)
                 } else {
                     status("No events today", detail: "Enjoy your free time.")
@@ -66,7 +67,7 @@ struct HomeCalendarContent: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.vertical, 10)
+        .padding(.vertical, ExpandedPageStyle.Space.sm)
         .accessibilityIdentifier("notchium.home.calendar")
         .accessibilityHint("Open Calendar")
     }
@@ -74,7 +75,7 @@ struct HomeCalendarContent: View {
     private func status(_ title: String, detail: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title).font(.system(size: 12, weight: .medium)).lineLimit(2)
-            Text(detail).font(.system(size: 10)).foregroundStyle(.white.opacity(0.45)).lineLimit(2)
+            Text(detail).font(.system(size: 10)).foregroundStyle(ExpandedPageStyle.secondary).lineLimit(2)
         }
     }
 
