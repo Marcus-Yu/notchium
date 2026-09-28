@@ -6,7 +6,6 @@ import NotchiumCameraFeature
 import NotchiumClipboardFeature
 import NotchiumCore
 import NotchiumFocusFeature
-import NotchiumKeyboardLockFeature
 import NotchiumMediaFeature
 import NotchiumMonitoringFeature
 import NotchiumPagesFeature
@@ -25,7 +24,6 @@ public enum FeatureCatalog {
         CameraFeature.descriptor,
         AudioFeature.descriptor,
         CaffeineFeature.descriptor,
-        KeyboardLockFeature.descriptor,
         ClipboardFeature.descriptor,
         MonitoringFeature.descriptor,
         ActivitiesFeature.descriptor,
