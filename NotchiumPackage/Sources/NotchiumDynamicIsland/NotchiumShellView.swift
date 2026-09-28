@@ -115,7 +115,7 @@ private struct NotchShellOuterSurface: View {
         )
         let showMedia = model.showsCollapsedMedia
         let collapsedMediaEligible = [.mediaSides, .combined].contains(model.activityCoordinator.presentationMode)
-        let notification = model.surfaceState == .collapsed ? model.notificationCoordinator.active : nil
+        let notification = model.presentedNotification
         let notificationSize = NotchNotificationGeometry.size(for: notification?.presentationStyle ?? .audio, layout: layout)
         let notificationWidth = notificationSize.width
         let notificationHeight = notificationSize.height - layout.collapsedVisibleFrame.height
@@ -163,18 +163,8 @@ private struct NotchShellOuterSurface: View {
                 .frame(width: notification != nil ? notificationWidth : mediaGeometry.width, alignment: .top)
                 .zIndex(3)
 
-                ZStack(alignment: .topTrailing) {
-                    shellContent
-                    NotchUtilityControls(
-                        caffeine: model.caffeineController,
-                        keyboardLock: model.keyboardLockController,
-                        close: model.collapse
-                    )
-                    .padding(.trailing, NotchGeometryResolver.expandedContentHorizontalInset)
-                    .padding(.top, 8)
-                }
+                shellContent
                 .frame(width: layout.expandedSize.width, height: layout.expandedSize.height, alignment: .top)
-                .overlay { ExpandedNotificationOverlay(model: model) }
                 .modifier(NotchPresentationClip(visible: phase == .expanded))
                 .allowsHitTesting(model.surfaceState != .collapsed)
                 .accessibilityHidden(model.surfaceState == .collapsed)
@@ -200,7 +190,10 @@ private struct NotchShellOuterSurface: View {
                                calendarRenderer: model.calendarRenderer,
                                audioRenderer: model.audioRenderer,
                                isExpanded: model.surfaceState != .collapsed,
-                               auxiliaryInteractionPresented: model.isAuxiliaryInteractionPresented)
+                               auxiliaryInteractionPresented: model.isAuxiliaryInteractionPresented,
+                               caffeine: model.caffeineController,
+                               quickActions: model.quickActionsRenderer,
+                               close: model.collapse)
                 if model.presentationState == .activity,
                    let activity = model.activityCoordinator.activeTransient,
                    activity.kind != .media && activity.kind != .calendar {
