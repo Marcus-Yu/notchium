@@ -2,10 +2,12 @@ import NotchiumCore
 import NotchiumCaffeineFeature
 import NotchiumCalendarFeature
 import SwiftUI
+import NotchiumQuickActionsFeature
 import NotchiumMediaFeature
 import NotchiumServices
 
 public struct NotchiumSettingsView: View {
+    private let quickActions: QuickActionsModel?
     private let environment: AppEnvironment
     private let caffeineModel: CaffeineControlModel?
     private let audioMeter: SystemAudioMeter?
@@ -15,7 +17,9 @@ public struct NotchiumSettingsView: View {
     public init(environment: AppEnvironment, audioMeter: SystemAudioMeter? = nil,
                 calendarModel: CalendarActivityModel? = nil,
                 menuBarInsertion: Binding<Bool>? = nil,
-                caffeineModel: CaffeineControlModel? = nil) {
+                caffeineModel: CaffeineControlModel? = nil,
+                quickActions: QuickActionsModel? = nil) {
+        self.quickActions = quickActions
         self.environment = environment
         self.caffeineModel = caffeineModel
         self.audioMeter = audioMeter
@@ -39,6 +43,13 @@ public struct NotchiumSettingsView: View {
             if let calendarModel { CalendarSettingsSection(model: calendarModel) }
             if environment.distributionProfile == .developerID, let caffeineModel {
                 LidAwakeSettingsSection(controller: caffeineModel.lidAwake)
+            }
+            if let quickActions {
+                Section("Home") {
+                    Toggle("Show Quick Actions", isOn: Binding(get: { quickActions.store.showOnHome },
+                                                              set: { quickActions.store.showOnHome = $0 }))
+                }
+                QuickActionsSettings(model: quickActions)
             }
             Section("Distribution") {
                 Text(environment.distributionProfile.rawValue)
