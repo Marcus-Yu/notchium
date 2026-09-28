@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 	<dict>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Notchium adds reminders to your chosen list when you use Quick Reminder.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Notchium reads your selected calendars to show upcoming events and meeting links around the notch.</string>
 	<key>NSAudioCaptureUsageDescription</key>
