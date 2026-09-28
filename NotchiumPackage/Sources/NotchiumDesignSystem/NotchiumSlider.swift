@@ -73,6 +73,12 @@ public struct NotchiumSlider: View {
         .onHover { hovering in
             isHovered = isEnabled && hovering
         }
+        .focusable(isEnabled)
+        .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow]) { press in
+            guard isEnabled else { return .ignored }
+            adjust(by: press.key == .rightArrow || press.key == .upArrow ? accessibilityStep : -accessibilityStep)
+            return .handled
+        }
         .accessibilityElement()
         .accessibilityLabel(accessibilityLabel)
         .accessibilityValue(accessibilityValue(value))
@@ -80,10 +86,14 @@ public struct NotchiumSlider: View {
         .accessibilityAdjustableAction { direction in
             guard isEnabled else { return }
             let delta = direction == .increment ? accessibilityStep : -accessibilityStep
-            onEditingChanged(true)
-            value = clamp(value + delta)
-            onEditingChanged(false)
+            adjust(by: delta)
         }
+    }
+
+    private func adjust(by delta: Double) {
+        onEditingChanged(true)
+        value = clamp(value + delta)
+        onEditingChanged(false)
     }
 
     private var normalizedValue: Double {
