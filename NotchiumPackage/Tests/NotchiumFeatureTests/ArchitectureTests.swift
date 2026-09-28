@@ -13,7 +13,6 @@ final class ArchitectureTests: XCTestCase {
         XCTAssertTrue(flags[.notchShell])
         XCTAssertFalse(flags[.media])
         XCTAssertFalse(flags[.calendar])
-        XCTAssertFalse(flags[.keyboardLock])
         XCTAssertFalse(flags[.spotifyAudioWaveform])
     }
 
@@ -34,7 +33,6 @@ final class ArchitectureTests: XCTestCase {
         XCTAssertTrue(flags[.audioDevices])
         XCTAssertTrue(flags[.activities])
         XCTAssertTrue(flags[.caffeine])
-        XCTAssertTrue(flags[.keyboardLock])
     }
 
     func testUnimplementedRealProvidersFailClosedAndMediaRequiresConnection() async {
@@ -42,7 +40,7 @@ final class ArchitectureTests: XCTestCase {
 
         for service in ServiceKind.allCases {
             let availability = await services.availability(for: service)
-            if [.audioDevices, .caffeine, .keyboardLock].contains(service) {
+            if [.audioDevices, .caffeine].contains(service) {
                 XCTAssertEqual(availability, .available)
             } else if service == .calendar {
                 XCTAssertTrue([.available, .unavailable(.permissionNotDetermined),
@@ -95,15 +93,6 @@ final class ArchitectureTests: XCTestCase {
         XCTAssertTrue(identifiers.contains(.shell))
         XCTAssertTrue(identifiers.contains(.media))
         XCTAssertTrue(identifiers.contains(.focus))
-    }
-
-    func testKeyboardLockPolicyKeepsTheFixedFailOpenContract() {
-        let policy = KeyboardLockPolicy.productDefault
-
-        XCTAssertTrue(policy.mouseRemainsUsable)
-        XCTAssertTrue(policy.unlockOnTapFailure)
-        XCTAssertEqual(policy.emergencyChord, "Command–Option–Escape")
-        XCTAssertEqual(policy.emergencyHoldDuration, .seconds(2))
     }
 
     func testApplicationDependenciesCanBeReplacedAtTheRoot() {
