@@ -2,6 +2,75 @@ import XCTest
 
 @MainActor
 final class NotchiumUITests: XCTestCase {
+    func testStage11ReminderFocusSaveEscapeAndRetention() throws {
+        let app = XCUIApplication()
+        defer { app.terminate() }
+        app.launchArguments = fixtureArguments(display: "builtInMock", surface: "physical", presentation: "expanded", appearance: "dark") + ["--notchium-stage11-fixture"]
+        app.launch()
+        let reminder = shellElement("notchium.shell.quickReminder", in: app)
+        XCTAssertTrue(reminder.waitForExistence(timeout: 5))
+        XCTAssertFalse(shellElement("notchium.shell.keyboardLock", in: app).exists)
+        reminder.click()
+        let title = app.textFields["notchium.reminder.title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        app.typeText("Call dentist")
+        XCTAssertEqual(title.value as? String, "Call dentist")
+        attachScreenshot(named: "stage11-reminder")
+        XCTAssertTrue(waitForState("expanded", in: app, timeout: 2))
+        app.typeKey(.return, modifierFlags: [])
+        XCTAssertTrue(app.staticTexts["Reminder Added"].waitForExistence(timeout: 3))
+        XCTAssertFalse(title.exists)
+        reminder.click()
+        XCTAssertTrue(title.waitForExistence(timeout: 3))
+        app.typeText("Discard this")
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertFalse(title.exists)
+        XCTAssertTrue(reminder.exists)
+    }
+
+    func testStage11ReminderAddMouseAndReturnUseSameValidation() throws {
+        let app = XCUIApplication()
+        defer { app.terminate() }
+        app.launchArguments = fixtureArguments(display: "builtInMock", surface: "physical", presentation: "expanded", appearance: "light") + ["--notchium-stage11-fixture"]
+        app.launch()
+        let reminder = shellElement("notchium.shell.quickReminder", in: app)
+        XCTAssertTrue(reminder.waitForExistence(timeout: 5))
+        reminder.click()
+        let title = app.textFields["notchium.reminder.title"]
+        let add = app.buttons["notchium.reminder.add"]
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        app.typeText("friday 1pm")
+        XCTAssertFalse(add.isEnabled)
+        app.typeKey(.return, modifierFlags: [])
+        XCTAssertTrue(title.exists)
+        app.typeKey("a", modifierFlags: .command)
+        app.typeText("test friday 1:00pm")
+        XCTAssertTrue(add.isEnabled)
+        add.click()
+        XCTAssertTrue(title.waitForNonExistence(timeout: 3))
+        reminder.click()
+        XCTAssertTrue(title.waitForExistence(timeout: 3))
+        XCTAssertEqual(title.value as? String, "")
+        app.typeText("call dentist tomorrow 10:30am")
+        XCTAssertTrue(add.isEnabled)
+        app.typeKey(.return, modifierFlags: [])
+        XCTAssertTrue(title.waitForNonExistence(timeout: 3))
+    }
+
+    func testStage11DeniedReminderHasGuidanceWithoutSuccess() throws {
+        let app = XCUIApplication()
+        defer { app.terminate() }
+        app.launchArguments = fixtureArguments(display: "builtInMock", surface: "physical", presentation: "expanded", appearance: "dark") + ["--notchium-stage11-fixture", "--notchium-reminders-denied"]
+        app.launch()
+        let reminder = shellElement("notchium.shell.quickReminder", in: app)
+        XCTAssertTrue(reminder.waitForExistence(timeout: 5))
+        reminder.click()
+        XCTAssertTrue(app.buttons["Open System Settings"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.buttons["Add"].isEnabled)
+        XCTAssertFalse(app.staticTexts["Reminder Added"].exists)
+        attachScreenshot(named: "stage11-reminder-denied")
+    }
+
     func testExpandedGearReopensExistingSettingsScene() throws {
         let app = XCUIApplication()
         defer { app.terminate() }
