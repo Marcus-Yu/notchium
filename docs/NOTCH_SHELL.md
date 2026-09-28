@@ -10,7 +10,7 @@ Stage 2 implements the shell and placeholder content only. No Stage 3 providers,
 
 `AppKitDisplaySource` reads public screen geometry into immutable snapshots. `NotchiumDisplayCoordinator` selects only a built-in display with valid auxiliary top areas and a positive notch gap. When none exists, it hides the panel; the menu-bar fallback remains available. Existing virtual geometry helpers and explicit DEBUG overrides remain fixtures, not live external-display support.
 
-The measured hardware footprint, screen coordinate calculations, fixed transparent host (740 × 322 pt), and panel positioning are preserved. Music, Calendar, and Audio share the 524 × 266 pt expanded shell, 12 pt physical top corners, and 26 pt bottom corners defined by `ExpandedNotchLayout` in `NotchPanelLayout.swift`. Navigation stays 32 pt high across pages. Music top-aligns its 84 pt artwork/media composition, with a 20 pt sub-navigation row, a 10.5 pt track/progress gap, a 6 pt progress/playback gap, an 18 pt playback/output gap, and an 8 pt minimum bottom inset. Calendar uses 8 pt top padding; Audio’s existing scrollable mixer viewport contracts to available height. `NotchiumPanelController` positions the host only when display identity or screen frame changes. It never animates the NSPanel frame. The top edge remains at the absolute screen top.
+The measured hardware footprint, screen coordinate calculations, fixed transparent host (740 × 322 pt), and panel positioning are preserved. Music, Calendar, and Audio share the 524 × 266 pt expanded shell, 12 pt physical top corners, and 26 pt bottom corners defined by `ExpandedNotchLayout` in `NotchPanelLayout.swift`. Navigation stays 32 pt high across pages. All four pages use `ExpandedPageStyle` for their interior rhythm: 30 pt horizontal inset, 8 pt top inset and 12 pt bottom safe zone. Music uses a 76 pt artwork/metadata/progress composition, a compact native 20 pt Player/Up Next picker, a centered 32 pt transport row, and a separate volume/output row. Calendar uses whitespace between its columns; Audio constrains its system slider row so two mixer rows remain usable. See [expanded page composition](EXPANDED_PAGE_COMPOSITION.md). `NotchiumPanelController` positions the host only when display identity or screen frame changes. It never animates the NSPanel frame. The top edge remains at the absolute screen top.
 
 `NotchPanel` is borderless, nonopaque, non-key, clear, shadowless, nonactivating, and uses `.canJoinAllSpaces`, `.stationary`, `.fullScreenAuxiliary`, and `.ignoresCycle`. Space-change notifications first call the existing `collapse()` method, which cancels pending hover timers and uses `setExpanded(false)` to close hovered or pinned presentations with the normal animation. They then reassert the existing panel without selecting another display, recreating it, or repositioning it. The shell remains passive until fresh hover entry or a click. Fullscreen uses the same panel contract.
 
@@ -70,9 +70,25 @@ See [Unified notifications](STAGE9_NOTIFICATIONS.md) for ownership and validatio
 
 Notification transitions preserve the persistent media row independently of the content
 reveal gate. Main expand/collapse still uses the established black gate. Expanded
-notifications use the same content in a bottom overlay inside the fixed canonical shell;
+notifications hide while the full shell is open and expire independently;
 pages remain mounted and selected. Horizontal page navigation now receives native phased
 scroll events only in the empty navigation area, replacing the full-page event monitor.
 Source-keyed auxiliary retention protects native menus and the Spotify picker, and Escape
 defers to children. See [Stage 10 coordination](STAGE10_COORDINATION.md) for current
 priority, restoration, gesture thresholds, Reduce Motion, review findings, and test results.
+
+## Icon-only header refinement
+
+The 32 pt header contains Home, Music, Calendar and Audio on the left, using 28 pt
+circular SF Symbol buttons. Neutral selected background and outline, native help text and VoiceOver
+labels identify each page. Caffeine, Quick Reminder and Settings form the right utility
+group, with an 18 pt gap before Close. The center remains the empty page-swipe region.
+Caffeine colors and its 0.75-second hold ring, canonical dimensions,
+and the main black-shell spring are unchanged.
+
+Notification defaults are centralized in `NotchNotification.Kind.defaultDuration`:
+Calendar 5 s, output changes 2.5 s, volume/mute 1.75 s. `NotificationCoordinator`
+owns `createdAt`/`expiresAt` and one cancellable task per accepted update. Meaningful
+Audio updates coalesce with stable identity and refresh expiry; duplicate snapshots do
+not. Calendar reminders have discrete identities. No hover, drag, page selection or
+expand/collapse operation changes the deadline. The normal activation area always wins.
