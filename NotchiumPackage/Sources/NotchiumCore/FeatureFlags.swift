@@ -6,7 +6,6 @@ public enum FeatureFlag: String, CaseIterable, Hashable, Sendable {
     case camera
     case audioDevices
     case caffeine
-    case keyboardLock
     case clipboard
     case systemMonitor
     case activities
@@ -34,7 +33,6 @@ public struct FeatureFlags: Equatable, Sendable {
         .camera: false,
         .audioDevices: false,
         .caffeine: false,
-        .keyboardLock: false,
         .clipboard: false,
         .systemMonitor: false,
         .activities: false,
@@ -60,7 +58,6 @@ public struct FeatureFlags: Equatable, Sendable {
         .calendar: true,
         .audioDevices: true,
         .caffeine: true,
-        .keyboardLock: true,
         .activities: true,
     ])
 }
