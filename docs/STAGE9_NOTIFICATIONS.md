@@ -6,7 +6,7 @@
 persistent media and all activities. Calendar's boundary scheduler and Audio's existing
 HAL snapshot callback submit `NotchNotification` values. The notification coordinator
 owns one active value, one cancellable timeout, priority, coalescing, replacement, and
-hover retention. Its activity has no duration, preventing a second expiry task in the
+absolute expiry independent of hover and expansion. Its activity has no duration, preventing a second expiry task in the
 global coordinator. Global preemption/reset synchronously clears notification state.
 Preempted and suppressed notifications are not queued for later replay.
 
@@ -24,15 +24,15 @@ that existing view layer; notification state does not introduce a global state m
 
 | Notification | Priority | Timeout | Coalescing |
 | --- | --- | --- | --- |
-| Calendar 5 minutes / Now | High | 10 seconds | Event ID |
-| Calendar 30 / 60 minutes | Medium | 10 seconds | Event ID |
-| Output device | Medium | 3 seconds | audio.output |
-| Volume / mute / unmute | Low | 1.25 seconds | audio.level |
+| Calendar 5 minutes / Now | High | 5 seconds | Discrete reminders |
+| Calendar 30 / 60 minutes | Medium | 5 seconds | Discrete reminders |
+| Output device | Medium | 2.5 seconds | audio.output |
+| Volume / mute / unmute | Low | 1.75 seconds | audio.level |
 
 Higher/equal priority replaces directly without publishing an empty intermediate slot.
-Lower priority is dropped without resetting the visible notification's deadline. Repeated
-volume/mute values keep identity and layout, refresh content immediately, and reset the
-single expiry task. A later volume event cannot inherit output-change priority.
+Lower priority is dropped without resetting the visible notification's deadline. Meaningful
+volume/mute changes keep identity and layout, refresh content immediately, and reset the
+single expiry task. Duplicate Audio snapshots do not extend expiry. A later volume event cannot inherit output-change priority.
 
 ## Geometry and motion
 
@@ -64,11 +64,11 @@ zoom, per-frame observable publication, or perpetual timer is introduced.
 
 ## Interaction and accessibility
 
-The existing AppKit pointer monitor retains the whole notification, including its top
-attachment, rather than just hardware bounds. It is the single pointer authority for
-expiry; child hover events only change appearance. Entry pauses the remaining timeout;
-leave resumes that remainder. Replacement while hovered remains paused. Join and X own
-their clicks, while ordinary main-shell behavior remains unchanged outside notifications.
+The existing AppKit pointer monitor gives the normal notch activation area precedence
+over notifications. Hover and drag state affect presentation only, never expiry.
+Opening the notch hides the compact banner while the same absolute deadline continues.
+Collapsing before expiry shows only the remaining lifetime; expired banners never return.
+Join and X own clicks outside the activation area.
 Calendar Join uses the existing validated URL opener and dismisses the shared slot.
 
 X remains reachable without hover; the shell also exposes a named dismissal action.
@@ -108,7 +108,7 @@ and synthetic samples cannot certify live animation feel or hardware frame pacin
 Final result: **277 tests passed, zero failures** using `swift test --package-path
 NotchiumPackage`. SwiftPM built every package feature target. `git diff --check` passed.
 Dedicated tests cover priority without deadline reset, stable volume/mute identity,
-hover remainder and replacement, global preemption/reset, atomic replacement, new input
+absolute expiry and replacement, global preemption/reset, atomic replacement, new input
 after dismissal, connected rounded geometry and pointer bounds, reveal before settling,
 exact Join URL dispatch, compact Audio rendering, and Calendar typography at 1×/2×.
 
