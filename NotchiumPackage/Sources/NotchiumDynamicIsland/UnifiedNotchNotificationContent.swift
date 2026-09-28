@@ -12,6 +12,10 @@ struct UnifiedNotchNotificationContent: View {
                (model.surfaceState != .collapsed) == presentedExpanded {
                 Group {
                     switch notification.content {
+                    case let .feedback(title, symbol):
+                        Label(title, systemImage: symbol)
+                            .font(.system(size: 13, weight: .medium))
+                            .lineLimit(2).padding(.horizontal, 24)
                     case .calendar:
                         model.calendarRenderer?.reminderBanner(action: model.activateCurrentActivity)
                     case let .audio(hud):
