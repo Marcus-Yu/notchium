@@ -18,9 +18,9 @@ also rejects lower-priority input; volume can no longer inherit an output-change
 
 The Stage 9 notification slot still drops suppressed notifications instead of replaying
 stale feedback. Replacement publishes no empty intermediate slot. Expiry has one
-cancellable notification task. Drag retention and pointer hover share the remaining-time
-policy, and dismissal carries an identity so a retiring gesture cannot dismiss a different
-notification. Generic developer activities retain their existing bounded family queue.
+cancellable notification task with an absolute deadline. Pointer hover, drag and expansion
+do not change that deadline. Dismissal carries an identity so a retiring gesture cannot
+dismiss a different notification. Generic developer activities retain their existing bounded family queue.
 
 Home, Music, Calendar and Audio view trees remain mounted. Hidden pages are disabled,
 excluded from pointer hit testing, and hidden from accessibility. A transient does not
@@ -33,12 +33,10 @@ exit. Only the notification content uses the reveal gate; the persistent media r
 visible. The established black-only main expand/collapse is preserved. Audio width also
 accounts for media flanks on wider hardware notches.
 
-While expanded, the same unified notification content overlays a bottom strip inside
-the existing shell. It briefly covers that portion of the page rather than resizing or
-reflowing it. The canonical 524 × 266 expanded size, page identity and selection stay
-unchanged. The overlay yields completely to child menus and the Spotify picker; it can
-appear again after the child closes if its existing deadline has not elapsed. Collapsed
-and expanded pointer retention both use `NotchNotificationGeometry`.
+While expanded, compact notification presentation is hidden. The canonical 524 × 266
+expanded size, page identity and selection remain unchanged. The notification model
+expires in the background; closing before expiry reveals only the remaining lifetime.
+Escape targets the visible shell first, and notification dismissal while collapsed.
 
 ## Gestures and motion
 
@@ -111,8 +109,7 @@ web-specific transform-only recipes and the existing main-shell spring is unchan
 
 Code/raster motion-review verdict: **Approve**, with physical feel and hardware pacing
 still requiring hands-on validation. No claim of live trackpad, VoiceOver, Spaces or
-fullscreen testing is made. The expanded banner temporarily obscures the bottom strip;
-Escape/dismissal and page navigation remain available, and child menus take precedence.
+fullscreen testing is made. The compact banner is now hidden while expanded; page controls and child menus remain available.
 
 ## Validation
 
