@@ -1,4 +1,5 @@
 import SwiftUI
+import NotchiumDesignSystem
 import NotchiumDynamicIsland
 import NotchiumServices
 
@@ -20,7 +21,7 @@ struct HomeMediaView: View {
                 Button(action: openMusic) {
                     VStack(alignment: .leading, spacing: 10) {
                         Image(systemName: "music.note").font(.system(size: 24, weight: .light))
-                            .foregroundStyle(.white.opacity(0.35))
+                            .foregroundStyle(ExpandedPageStyle.secondary)
                         Text(model.homeMediaConnected ? "Nothing playing" : "Connect Spotify")
                             .font(.system(size: 13, weight: .medium))
                         Text(model.homeMediaConnected ? "Your next listening moment." : "Your music, right here.")
@@ -31,7 +32,7 @@ struct HomeMediaView: View {
                 }.buttonStyle(.plain)
             }
         }
-        .padding(12)
+        .padding(.vertical, ExpandedPageStyle.Space.sm)
         .background {
             // Background and transport are siblings, never a nested navigation button.
             Button(action: openMusic) { Color.clear.contentShape(Rectangle()) }
@@ -42,12 +43,12 @@ struct HomeMediaView: View {
 
     private var information: some View {
         Button(action: openMusic) {
-            HStack(spacing: 12) {
+            HStack(spacing: ExpandedPageStyle.groupGap) {
                 MediaArtwork(url: model.state.artwork, size: 64)
                 VStack(alignment: .leading, spacing: 5) {
                     Text(model.state.title ?? "").font(.system(size: 13, weight: .semibold)).lineLimit(2)
                     Text(model.state.artist ?? "").font(.system(size: 11))
-                        .foregroundStyle(.white.opacity(0.5)).lineLimit(1)
+                        .foregroundStyle(ExpandedPageStyle.secondary).lineLimit(1)
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -100,7 +101,7 @@ private struct HomeMediaProgress: View {
                     Text(MediaProgressView.time(elapsed))
                     Spacer()
                     Text(duration.map(MediaProgressView.time) ?? "–:––")
-                }.font(.system(size: 9)).monospacedDigit().foregroundStyle(.white.opacity(0.35))
+                }.font(.system(size: 10)).monospacedDigit().foregroundStyle(ExpandedPageStyle.secondary)
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Playback progress")
