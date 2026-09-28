@@ -8,7 +8,6 @@ public enum ServiceKind: String, CaseIterable, Codable, Hashable, Sendable {
     case audioDevices
     case battery
     case caffeine
-    case keyboardLock
     case systemStats
     case downloads
     case meetings
