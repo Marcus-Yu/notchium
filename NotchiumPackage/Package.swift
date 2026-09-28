@@ -38,7 +38,7 @@ let package = Package(
         ),
         .target(
             name: "NotchiumCalendarFeature",
-            dependencies: ["NotchiumCore", "NotchiumServices", "NotchiumDynamicIsland"]
+            dependencies: ["NotchiumCore", "NotchiumServices", "NotchiumDynamicIsland", "NotchiumDesignSystem"]
         ),
         .target(
             name: "NotchiumShelfFeature",
@@ -57,8 +57,8 @@ let package = Package(
             dependencies: ["NotchiumCore", "NotchiumServices", "NotchiumDynamicIsland"]
         ),
         .target(
-            name: "NotchiumKeyboardLockFeature",
-            dependencies: ["NotchiumCore", "NotchiumServices", "NotchiumDynamicIsland"]
+            name: "NotchiumQuickActionsFeature",
+            dependencies: ["NotchiumCore", "NotchiumServices", "NotchiumPersistence", "NotchiumDynamicIsland"]
         ),
         .target(
             name: "NotchiumClipboardFeature",
@@ -96,6 +96,7 @@ let package = Package(
                 "NotchiumActivitiesFeature",
                 "NotchiumAudioFeature",
                 "NotchiumCaffeineFeature",
+                "NotchiumQuickActionsFeature",
                 "NotchiumCalendarFeature",
                 "NotchiumCameraFeature",
                 "NotchiumClipboardFeature",
@@ -105,7 +106,6 @@ let package = Package(
                 "NotchiumDiagnostics",
                 "NotchiumDynamicIsland",
                 "NotchiumFocusFeature",
-                "NotchiumKeyboardLockFeature",
                 "NotchiumMediaFeature",
                 "NotchiumMonitoringFeature",
                 "NotchiumPagesFeature",
@@ -129,11 +129,11 @@ let package = Package(
                 "NotchiumCore",
                 "NotchiumAudioFeature",
                 "NotchiumCaffeineFeature",
+                "NotchiumQuickActionsFeature",
                 "NotchiumCalendarFeature",
                 "NotchiumDiagnostics",
                 "NotchiumDynamicIsland",
                 "NotchiumFeature",
-                "NotchiumKeyboardLockFeature",
                 "NotchiumServices",
                 "NotchiumTestFixtures",
                 "NotchiumMediaFeature",
