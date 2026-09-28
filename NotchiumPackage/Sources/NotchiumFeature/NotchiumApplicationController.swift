@@ -9,7 +9,8 @@ import NotchiumDiagnostics
 import NotchiumDynamicIsland
 import Observation
 import NotchiumMediaFeature
-import NotchiumKeyboardLockFeature
+import NotchiumQuickActionsFeature
+import Foundation
 import NotchiumPersistence
 import NotchiumServices
 
@@ -21,8 +22,8 @@ public final class NotchiumApplicationController {
     public let mediaSessionController: MediaSessionController
     public let calendarModel: CalendarActivityModel
     public let audioModel: AudioFeatureModel
+    public let quickActions: QuickActionsModel
     public let caffeineModel: CaffeineControlModel
-    public let keyboardLockModel: KeyboardLockControlModel
     public var mediaModel: MediaSessionController { mediaSessionController }
 #if DEBUG
     public let mockMediaProvider = MockMediaProvider()
@@ -35,7 +36,11 @@ public final class NotchiumApplicationController {
     public let shellDebugModel: NotchShellDebugModel
 #endif
 
-    public init(environment: AppEnvironment) {
+    public init(environment: AppEnvironment,
+                reminderService: any ReminderService = MockReminderService(),
+                shortcutService: any ShortcutService = MockShortcutService(),
+                workspace: any QuickActionWorkspace = NativeQuickActionWorkspace(),
+                actionStore: QuickActionStore? = nil) {
         self.environment = environment
 #if DEBUG
         let shellDebugModel = NotchShellDebugModel()
@@ -65,8 +70,15 @@ public final class NotchiumApplicationController {
         audioModel = AudioFeatureModel(devices: environment.services.audioDevices,
                                        processes: environment.services.audioProcesses,
                                        mixer: environment.services.appAudioMixer)
+        let store = actionStore ?? QuickActionStore(preferences: .standard)
+        let notifications = displayCoordinator.presentationModel.notificationCoordinator
+        let runner = QuickActionRunner(store: store, workspace: workspace, shortcuts: shortcutService,
+                                       notifications: notifications, clock: environment.clock)
+        let reminder = QuickReminderModel(service: reminderService, workspace: workspace, store: store,
+                                          notifications: notifications, clock: environment.clock)
+        quickActions = QuickActionsModel(store: store, runner: runner, reminder: reminder)
+        displayCoordinator.presentationModel.quickActionsRenderer = quickActions
         caffeineModel = CaffeineControlModel(service: environment.services.caffeine)
-        keyboardLockModel = KeyboardLockControlModel(service: environment.services.keyboardLock)
         audioModel.onHUD = { [weak presentation = displayCoordinator.presentationModel] hud in
             presentation?.showAudioHUD(hud)
         }
@@ -74,11 +86,14 @@ public final class NotchiumApplicationController {
         displayCoordinator.presentationModel.calendarRenderer = calendarModel
         displayCoordinator.presentationModel.audioRenderer = audioModel
         displayCoordinator.presentationModel.caffeineController = caffeineModel
-        displayCoordinator.presentationModel.keyboardLockController = keyboardLockModel
     }
 
     public static func production() -> NotchiumApplicationController {
-        NotchiumApplicationController(environment: .production())
+#if DEBUG
+        if CommandLine.arguments.contains("--notchium-stage11-fixture") { return stage11Fixture() }
+#endif
+        return NotchiumApplicationController(environment: .production(), reminderService: EventKitReminderService(),
+                                      shortcutService: AppleShortcutService())
     }
 
     public func start() {
@@ -88,7 +103,6 @@ public final class NotchiumApplicationController {
         if environment.featureFlags[.calendar] { calendarModel.start() }
         if environment.featureFlags[.audioDevices] { audioModel.start() }
         if environment.featureFlags[.caffeine] { caffeineModel.start() }
-        if environment.featureFlags[.keyboardLock] { keyboardLockModel.start() }
         if environment.featureFlags[.media] {
             mediaModel.start()
             if let real = environment.services.media as? RealMediaProvider {
@@ -107,7 +121,7 @@ public final class NotchiumApplicationController {
         calendarModel.stop()
         audioModel.stop()
         caffeineModel.stop()
-        keyboardLockModel.stop()
+        quickActions.runner.stop()
         if let real = environment.services.media as? RealMediaProvider {
             Task { await real.shutdown() }
         }
