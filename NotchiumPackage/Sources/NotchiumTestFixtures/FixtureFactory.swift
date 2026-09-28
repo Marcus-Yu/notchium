@@ -47,7 +47,6 @@ public enum FixtureFactory {
                 )
             ),
             caffeine: MockCaffeineService(),
-            keyboardLock: MockKeyboardLockService(),
             systemStats: MockSystemStatsService(),
             downloads: MockDownloadsService(),
             meetings: MockMeetingsService(),
