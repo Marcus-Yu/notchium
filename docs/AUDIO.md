@@ -1,5 +1,7 @@
 # Stage 6 Audio
 
+Current expanded-page layout: [shared composition and visual review](EXPANDED_PAGE_COMPOSITION.md).
+
 The Audio page uses `AudioFeatureModel` as its feature state. `RealAudioDevicesService`
 owns Core Audio output discovery and commands; `RealAudioProcessesService` owns local
 audio-process discovery; `RealAppAudioMixerService` owns the driverless process-tap
@@ -67,12 +69,12 @@ running silent stream may appear.
 The long-lived device stream still detects keyboard volume/mute and default-output
 changes through HAL property notifications. `showAudioHUD` now submits typed notifications
 to the shared `NotificationCoordinator`. Volume and mute share one coalescing key and a
-1.25-second timeout; output changes use medium priority and a 3-second timeout. Repeats
+1.75-second timeout; output changes use medium priority and a 2.5-second timeout. Repeats
 retain identity, update content immediately, and extend expiry without restarting geometry.
 Lower-priority feedback is discarded while Calendar is visible. The 56 pt Audio content
 area uses the same black shell and rounded shoulders as Calendar. Stage 10 keeps the
-Music flanks visible throughout Audio entry and exit. Expanded pages receive the same
-HUD in a fixed overlay strip without page changes or reflow. No Music notification kinds
+Music flanks visible throughout Audio entry and exit. Expanded pages hide the compact
+HUD while its absolute expiry continues; collapse only reveals unexpired feedback. No Music notification kinds
 or producers exist. See [Unified notifications](STAGE9_NOTIFICATIONS.md) and
 [Stage 10 coordination](STAGE10_COORDINATION.md).
 
