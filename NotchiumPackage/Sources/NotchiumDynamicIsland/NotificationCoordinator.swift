@@ -14,8 +14,8 @@ public final class NotificationCoordinator {
     @ObservationIgnored private let clock: any AppClock
     @ObservationIgnored private var timeoutTask: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
-    @ObservationIgnored private var deadline: Date?
-    @ObservationIgnored private var remaining: TimeInterval = 0
+    public private(set) var createdAt: Date?
+    public private(set) var expiresAt: Date?
 
     init(clock: any AppClock) { self.clock = clock }
     deinit { timeoutTask?.cancel() }
@@ -26,14 +26,17 @@ public final class NotificationCoordinator {
         guard let activities else { return false }
         if let current = activities.activeTransient, current.priority > notification.priority { return false }
         var incoming = notification
-        if let active, active.coalescingKey == incoming.coalescingKey {
+        if let active, incoming.presentationStyle != .calendar,
+           active.coalescingKey == incoming.coalescingKey {
+            // Repeated service snapshots are not meaningful changes.
+            if active.content == incoming.content { return true }
             incoming.id = active.id
         }
         let previousID = active?.id
         if incoming.id != previousID { interactingID = nil }
         active = incoming
-        remaining = incoming.duration.timeInterval
-        deadline = nil
+        createdAt = nil
+        expiresAt = nil
         activities.presentNotification(incoming.activity, replacing: previousID)
         scheduleTimeout()
         return true
@@ -52,35 +55,12 @@ public final class NotificationCoordinator {
 
     public func setInteracting(_ interacting: Bool, id: UUID) {
         guard active?.id == id else { return }
-        let wasRetained = isHovered || interactingID != nil
         interactingID = interacting ? id : nil
-        retentionChanged(wasRetained: wasRetained)
     }
 
     public func setHovered(_ hovered: Bool) {
         guard active != nil, isHovered != hovered else { return }
-        let wasRetained = isHovered || interactingID != nil
         isHovered = hovered
-        retentionChanged(wasRetained: wasRetained)
-    }
-
-    private func retentionChanged(wasRetained: Bool) {
-        let retained = isHovered || interactingID != nil
-        guard retained != wasRetained else { return }
-        generation &+= 1
-        let token = generation
-        timeoutTask?.cancel()
-        timeoutTask = Task { [weak self, clock] in
-            let now = await clock.now()
-            guard let self, self.generation == token else { return }
-            if retained {
-                if let deadline = self.deadline {
-                    self.remaining = max(0, deadline.timeIntervalSince(now))
-                    self.deadline = nil
-                }
-            }
-            self.scheduleTimeout()
-        }
     }
 
     /// Called synchronously by the global arbiter; preempted feedback is not queued.
@@ -93,8 +73,8 @@ public final class NotificationCoordinator {
         active = nil
         isHovered = false
         interactingID = nil
-        deadline = nil
-        remaining = 0
+        createdAt = nil
+        expiresAt = nil
         generation &+= 1
         timeoutTask?.cancel()
         timeoutTask = nil
@@ -105,12 +85,14 @@ public final class NotificationCoordinator {
         let token = generation
         timeoutTask?.cancel()
         timeoutTask = nil
-        guard active != nil, !isHovered, interactingID == nil else { return }
+        guard let active else { return }
         timeoutTask = Task { [weak self, clock] in
             let now = await clock.now()
             guard let self, self.generation == token else { return }
-            let deadline = self.deadline ?? now.addingTimeInterval(self.remaining)
-            self.deadline = deadline
+            // One absolute lifetime per accepted update; presentation never reschedules it.
+            let deadline = now.addingTimeInterval(active.duration.timeInterval)
+            self.createdAt = now
+            self.expiresAt = deadline
             let delay = max(0, deadline.timeIntervalSince(now))
             do { try await clock.sleep(for: .seconds(delay)) } catch { return }
             guard !Task.isCancelled, self.generation == token else { return }
