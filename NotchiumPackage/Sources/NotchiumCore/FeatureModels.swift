@@ -8,7 +8,6 @@ public enum FeatureID: String, CaseIterable, Codable, Hashable, Sendable {
     case camera
     case audioDevices
     case caffeine
-    case keyboardLock
     case clipboard
     case systemMonitor
     case activities
