@@ -5,8 +5,8 @@ import NotchiumServices
 import SwiftUI
 
 enum AudioPageMetrics {
-    static let appRowHeight: CGFloat = 54
-    static let appRowSpacing: CGFloat = 5
+    static let appRowHeight: CGFloat = 52
+    static let appRowSpacing: CGFloat = ExpandedPageStyle.Space.xs
     static let twoRowViewportHeight = appRowHeight * 2 + appRowSpacing
 }
 
@@ -15,32 +15,32 @@ struct AudioPageView: View {
     @Environment(\.notchAuxiliaryInteraction) private var auxiliaryInteraction
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: ExpandedPageStyle.Space.sm) {
             currentOutput
             HStack(alignment: .top, spacing: 0) {
                 outputColumn
                     .frame(maxWidth: .infinity, alignment: .topLeading)
-                    .padding(.trailing, 16)
+                    .padding(.trailing, ExpandedPageStyle.Space.lg)
                 Rectangle().fill(.white.opacity(0.13)).frame(width: 1)
                 mixerColumn
                     .frame(maxWidth: .infinity, alignment: .topLeading)
-                    .padding(.leading, 16)
+                    .padding(.leading, ExpandedPageStyle.Space.lg)
             }
             .frame(maxHeight: .infinity, alignment: .top)
         }
-        .padding(.horizontal, 30)
-        .padding(.bottom, 8)
+        .padding(.horizontal, ExpandedPageStyle.outerInset)
+        .padding(.top, ExpandedPageStyle.topInset)
+        .padding(.bottom, ExpandedPageStyle.bottomInset)
         .foregroundStyle(.white)
     }
 
     private var currentOutput: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: ExpandedPageStyle.Space.xs) {
             if let output = model.devices.currentOutput {
                 HStack(spacing: 8) {
-                    Text("CURRENT OUTPUT")
-                        .font(.system(size: 8.5, weight: .semibold, design: .rounded))
-                        .tracking(0.9)
-                        .foregroundStyle(.white.opacity(0.43))
+                    Text("Output")
+                        .font(ExpandedPageStyle.sectionTitle)
+                        .foregroundStyle(ExpandedPageStyle.secondary)
                     Image(systemName: outputSymbol(output.name))
                         .font(.system(size: 14, weight: .medium))
                     Text(output.name)
@@ -57,7 +57,7 @@ struct AudioPageView: View {
                             .foregroundStyle(.white.opacity(0.64))
                     }
                 }
-                HStack(spacing: 10) {
+                HStack(spacing: ExpandedPageStyle.Space.sm) {
                     if let volume = output.volume {
                         NotchiumSlider(
                             value: Binding(
@@ -85,32 +85,30 @@ struct AudioPageView: View {
                                 .frame(width: 22, height: 22)
                         }
                         .buttonStyle(.plain)
+                        .help(output.isMuted == true ? "Unmute system audio" : "Mute system audio")
                         .accessibilityLabel(output.isMuted == true ? "Unmute system audio" : "Mute system audio")
                     }
                 }
+                .frame(height: 20)
             } else {
                 HStack(spacing: 8) {
-                    Text("CURRENT OUTPUT")
-                        .font(.system(size: 8.5, weight: .semibold, design: .rounded))
-                        .tracking(0.9)
-                        .foregroundStyle(.white.opacity(0.43))
+                    Text("Output")
+                        .font(ExpandedPageStyle.sectionTitle)
+                        .foregroundStyle(ExpandedPageStyle.secondary)
                     Text("No output device")
                         .font(.system(size: 12))
                         .foregroundStyle(.white.opacity(0.6))
                 }
             }
         }
-        .padding(.horizontal, 13)
-        .padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 14))
     }
 
     private var outputColumn: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            columnTitle("OUTPUT DEVICES")
+        VStack(alignment: .leading, spacing: ExpandedPageStyle.Space.xs) {
+            columnTitle("Output Devices")
             ScrollView {
-                LazyVStack(spacing: 4) {
+                LazyVStack(spacing: ExpandedPageStyle.Space.xs) {
                     ForEach(model.devices.outputs) { output in
                         Button { model.select(output) } label: {
                             HStack(spacing: 8) {
@@ -130,7 +128,7 @@ struct AudioPageView: View {
                                 }
                             }
                             .padding(.horizontal, 8)
-                            .frame(height: 28)
+                            .frame(height: ExpandedPageStyle.controlSize)
                             .background(output.isDefaultOutput ? .white.opacity(0.12) : .clear,
                                         in: RoundedRectangle(cornerRadius: 8))
                         }
@@ -147,9 +145,9 @@ struct AudioPageView: View {
     }
 
     private var mixerColumn: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: ExpandedPageStyle.Space.xs) {
             HStack(spacing: 6) {
-                columnTitle("LOCAL AUDIO APPS")
+                columnTitle("Local Audio Apps")
                 Spacer(minLength: 4)
                 if model.mixerStatus == .permissionRequired {
                     Menu {
@@ -212,9 +210,10 @@ struct AudioPageView: View {
                 Button { model.toggleAppMute(process) } label: {
                     Image(systemName: muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
                         .font(.system(size: 10))
-                        .frame(width: 18, height: 18)
+                        .frame(width: ExpandedPageStyle.compactControlSize, height: ExpandedPageStyle.compactControlSize)
                 }
                 .buttonStyle(.plain)
+                .help(muted ? "Unmute \(model.appName(process))" : "Mute \(model.appName(process))")
                 .accessibilityLabel(muted ? "Unmute \(model.appName(process))" : "Mute \(model.appName(process))")
                 AudioAppOptionsButton(
                     appName: model.appName(process),
@@ -224,7 +223,7 @@ struct AudioPageView: View {
                     interactionBegan: auxiliaryInteraction.begin,
                     interactionEnded: auxiliaryInteraction.end(actionSelected:)
                 )
-                .frame(width: 17, height: 18)
+                .frame(width: ExpandedPageStyle.compactControlSize, height: ExpandedPageStyle.compactControlSize)
                 .accessibilityLabel("Actions for \(model.appName(process))")
             }
             HStack(spacing: 0) {
@@ -243,14 +242,15 @@ struct AudioPageView: View {
         }
         .padding(.horizontal, 3)
         .frame(height: AudioPageMetrics.appRowHeight)
-        .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 9))
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(.white.opacity(0.10)).frame(height: 1)
+        }
     }
 
     private func columnTitle(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 9, weight: .semibold, design: .rounded))
-            .tracking(0.9)
-            .foregroundStyle(.white.opacity(0.46))
+            .font(ExpandedPageStyle.sectionTitle)
+            .foregroundStyle(ExpandedPageStyle.secondary)
     }
 
     private func outputSymbol(_ name: String) -> String {
@@ -278,7 +278,7 @@ struct AudioAppOptionsButton: NSViewRepresentable {
     func makeNSView(context: Context) -> NSButton {
         let button = NSButton()
         button.isBordered = false
-        button.focusRingType = .none
+        button.focusRingType = .default
         button.imagePosition = .imageOnly
         button.imageScaling = .scaleNone
         button.contentTintColor = .white.withAlphaComponent(0.82)
@@ -287,6 +287,7 @@ struct AudioAppOptionsButton: NSViewRepresentable {
         button.target = context.coordinator
         button.action = #selector(Coordinator.showMenu(_:))
         button.setAccessibilityLabel("Actions for \(appName)")
+        button.toolTip = "Actions for \(appName)"
         context.coordinator.button = button
         return button
     }
@@ -295,6 +296,7 @@ struct AudioAppOptionsButton: NSViewRepresentable {
         context.coordinator.parent = self
         context.coordinator.updateMenu()
         button.setAccessibilityLabel("Actions for \(appName)")
+        button.toolTip = "Actions for \(appName)"
     }
 
     @MainActor
