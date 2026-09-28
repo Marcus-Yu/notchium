@@ -53,15 +53,16 @@ public final class DynamicIslandPresentationModel {
 
     public let activityCoordinator: ActivityCoordinator
     public var notificationCoordinator: NotificationCoordinator { activityCoordinator.notifications }
-    public var showsExpandedNotification: Bool {
-        surfaceState != .collapsed && notificationCoordinator.active != nil && !isAuxiliaryInteractionPresented
+    /// Full notch content takes precedence; model lifetime is independent of visibility.
+    public var presentedNotification: NotchNotification? {
+        surfaceState == .collapsed ? notificationCoordinator.active : nil
     }
     public let pageModel: NotchPageModel
     public var mediaRenderer: (any NotchMediaRendering)?
     public var calendarRenderer: (any NotchCalendarRendering)?
     public var audioRenderer: (any NotchAudioRendering)?
     public var caffeineController: (any NotchCaffeineControlling)?
-    public var keyboardLockController: (any NotchKeyboardLockControlling)?
+    public var quickActionsRenderer: (any NotchQuickActionsRendering)?
     public var audioHUD: NotchAudioHUD? {
         guard case let .audio(hud) = activityCoordinator.activeTransient?.payload else { return nil }
         return hud
@@ -206,7 +207,7 @@ public final class DynamicIslandPresentationModel {
     /// Child menus/popovers receive Escape first through the native responder chain.
     public func handleEscape() {
         guard !isAuxiliaryInteractionPresented else { return }
-        if notificationCoordinator.active?.dismissible == true {
+        if surfaceState == .collapsed, notificationCoordinator.active?.dismissible == true {
             notificationCoordinator.dismissByUser()
         } else {
             collapse()
@@ -322,7 +323,7 @@ public final class DynamicIslandPresentationModel {
     }
 
     private func completeHoverExpansion(generation: Int) {
-        guard generation == hoverGeneration, notificationCoordinator.active == nil else { return }
+        guard generation == hoverGeneration else { return }
         setExpanded(true, target: .hovered)
     }
 
