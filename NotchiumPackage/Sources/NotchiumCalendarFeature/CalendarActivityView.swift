@@ -1,4 +1,5 @@
 import AppKit
+import NotchiumDesignSystem
 import NotchiumDynamicIsland
 import NotchiumServices
 import SwiftUI
@@ -7,7 +8,6 @@ public struct CalendarActivityView: View {
     @Bindable var model: CalendarActivityModel
     @Environment(\.notchCalendarPageVisible) private var isPageVisible
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     public init(model: CalendarActivityModel) { self.model = model }
 
     public var body: some View {
@@ -43,17 +43,17 @@ public struct CalendarActivityView: View {
 
     private func eventContent(_ event: CalendarEventSummary) -> some View {
         GeometryReader { geometry in
-            let columnWidth = geometry.size.width - 14
-            HStack(alignment: .top, spacing: 14) {
+            let columnWidth = geometry.size.width - ExpandedPageStyle.columnGap
+            HStack(alignment: .top, spacing: ExpandedPageStyle.columnGap) {
                 mainEvent(event)
                     .frame(width: columnWidth * 0.54, height: geometry.size.height)
                 upcomingEvents
                     .frame(width: columnWidth * 0.46, height: geometry.size.height)
             }
         }
-        .padding(.horizontal, 24)
-        .padding(.top, 8)
-        .padding(.bottom, 12)
+        .padding(.horizontal, ExpandedPageStyle.outerInset)
+        .padding(.top, ExpandedPageStyle.topInset)
+        .padding(.bottom, ExpandedPageStyle.bottomInset)
     }
 
     private func mainEvent(_ event: CalendarEventSummary) -> some View {
@@ -69,7 +69,7 @@ public struct CalendarActivityView: View {
                 .font(.system(size: 17, weight: .semibold))
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 5)
+                .padding(.top, ExpandedPageStyle.Space.sm)
             VStack(alignment: .leading, spacing: 3) {
                 Text(CalendarEventText.timeRange(event))
                     .foregroundStyle(.white.opacity(0.65))
@@ -87,13 +87,13 @@ public struct CalendarActivityView: View {
                 .foregroundStyle(.white.opacity(0.85))
             }
             .font(.system(size: 11))
-            .padding(.top, 6)
+            .padding(.top, ExpandedPageStyle.Space.sm)
             if let detail = CalendarEventText.detail(event) {
                 Text(detail)
                     .font(.system(size: 11))
                     .foregroundStyle(.white.opacity(0.6))
                     .lineLimit(1)
-                    .padding(.top, 6)
+                    .padding(.top, ExpandedPageStyle.Space.sm)
             }
             if event.meetingURL != nil {
                 Spacer(minLength: 6)
@@ -105,24 +105,17 @@ public struct CalendarActivityView: View {
                 .accessibilityIdentifier("notchium.calendar.join")
             }
         }
-        .padding(10)
+        .padding(.vertical, ExpandedPageStyle.Space.sm)
         .frame(maxWidth: .infinity, maxHeight: .infinity,
                alignment: event.meetingURL == nil ? .leading : .topLeading)
-        .background {
-            if reduceTransparency {
-                RoundedRectangle(cornerRadius: 14).fill(Color(white: 0.09))
-            }
-        }
-        .glassEffect(reduceTransparency ? .identity : .clear, in: RoundedRectangle(cornerRadius: 14))
         .accessibilityIdentifier("notchium.calendar.main")
     }
 
     private var upcomingEvents: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text("UP NEXT")
-                .font(.system(size: 9, weight: .semibold))
-                .tracking(1)
-                .foregroundStyle(.white.opacity(0.48))
+        VStack(alignment: .leading, spacing: ExpandedPageStyle.Space.sm) {
+            Text("Up Next")
+                .font(ExpandedPageStyle.sectionTitle)
+                .foregroundStyle(ExpandedPageStyle.secondary)
                 .padding(.horizontal, 8)
             if model.secondaryEvents.isEmpty {
                 Text("No more upcoming events")
@@ -133,7 +126,7 @@ public struct CalendarActivityView: View {
             } else {
                 ScrollViewReader { scroll in
                     ScrollView {
-                        LazyVStack(spacing: 6) {
+                        LazyVStack(spacing: ExpandedPageStyle.Space.xs) {
                             ForEach(model.secondaryEvents) { item in
                                 CalendarUpcomingEventRow(event: item,
                                     isExpanded: model.selectedEventID == item.id,
