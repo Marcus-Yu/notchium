@@ -157,7 +157,6 @@ public typealias ShelfStore = ShelfService
 public typealias CameraProvider = CameraService
 public typealias AudioDeviceProvider = AudioDevicesService
 public typealias WakeLockProvider = CaffeineService
-public typealias KeyboardGate = KeyboardLockService
 public typealias ClipboardProvider = ClipboardService
 public typealias SystemMetricsProvider = SystemStatsService
 public typealias FocusTracker = FocusService
