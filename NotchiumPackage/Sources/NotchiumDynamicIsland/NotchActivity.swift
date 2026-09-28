@@ -77,6 +77,7 @@ public struct NotchActivity: Identifiable, Equatable, Sendable {
                 lifetime: NotchActivityLifetime? = nil,
                 isDismissible: Bool = true,
                 destination: NotchActivityDestination? = nil,
+                usesDefaultDestination: Bool = true,
                 timestamp: Date = .now,
                 duration: Duration?,
                 payload: NotchActivityPayload = .none) {
@@ -88,7 +89,7 @@ public struct NotchActivity: Identifiable, Equatable, Sendable {
         self.presentationStyle = presentationStyle ?? kind.defaultPresentationStyle
         self.lifetime = lifetime ?? (kind == .media ? .persistent : .transient)
         self.isDismissible = isDismissible
-        self.destination = destination ?? Self.defaultDestination(for: kind)
+        self.destination = destination ?? (usesDefaultDestination ? Self.defaultDestination(for: kind) : nil)
         self.timestamp = timestamp
         self.duration = duration
         self.payload = payload
