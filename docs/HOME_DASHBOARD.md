@@ -4,7 +4,7 @@ Home is one fixed Music-and-Calendar surface inside the existing 524 × 266 expa
 
 ## Composition and ownership
 
-`HomeDashboardView` allocates 62% of the available content width to Music on the left and 38% to Calendar on the right, separated by whitespace. The Music surface has a subtle dark fill and artwork; Calendar uses a lighter date-and-summary hierarchy. Both fit beneath the existing navigation within the canonical shell. Expand/collapse animation and panel mechanics are unchanged.
+`HomeDashboardView` allocates 62% of the available content width to Music on the left and 38% to Calendar on the right, separated by whitespace. Music and Calendar share the black surface, separated by a 24 pt gutter. Artwork anchors Music; Calendar uses a lighter date-and-summary hierarchy. Both fit beneath the existing navigation within the canonical shell. Expand/collapse animation and panel mechanics are unchanged.
 
 The shell receives Home renderers through the existing `NotchMediaRendering` and `NotchCalendarRendering` boundaries. The app's existing feature models retain provider ownership and state across page changes. No new service, duplicated playback model, or EventKit store is introduced.
 
@@ -24,7 +24,7 @@ On fresh expansion, `ActivityCoordinator.preferredExpandedPage` selects Music on
 
 ## Scope and settings
 
-There are no Home settings in this phase. The previous slot model, module sizes, layout persistence, quick-access/upcoming modules, window presets, snapping adapter, favorites, and snapping settings have been removed. Old experimental preference keys are no longer read; they cannot affect the fixed composition. Future customization can extend the feature-renderer boundary when separately scoped.
+Stage 11 adds Settings → Home → Show Quick Actions, off by default. Up to four enabled, pinned actions occupy a 30-point bottom strip with an 8-point gap; Music and Calendar remain primary. There is no scrolling or Home reordering. The previous slot model, module sizes, layout persistence, quick-access/upcoming modules, window presets, snapping adapter, favorites, and snapping settings have been removed. Old experimental preference keys are no longer read; they cannot affect the fixed composition. Future customization can extend the feature-renderer boundary when separately scoped.
 
 ## Validation
 
