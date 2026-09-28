@@ -1,6 +1,6 @@
 # Architecture — Stage 7 Activity Coordination and Utilities
 
-**Status:** Stage 7 centralizes Music, Calendar, and Audio transient presentation and adds session-scoped Caffeine and Keyboard Lock utilities. See [MEDIA_CENTER.md](MEDIA_CENTER.md), [CALENDAR_ACTIVITY.md](CALENDAR_ACTIVITY.md), and [AUDIO.md](AUDIO.md) for feature boundaries and limitations.
+**Status:** Stage 11 adds native Quick Actions and Quick Reminder and removes Keyboard Lock. Stage 7 Music, Calendar, Audio, and Caffeine coordination remains intact. See [STAGE11_QUICK_ACTIONS.md](STAGE11_QUICK_ACTIONS.md). See [MEDIA_CENTER.md](MEDIA_CENTER.md), [CALENDAR_ACTIVITY.md](CALENDAR_ACTIVITY.md), and [AUDIO.md](AUDIO.md) for feature boundaries and limitations.
 
 **Minimum OS:** macOS 26
 
@@ -133,7 +133,6 @@ Every requested service has a `Sendable` protocol, a real adapter type, a mock t
 | Audio devices | `AudioDevicesService` / `AudioDeviceProvider` | `RealAudioDevicesService` | `MockAudioDevicesService` |
 | Battery | `BatteryService` | `RealBatteryService` | `MockBatteryService` |
 | Caffeine | `CaffeineService` | `RealCaffeineService` | `MockCaffeineService` |
-| Keyboard lock | `KeyboardLockService` | `RealKeyboardLockService` | `MockKeyboardLockService` |
 | System statistics | `SystemStatsService` / `SystemMetricsProvider` | `RealSystemStatsService` | `MockSystemStatsService` |
 | Downloads | `DownloadsService` | `RealDownloadsService` | `MockDownloadsService` |
 | Meetings | `MeetingsService` | `RealMeetingsService` | `MockMeetingsService` |
@@ -189,11 +188,10 @@ The coordinator is the only transient deadline scheduler. Calendar uses a ten-se
 
 Presentation policy is semantic: Music requests `mediaSides`, Calendar requests `downwardBanner`, and Audio requests `compactHUD`. Only Music plus Calendar derives `combined`. The shell's `NotchGeometryResolver` translates that mode into display-specific frames; feature modules do not resize or control the panel. Audio visually supersedes Music while preserving its state, and Music is restored immediately when Audio ends.
 
-The expanded header contains one shared `GlassEffectContainer` with two spaced groups: Caffeine and Keyboard Lock, then Settings and Close. All four controls are icon-only. Utility state is owned by application-lifetime feature models, not page views, so page changes and shell collapse do not reset it.
+The expanded header contains one shared `GlassEffectContainer` with two spaced groups: Caffeine and Quick Reminder, then Settings and Close. All four controls are icon-only. Utility state is owned by application-lifetime feature models, not page views, so page changes and shell collapse do not reset it.
 
 `RealCaffeineService` uses `IOPMAssertionCreateWithName`. A click toggles prevention of idle system sleep; a 0.75-second hold selects the stronger system-and-display assertion. Replacing a mode creates the new assertion before releasing the old one, and application shutdown synchronously releases the active assertion. No duration selector or persisted relaunch state is involved. Optional [closed-lid keep-awake](LID_AWAKE.md) uses a separately approved, signed privileged helper with a renewable lease and recovery journal; it is not part of the public IOKit assertions.
 
-`RealKeyboardLockService` uses a session-level, head-insert, active `CGEventTap` for key-down, key-up, and modifier events only. Mouse and trackpad input are outside the mask. Lock state is published only after Accessibility trust, tap creation, run-loop installation, explicit enablement, and `CGEvent.tapIsEnabled` verification all succeed. Command–Option–Escape is consumed while a monotonic two-second emergency hold is measured; releasing any chord key cancels it. A tap disabled by timeout or user input is immediately re-enabled and verified; failed recovery tears it down and publishes an unlocked state. Permission prompting and the first-lock explanation each have separate once-per-installation markers, while opening System Settings always requires the user's explicit in-app action. Tap lifecycle changes run on the main run loop. The callback only filters events and updates chord state; a 50 ms common-mode timer publishes changes, checks tap health and trust, and completes the emergency hold. Activation also verifies the effective keyboard mask. Secure Input blocks activation and ends an existing lock with specific guidance. Lock state is never restored on relaunch and shutdown always tears down the tap.
 
 Ambient Edge must not be added to `DynamicIslandPresentationModel` as decorative booleans. In its later stage it receives a separate immutable presentation model from the activity coordinator, and its AppKit overlay lifecycle remains independent of `NotchiumPanelController`.
 
@@ -228,10 +226,8 @@ The `NotchiumFeatureTests` unit-test target covers:
 - deterministic fake-clock behavior;
 - disabled Stage 1 permission requests;
 - unique feature-module registration;
-- keyboard-lock failsafe policy;
 - persistent/transient arbitration, family coalescing, original deadlines, and hover pause;
 - Caffeine click/hold mode transitions and shutdown state;
-- Keyboard Lock permission gating, first-use education, emergency progress, and fail-open state;
 - root dependency replacement;
 - delayed/cancelled collapsed, hovered, expanded, and transitioning behavior;
 - display selection, hot-plug fallback, and zero-display behavior;
