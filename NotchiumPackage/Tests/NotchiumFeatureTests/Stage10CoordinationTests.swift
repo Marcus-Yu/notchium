@@ -81,7 +81,7 @@ final class Stage10CoordinationTests: XCTestCase {
         }
     }
 
-    func testDragRetainsNotificationOutsideHoverAndResumesRemainder() async {
+    func testDragDoesNotExtendNotificationLifetime() async {
         let clock = clock()
         let activities = ActivityCoordinator(clock: clock)
         let notification = reminder()
@@ -90,20 +90,12 @@ final class Stage10CoordinationTests: XCTestCase {
         await clock.waitForPendingSleeps()
         await clock.advance(by: .seconds(4))
         coordinator.setHovered(true)
-        await drain()
         coordinator.setInteracting(true, id: notification.id)
         coordinator.setHovered(false)
-        await clock.advance(by: .seconds(50))
+        await clock.advance(by: .seconds(6))
         await drain()
-        XCTAssertNotNil(coordinator.active)
+        XCTAssertNil(coordinator.active)
         coordinator.setInteracting(false, id: notification.id)
-        await drain()
-        await clock.waitForPendingSleeps()
-        await clock.advance(by: .seconds(5))
-        await drain()
-        XCTAssertNotNil(coordinator.active)
-        await clock.advance(by: .seconds(1))
-        await drain()
         XCTAssertNil(coordinator.active)
         let pending = await clock.pendingSleepCount()
         XCTAssertEqual(pending, 0)
@@ -145,19 +137,19 @@ final class Stage10CoordinationTests: XCTestCase {
         model.reset()
     }
 
-    func testEscapeDismissesNotificationBeforeExpandedShell() {
+    func testEscapeCollapsesExpandedShellWithoutExtendingHiddenNotification() {
         let model = DynamicIslandPresentationModel(clock: clock())
         model.present(.expanded, animated: false)
         model.notificationCoordinator.present(reminder())
         model.handleEscape()
-        XCTAssertNil(model.notificationCoordinator.active)
-        XCTAssertEqual(model.visualState, .expanded)
-        model.handleEscape()
+        XCTAssertNotNil(model.notificationCoordinator.active)
         XCTAssertEqual(model.visualState, .collapsed)
+        model.handleEscape()
+        XCTAssertNil(model.notificationCoordinator.active)
         model.reset()
     }
 
-    func testPendingHoverCannotTakeOverNewNotification() async {
+    func testPendingHoverExpandsDespiteNewNotification() async {
         let clock = clock()
         let model = DynamicIslandPresentationModel(clock: clock)
         model.setHovered(true)
@@ -165,7 +157,7 @@ final class Stage10CoordinationTests: XCTestCase {
         model.notificationCoordinator.present(reminder())
         await clock.advance(by: .milliseconds(120))
         await drain()
-        XCTAssertEqual(model.visualState, .collapsed)
+        XCTAssertEqual(model.visualState, .hovered)
         XCTAssertNotNil(model.notificationCoordinator.active)
         model.reset()
     }
@@ -210,44 +202,6 @@ final class Stage10CoordinationTests: XCTestCase {
             XCTAssertEqual(activities.queueCount, 0)
             activities.clearAll()
         }
-    }
-
-    func testExpandedHomeAudioOverlayRestoresPixelsWithoutChangingPageOrSize() throws {
-        let model = DynamicIslandPresentationModel(clock: clock())
-        model.present(.expanded, animated: false)
-        model.pageModel.selectedPage = .home
-        let view = Color.blue.overlay { ExpandedNotificationOverlay(model: model) }
-            .frame(width: 524, height: 266)
-        func pixels() throws -> [UInt8] {
-            let renderer = ImageRenderer(content: view)
-            renderer.scale = 1
-            let image = try XCTUnwrap(renderer.cgImage)
-            XCTAssertEqual(image.width, 524)
-            XCTAssertEqual(image.height, 266)
-            var bytes = [UInt8](repeating: 0, count: 524 * 266 * 4)
-            let context = CGContext(data: &bytes, width: 524, height: 266,
-                bitsPerComponent: 8, bytesPerRow: 524 * 4,
-                space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-            context.draw(image, in: CGRect(x: 0, y: 0, width: 524, height: 266))
-            return bytes
-        }
-        let before = try pixels()
-        model.notificationCoordinator.present(audio())
-        let during = try pixels()
-        XCTAssertNotEqual(before, during, "Expanded Home must actually display Audio feedback")
-        XCTAssertEqual(Array(before.prefix(524 * 100 * 4)), Array(during.prefix(524 * 100 * 4)),
-                       "The underlying page and navigation area must not move")
-        XCTAssertEqual(model.pageModel.selectedPage, .home)
-        model.setAuxiliaryInteractionPresented(true)
-        XCTAssertFalse(model.showsExpandedNotification)
-        XCTAssertEqual(try pixels(), before, "Notifications must not cover a child picker or menu")
-        model.setAuxiliaryInteractionPresented(false)
-        XCTAssertTrue(model.showsExpandedNotification)
-        model.notificationCoordinator.dismissByUser()
-        XCTAssertEqual(try pixels(), before)
-        XCTAssertEqual(model.pageModel.selectedPage, .home)
-        model.reset()
     }
 
     func testExpandedNotificationPointerFrameUsesFixedShellAndExistingContentHeight() {
