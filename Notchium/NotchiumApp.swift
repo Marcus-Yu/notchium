@@ -58,7 +58,8 @@ struct NotchiumApp: App {
                                  audioMeter: appDelegate.controller.mediaModel.audioMeter,
                                  calendarModel: appDelegate.controller.calendarModel,
                                  menuBarInsertion: menuBarInsertion,
-                                 caffeineModel: appDelegate.controller.caffeineModel)
+                                 caffeineModel: appDelegate.controller.caffeineModel,
+                                 quickActions: appDelegate.controller.quickActions)
         }
 
 #if DEBUG
