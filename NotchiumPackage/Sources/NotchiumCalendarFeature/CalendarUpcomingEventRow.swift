@@ -1,5 +1,6 @@
 import NotchiumServices
 import SwiftUI
+import NotchiumDesignSystem
 
 /// Disclosure and Join are sibling buttons, so joining never toggles the row.
 struct CalendarUpcomingEventRow: View {
@@ -37,7 +38,7 @@ struct CalendarUpcomingEventRow: View {
                 }
                 .font(.system(size: 11))
                 .padding(.horizontal, 8)
-                .padding(.vertical, 7)
+                .padding(.vertical, ExpandedPageStyle.Space.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(.rect)
             }
@@ -58,8 +59,11 @@ struct CalendarUpcomingEventRow: View {
                 .transition(.opacity)
             }
         }
-        .background(.white.opacity(isExpanded ? 0.09 : (isHovered ? 0.065 : 0.025)),
-                    in: RoundedRectangle(cornerRadius: isExpanded ? 10 : 6))
+        .background(.white.opacity(isExpanded ? 0.08 : (isHovered ? 0.055 : 0)),
+                    in: RoundedRectangle(cornerRadius: ExpandedPageStyle.selectionRadius))
+        .overlay(alignment: .bottom) {
+            if !isExpanded { Rectangle().fill(.white.opacity(0.10)).frame(height: 1).padding(.horizontal, ExpandedPageStyle.Space.sm) }
+        }
         .onHover { isHovered = $0 }
     }
 }
