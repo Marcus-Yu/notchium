@@ -1,5 +1,7 @@
 # Stage 4 Media Center
 
+Current expanded-page layout: [shared composition and visual review](EXPANDED_PAGE_COMPOSITION.md).
+
 The current playback architecture is documented in [Spotify playback pipeline](SPOTIFY_PLAYBACK_PIPELINE.md).
 It supersedes the historical command-specific reconciliation notes below.
 
