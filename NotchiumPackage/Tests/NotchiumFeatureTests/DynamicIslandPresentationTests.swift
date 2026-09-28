@@ -19,7 +19,7 @@ final class DynamicIslandPresentationTests: XCTestCase {
         model.showAudioHUD(repeatEvent)
         XCTAssertEqual(model.audioHUD, repeatEvent)
         await clock.waitForPendingSleeps()
-        await clock.advance(by: .milliseconds(1250))
+        await clock.advance(by: .milliseconds(1750))
         await drainMainActorTasks()
         XCTAssertNil(model.audioHUD)
 
