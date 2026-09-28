@@ -1,12 +1,14 @@
 # Stage 5 Calendar activity
 
+Current expanded-page layout: [shared composition and visual review](EXPANDED_PAGE_COMPOSITION.md).
+
 The `RealCalendarService` adapter owns `EKEventStore`, full-access authorization, calendar selection, event projection, and change notifications. It exposes value snapshots through `CalendarService`; EventKit objects never reach SwiftUI. `CalendarActivityModel` observes those snapshots and feeds `CalendarReminderCoordinator`, which schedules reminders through the shared `NotificationCoordinator`, owned by `ActivityCoordinator`. The shell receives Calendar views through `NotchCalendarRendering`, parallel to the media renderer. Music and Calendar views remain mounted across page switches; Player and Up Next stay within Music.
 
 Calendar access is requested once at app startup through `requestFullAccessToEvents`. The app declares `NSCalendarsFullAccessUsageDescription` and the Calendar sandbox entitlement in both distribution profiles. Denial or restriction leaves Calendar empty and shows a System Settings button and the path to Privacy & Security → Calendars. Returning to Notchium refreshes authorization.
 
 The initial selection includes calendars already configured in macOS Calendar. Identifiers are saved in UserDefaults when the user changes a selection. EventKit queries only selected calendars for the next 14 days and projects all non-cancelled events in that window, including active and overlapping events. The expanded view keeps the next event’s existing presentation and shows every remaining event in an internally scrollable list. No event content is persisted.
 
-Calendar reminders appear at 60, 30, and 5 minutes before a timed event. A meeting can also show Join Now at its start. Each threshold is recorded once per event within the running app. On launch or wake after a threshold, the coordinator presents one reminder using the actual time remaining and marks older thresholds consumed. The soonest event wins; a higher-priority system activity suppresses a stale reminder rather than queuing it. Each banner lasts about five seconds, with the countdown paused while the pointer is over it. The reminder has foreground priority while collapsed Music remains rendered above it; dismissing it exposes the same underlying activity without restarting playback. EventKit is queried at launch, on database changes, day changes, wake, foreground activation, selection changes, and event approach/start/Now/end boundaries. The reminder coordinator uses one scheduled timer for the next threshold, and SwiftUI's one-second `TimelineView` updates only the expanded Calendar countdown.
+Calendar reminders appear at 60, 30, and 5 minutes before a timed event. A meeting can also show Join Now at its start. Each threshold is recorded once per event within the running app. On launch or wake after a threshold, the coordinator presents one reminder using the actual time remaining and marks older thresholds consumed. The soonest event wins; a higher-priority system activity suppresses a stale reminder rather than queuing it. Each banner lasts about five seconds, with an absolute expiry unaffected by hover or notch expansion. The reminder has foreground priority while collapsed Music remains rendered above it; dismissing it exposes the same underlying activity without restarting playback. EventKit is queried at launch, on database changes, day changes, wake, foreground activation, selection changes, and event approach/start/Now/end boundaries. The reminder coordinator uses one scheduled timer for the next threshold, and SwiftUI's one-second `TimelineView` updates only the expanded Calendar countdown.
 
 Stage 9 routes Calendar reminders through `ActivityCoordinator.notifications`, the shared
 `NotificationCoordinator`. The existing threshold scheduler, EventKit service, and Join
@@ -21,7 +23,7 @@ centered action row are superseded.
 Join appears only for HTTPS meeting URLs on recognized Zoom, Google Meet, or Microsoft Teams hosts with meeting-shaped paths. Detection checks `EKEvent.url`, then location, then notes. Join delegates to `NSWorkspace`.
 
 Validation includes threshold/wake scheduling, media restoration, priority suppression,
-shared hover expiry, Join URL dispatch, fixed-height title wrapping at 1×/2×, and native
+absolute notification expiry, Join URL dispatch, fixed-height title wrapping at 1×/2×, and native
 SwiftUI raster fixtures. Real EventKit permission, user calendars, and external meeting
 application handoff still require hardware verification.
 
@@ -46,6 +48,6 @@ The right column has its own scroll viewport. Light rows prioritize two-line 12 
 Reminder priority comes from the centralized semantic table. An upward click-drag on
 unused notification background dismisses at 32 pt, with a shorter intentional flick path;
 partial/cancelled drags spring back. Join, the title button, and X retain their clicks.
-Expanded reminders overlay the existing shell without resetting the page or event selection,
+Expanded pages hide reminders while their absolute expiry continues, without resetting page or event selection,
 and yield to child menus/popovers. See [Stage 10 coordination](STAGE10_COORDINATION.md)
 for gesture arbitration, motion review, restoration, and validation.
