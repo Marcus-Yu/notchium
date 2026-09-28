@@ -154,7 +154,8 @@ final class AudioMixerTests: XCTestCase {
     func testCompactRowsFitRequiredDensity() {
         XCTAssertGreaterThanOrEqual(AudioPageMetrics.appRowHeight, 52)
         XCTAssertLessThanOrEqual(AudioPageMetrics.appRowHeight, 58)
-        XCTAssertEqual(AudioPageMetrics.twoRowViewportHeight, 113)
+        XCTAssertLessThanOrEqual(AudioPageMetrics.twoRowViewportHeight, 108,
+                                "Two complete rows must fit below the output and section headings")
     }
 
     func testInternalAudioDevicesAreNotUserVisible() {
