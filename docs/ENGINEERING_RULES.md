@@ -43,7 +43,7 @@ At minimum, future source organization must retain independent modules or equiva
 - Camera
 - Audio
 - Caffeine
-- Keyboard Lock
+- Quick Actions and Quick Reminder
 - Clipboard
 - Monitoring
 - Activities
@@ -100,7 +100,6 @@ These names describe contracts, not Stage 0 implementations. Concrete method nam
 | `CameraProvider` | Device authorization/status, preview-session lifecycle, device changes | Recording or microphone input unless a future approved feature expands the contract |
 | `AudioDeviceProvider` | Public route list, current/default output, capability-probed volume, typed changes | Bluetooth pairing truth, private AirPods properties |
 | `WakeLockProvider` | Acquire, renew if required, expire, and release owned public power assertions | UI duration selection; undocumented power controls |
-| `KeyboardGate` | Session event-tap trust, guarded activation, fail-open suppression state, emergency unlock events | Root/HID interception, password collection, arbitrary shortcut handling |
 | `ClipboardProvider` | Privacy-gated pasteboard observations and explicit user-initiated saves | Policy decisions about retention, UI search, or plaintext logging |
 | `SystemMetricsProvider` | Timestamped supported total/process snapshots with coverage/staleness metadata | Shell commands, GPU fabrication, per-process network fabrication |
 | `ActivityEventSource` | Typed, redacted candidate events from one source | Global priority, presentation, persistence, or content expansion |
@@ -151,7 +150,6 @@ Additional adapters such as `NotificationProvider`, `WorkspaceProvider`, `Bright
 - System controls, standard focus behavior, menus, sharing pickers, file panels, Quick Look, and accessibility semantics are preferred over replicas.
 - AppKit owns the panel, activation, Spaces, menu-bar, responder-chain, and other macOS window mechanics. SwiftUI does not emulate window levels or focus with web-style layering assumptions.
 - Liquid Glass follows the public macOS 26 API and [PRODUCT_SPEC.md](PRODUCT_SPEC.md). Custom blur stacks that conflict with system glass are prohibited.
-- Animation may never delay permission explanations, file safety, destructive confirmations, or emergency keyboard unlock.
 - The notch panel and every Ambient Edge overlay are separate AppKit windows with separate lifecycle owners. Stretching one window between these roles is prohibited.
 - Each display-scoped surface is owned by a display coordinator keyed through a platform-defined display identity. Feature code must not retain `NSScreen`, assume `NSScreen.main`, or hard-code one display.
 - Ambient Edge is click-through and nonactivating in normal operation. Interactive controls belong to the notch, menu-bar fallback, Settings, or another deliberate surface.
@@ -250,7 +248,7 @@ Integration tests cover real adapter boundaries where automation is safe: local 
 
 ### 11.3 UI tests
 
-UI tests cover collapsed → hovered → deliberately expanded transitions; menu-bar fallback; keyboard navigation; VoiceOver labels/actions; permission education/denial/retry; reduced motion/transparency; Dynamic Type/large text where supported; provider unavailable states; and emergency unlock UI state. Protected system prompts are not clicked by brittle coordinate automation; tests use controlled authorization states or an approved harness.
+UI tests cover collapsed → hovered → deliberately expanded transitions; menu-bar fallback; keyboard navigation; VoiceOver labels/actions; permission education/denial/retry; reduced motion/transparency; Dynamic Type/large text where supported; provider unavailable states.. Protected system prompts are not clicked by brittle coordinate automation; tests use controlled authorization states or an approved harness.
 
 ### 11.4 Hardware and manual test matrix
 
@@ -303,7 +301,6 @@ Release is blocked unless:
 - Reduce Transparency produces legible opaque/system-material alternatives.
 - Color is not the only status channel and contrast remains sufficient over glass and wallpaper changes.
 - System text sizing, localization expansion, right-to-left layout where applicable, and truncation have documented behavior.
-- Emergency keyboard unlock and privacy/capture indicators are immediate and independent of animation.
 - Energy profiling shows idle features stop polling/capture and hidden panels do not drive continuous rendering.
 - Static display-edge presentation runs without a persistent frame loop. Animated presentation has a measured frame-rate/energy policy and suspends when no eligible state exists, displays sleep, the session locks, or the feature is paused.
 - Low Power Mode disables Beat Reactive and downgrades continuous Ambient animation to Static or Off according to explicit user policy.
@@ -329,12 +326,14 @@ A feature is not done until it has:
 - Spotify policy clearance for audio-derived waveform visualization and commercial product use.
 - Apple Music system-player queue visibility and behavior changes across MusicKit releases.
 - Core Audio process-tap permission UX, power cost, provider targeting, and review acceptance.
-- Reliability and distribution review risk of keyboard suppression despite using public APIs.
 - Clipboard source attribution and secret detection cannot be guaranteed by public APIs.
 - Hardware-dependent screen brightness and output-volume support.
 - Browser-extension packaging, review, installation, and native-messaging maintenance across four browsers.
 - Folder-watcher inference cannot provide universal screenshot/download completion semantics.
 - Window placement and activation behavior across Spaces, full-screen applications, display changes, sleep/wake, and menu-bar configurations.
-- Mac App Store viability of the reduced capability profile, particularly keyboard suppression and broad observation features.
+- Mac App Store viability of the reduced capability profile, including Shortcuts CLI and broad observation features.
 - Ambient Edge multiplies window lifecycle and render-scheduling risk across displays and must remain isolated from feature correctness.
 - Best-effort full-screen/presentation/screen-sharing suppression cannot become a hidden dependency of privacy or correctness.
+
+
+Stage 11 explicitly permits the Apple-provided `/usr/bin/shortcuts` executable for listing and running existing shortcuts with argument arrays. Generic shell, script, AppleScript, and macro actions remain prohibited. Keyboard Lock and its event tap are removed.
