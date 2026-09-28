@@ -12,7 +12,6 @@ public struct ServiceRegistry: Sendable {
     public let appAudioMixer: any AppAudioMixerService
     public let battery: any BatteryService
     public let caffeine: any CaffeineService
-    public let keyboardLock: any KeyboardLockService
     public let systemStats: any SystemStatsService
     public let downloads: any DownloadsService
     public let meetings: any MeetingsService
@@ -33,7 +32,6 @@ public struct ServiceRegistry: Sendable {
         appAudioMixer: any AppAudioMixerService = MockAppAudioMixerService(),
         battery: any BatteryService,
         caffeine: any CaffeineService,
-        keyboardLock: any KeyboardLockService,
         systemStats: any SystemStatsService,
         downloads: any DownloadsService,
         meetings: any MeetingsService,
@@ -53,7 +51,6 @@ public struct ServiceRegistry: Sendable {
         self.appAudioMixer = appAudioMixer
         self.battery = battery
         self.caffeine = caffeine
-        self.keyboardLock = keyboardLock
         self.systemStats = systemStats
         self.downloads = downloads
         self.meetings = meetings
@@ -76,7 +73,6 @@ public struct ServiceRegistry: Sendable {
             appAudioMixer: RealAppAudioMixerService(),
             battery: RealBatteryService(),
             caffeine: RealCaffeineService(),
-            keyboardLock: RealKeyboardLockService(),
             systemStats: RealSystemStatsService(),
             downloads: RealDownloadsService(),
             meetings: RealMeetingsService(),
@@ -100,7 +96,6 @@ public struct ServiceRegistry: Sendable {
             appAudioMixer: MockAppAudioMixerService(),
             battery: MockBatteryService(),
             caffeine: MockCaffeineService(),
-            keyboardLock: MockKeyboardLockService(),
             systemStats: MockSystemStatsService(),
             downloads: MockDownloadsService(),
             meetings: MockMeetingsService(),
@@ -131,8 +126,6 @@ public struct ServiceRegistry: Sendable {
             await battery.availability()
         case .caffeine:
             await caffeine.availability()
-        case .keyboardLock:
-            await keyboardLock.availability()
         case .systemStats:
             await systemStats.availability()
         case .downloads:
