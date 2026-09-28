@@ -61,41 +61,60 @@ final class NotificationCoordinatorTests: XCTestCase {
         await clock.advance(by: .milliseconds(300))
         await drain()
         XCTAssertNotNil(notifications.active)
-        await clock.advance(by: .seconds(1))
+        await clock.advance(by: .milliseconds(1450))
         await drain()
         XCTAssertNil(notifications.active)
     }
 
-    func testHoverPreservesRemainingTimeAndReplacementKeepsHover() async {
+    func testHoverDoesNotChangeAbsoluteExpiry() async {
         let clock = TestAppClock(now: base, automaticallyAdvances: false)
         let activities = ActivityCoordinator(clock: clock)
         let notifications = activities.notifications
         notifications.present(calendar())
         await clock.waitForPendingSleeps()
+        let deadline = notifications.expiresAt
+        XCTAssertEqual(deadline, base.addingTimeInterval(10))
         await clock.advance(by: .seconds(4))
         notifications.setHovered(true)
-        await drain()
-        await clock.advance(by: .seconds(50))
-        XCTAssertNotNil(notifications.active)
-        notifications.setHovered(false)
-        await drain()
-        await clock.waitForPendingSleeps()
-        await clock.advance(by: .seconds(5))
-        await drain()
-        XCTAssertNotNil(notifications.active)
-        await clock.advance(by: .seconds(1))
+        XCTAssertEqual(notifications.expiresAt, deadline)
+        await clock.advance(by: .seconds(6))
         await drain()
         XCTAssertNil(notifications.active)
+        notifications.setHovered(false)
+        XCTAssertNil(notifications.active)
+    }
 
+    func testDefaultDurations() {
+        for kind in [NotchNotification.Kind.reminder60, .reminder30, .reminder5] {
+            XCTAssertEqual(kind.defaultDuration, .seconds(5))
+        }
+        XCTAssertEqual(audio(output: true).duration, .milliseconds(2500))
+        XCTAssertEqual(audio().duration, .milliseconds(1750))
+        XCTAssertEqual(audio(muted: true).duration, .milliseconds(1750))
+    }
+
+    func testUnchangedAudioSnapshotDoesNotExtendExpiry() async {
+        let clock = TestAppClock(now: base, automaticallyAdvances: false)
+        let activities = ActivityCoordinator(clock: clock)
+        let notifications = activities.notifications
         notifications.present(audio())
-        notifications.setHovered(true)
+        await clock.waitForPendingSleeps()
+        let deadline = notifications.expiresAt
+        await clock.advance(by: .seconds(1))
+        notifications.present(audio())
+        XCTAssertEqual(notifications.expiresAt, deadline)
+        await clock.advance(by: .milliseconds(750))
         await drain()
-        notifications.present(calendar())
-        XCTAssertTrue(notifications.isHovered)
-        await clock.advance(by: .seconds(50))
-        await drain()
-        XCTAssertNotNil(notifications.active)
-        notifications.dismiss()
+        XCTAssertNil(notifications.active)
+    }
+
+    func testCalendarRemindersKeepDiscreteIdentities() {
+        let activities = ActivityCoordinator(clock: TestAppClock(now: base, automaticallyAdvances: false))
+        activities.notifications.present(calendar())
+        let firstID = activities.notifications.active?.id
+        activities.notifications.present(calendar())
+        XCTAssertNotEqual(activities.notifications.active?.id, firstID)
+        activities.clearAll()
     }
 
     func testGlobalPreemptionAndResetDoNotReplayStaleNotifications() async {
