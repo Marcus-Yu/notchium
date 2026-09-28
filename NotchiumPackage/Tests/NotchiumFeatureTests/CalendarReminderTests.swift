@@ -94,7 +94,7 @@ final class CalendarReminderTests: XCTestCase {
         reminders.stop()
     }
 
-    func testFiveSecondDismissalPausesAndResumesRemainingTimeAfterHover() async {
+    func testFiveSecondDismissalContinuesThroughHover() async {
         let clock = TestAppClock(now: base, automaticallyAdvances: false)
         let activities = ActivityCoordinator(clock: clock)
         let reminders = CalendarReminderCoordinator(activities: activities, clock: clock)
@@ -103,20 +103,12 @@ final class CalendarReminderTests: XCTestCase {
         await clock.waitForPendingSleeps()
         await clock.advance(by: .seconds(2))
         reminders.setHovered(true)
-        while await clock.pendingSleepCount() != 0 { await Task.yield() }
-        await clock.advance(by: .seconds(20))
-        for _ in 0..<10 { await Task.yield() }
-        XCTAssertNotNil(reminders.current)
-
-        reminders.setHovered(false)
-        await clock.waitForPendingSleeps()
-        await clock.advance(by: .milliseconds(2_500))
-        for _ in 0..<10 { await Task.yield() }
-        XCTAssertNotNil(reminders.current)
-        await clock.advance(by: .milliseconds(500))
-        for _ in 0..<10 { await Task.yield() }
+        await clock.advance(by: .seconds(3))
+        for _ in 0..<100 { await Task.yield() }
         XCTAssertNil(reminders.current)
-        XCTAssertNil(activities.activeActivity)
+        XCTAssertNil(activities.notifications.active)
+        reminders.setHovered(false)
+        XCTAssertNil(reminders.current)
         reminders.stop()
     }
 
