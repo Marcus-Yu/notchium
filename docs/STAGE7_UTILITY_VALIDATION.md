@@ -1,5 +1,7 @@
 # Stage 7 utility validation — 2026-09-24
 
+> Historical Stage 7 record. Stage 11 removes Keyboard Lock; its acceptance items below no longer apply. See [Stage 11](STAGE11_QUICK_ACTIONS.md).
+
 ## Results
 
 - SwiftPM utility tests: 9 passed, 0 failures. Includes Caffeine click modes, green-to-blue, 749/750 ms deadline, completed-hold click consumption, early release, cancellation, permission guidance, Secure Input guidance, and unlocked real callback pass-through.
