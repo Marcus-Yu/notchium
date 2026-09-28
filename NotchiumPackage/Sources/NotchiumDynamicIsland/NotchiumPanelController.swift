@@ -279,7 +279,8 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
     func handleClick(at point: CGPoint) {
         guard let currentLayout else { return }
         guard !model.consumePointerClickForAuxiliaryInteraction() else { return }
-        if let frame = notificationFrame(for: currentLayout), frame.contains(point) {
+        if !NotchHoverRegion.contains(point, in: currentLayout.collapsedHoverFrame),
+           let frame = notificationFrame(for: currentLayout), frame.contains(point) {
             // Notification actions, including Join and dismissal, own their clicks.
             return
         }
@@ -299,15 +300,11 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         }
     }
 
-    private func handleMouseMoved(at point: CGPoint) {
+    func handleMouseMoved(at point: CGPoint) {
         guard let currentLayout else { return }
         let insideNotification = notificationFrame(for: currentLayout)
             .map { NotchHoverRegion.contains(point, in: $0) } == true
         model.notificationCoordinator.setHovered(insideNotification)
-        if insideNotification, model.surfaceState == .collapsed {
-            model.setHovered(false)
-            return
-        }
         let zone = model.surfaceState == .collapsed
             ? currentLayout.collapsedHoverFrame
             : currentLayout.visibleSurfaceFrame
@@ -315,8 +312,7 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
     }
 
     private func notificationFrame(for layout: NotchPanelLayout) -> CGRect? {
-        guard let notification = model.notificationCoordinator.active else { return nil }
-        guard model.surfaceState == .collapsed || model.showsExpandedNotification else { return nil }
+        guard let notification = model.presentedNotification else { return nil }
         return NotchNotificationGeometry.interactionFrame(for: notification.presentationStyle, layout: layout,
                                                           expanded: model.surfaceState != .collapsed)
     }
