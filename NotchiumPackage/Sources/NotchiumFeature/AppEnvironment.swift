@@ -53,10 +53,11 @@ public struct AppEnvironment: Sendable {
 
     public static func mock(
         clock: any AppClock,
-        logger: any AppLogging = MockAppLogger()
+        logger: any AppLogging = MockAppLogger(),
+        services: ServiceRegistry = .mock()
     ) -> AppEnvironment {
         AppEnvironment(
-            services: .mock(),
+            services: services,
             permissions: MockPermissionAuthorizer(),
             persistence: MockPersistenceStore(),
             clock: clock,
