@@ -10,10 +10,13 @@ private actor HeldSeekProvider: MediaProviding {
     private var waiters: [CheckedContinuation<Void, Never>] = []
     private(set) var requestedPositions: [Double] = []
     private(set) var refreshCount = 0
+    private(set) var commands: [MediaCommand] = []
     func availability() -> FeatureAvailability { .available }
     func updates() -> AsyncStream<MediaState> { AsyncStream { $0.finish() } }
     func perform(_ command: MediaCommand) async throws {
-        if case .seek(let position) = command { requestedPositions.append(position) }
+        commands.append(command)
+        guard case .seek(let position) = command else { return }
+        requestedPositions.append(position)
         try await withCheckedThrowingContinuation { continuation in
             self.continuation = continuation
             waiters.forEach { $0.resume() }; waiters.removeAll()
@@ -38,6 +41,47 @@ private actor HeldSeekProvider: MediaProviding {
               elapsed: elapsed, duration: 180, trackID: "1", source: .spotify,
               capabilities: .init(canSeek: true), timestamp: now, playbackRate: rate)
     }
+    func testPausedSeekResumesOnceAndKeepsManualHome() async throws {
+        let provider = HeldSeekProvider()
+        let presentation = DynamicIslandPresentationModel()
+        let model = MediaFeatureModel(provider: provider, coordinator: presentation.activityCoordinator)
+        var paused = sample(playing: false)
+        paused.capabilities.canPlayPause = true
+        model.receive(paused)
+        presentation.setExpanded(true)
+        presentation.pageModel.selectedPage = .home
+        let seek = Task { try await model.seek(to: 90, at: now) }
+        await provider.waitForSeek()
+        XCTAssertTrue(model.state.isPlaying)
+        XCTAssertEqual(model.lastSeekTarget, 90)
+        XCTAssertTrue(model.isPending(.playPause))
+        await provider.finish()
+        try await seek.value
+        let commands = await provider.commands
+        XCTAssertEqual(commands, [.seek(90), .play])
+        XCTAssertEqual(presentation.pageModel.selectedPage, .home)
+        XCTAssertFalse(model.seekInFlight)
+        model.stop()
+        presentation.reset()
+    }
+
+    func testFailedPausedSeekDoesNotResumeAndReleasesBothControls() async {
+        let provider = HeldSeekProvider()
+        let model = MediaFeatureModel(provider: provider, coordinator: ActivityCoordinator(clock: ContinuousAppClock()))
+        var paused = sample(playing: false)
+        paused.capabilities.canPlayPause = true
+        model.receive(paused)
+        let seek = Task { try await model.seek(to: 90, at: now) }
+        await provider.waitForSeek()
+        await provider.finish(failing: true)
+        do { try await seek.value; XCTFail("Expected failure") } catch {}
+        let commands = await provider.commands
+        XCTAssertEqual(commands, [.seek(90)])
+        XCTAssertFalse(model.state.isPlaying)
+        XCTAssertFalse(model.isBusy)
+        model.stop()
+    }
+
     func testPlayingInterpolatesFromObservation() {
         XCTAssertEqual(estimatedPlaybackPosition(at: now.addingTimeInterval(10), state: sample()), 40)
     }
