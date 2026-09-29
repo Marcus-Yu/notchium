@@ -13,8 +13,7 @@ struct HomeMediaView: View {
                 VStack(spacing: 0) {
                     information
                     Spacer(minLength: 10)
-                    HomeMediaProgress(model: model)
-                        .allowsHitTesting(false)
+                    MediaProgressView(model: model)
                     controls.padding(.top, 8)
                 }
             } else {
@@ -79,33 +78,5 @@ struct HomeMediaView: View {
         .help(model.errorMessage ?? title)
         .accessibilityLabel(title)
         .accessibilityIdentifier("notchium.home.media.\(command.controlID)")
-    }
-}
-
-/// Lightweight read-only progress; shares Music's authoritative position estimate.
-private struct HomeMediaProgress: View {
-    let model: MediaSessionController
-    @Environment(\.notchMediaExpanded) private var isExpanded
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1, paused: !model.state.isPlaying || !isExpanded)) { timeline in
-            let elapsed = model.displayedPosition(at: timeline.date, uptime: ProcessInfo.processInfo.systemUptime)
-            let duration = model.state.validDuration
-            VStack(spacing: 4) {
-                GeometryReader { geometry in
-                    Capsule().fill(.white.opacity(0.12))
-                    Capsule().fill(.white.opacity(0.65))
-                        .frame(width: geometry.size.width * (duration.map { min(max(elapsed / $0, 0), 1) } ?? 0))
-                }.frame(height: 2)
-                HStack {
-                    Text(MediaProgressView.time(elapsed))
-                    Spacer()
-                    Text(duration.map(MediaProgressView.time) ?? "–:––")
-                }.font(.system(size: 10)).monospacedDigit().foregroundStyle(ExpandedPageStyle.secondary)
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Playback progress")
-            .accessibilityValue("\(MediaProgressView.time(elapsed)) of \(duration.map(MediaProgressView.time) ?? "unknown duration")")
-        }
     }
 }
