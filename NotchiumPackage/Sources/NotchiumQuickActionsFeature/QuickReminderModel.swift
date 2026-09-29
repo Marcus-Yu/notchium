@@ -54,11 +54,13 @@ import Observation
         draft.includesTime = false
         applySuggestion(now: referenceDate)
         await refreshAccess(request: true)
+        logValidation()
     }
     public func refreshAccess(request: Bool = false) async {
         error = nil
+        refreshState()
         do {
-            if request { _ = try await service.requestAccess() }
+            if request && access == .notDetermined { _ = try await service.requestAccess() }
             refreshState()
         } catch {
             refreshState()
@@ -72,7 +74,6 @@ import Observation
         if access == .allowed && !store.reminderListID.isEmpty && !lists.contains(where: { $0.id == store.reminderListID }) {
             store.reminderListID = ""
         }
-        logValidation()
     }
     /// The view task debounces date/time updates; title validation remains immediate.
     func parseAfterDebounce() async {
@@ -82,7 +83,6 @@ import Observation
         let now = await clock.now()
         guard !Task.isCancelled, session == sessionRevision, draft.title == text else { return }
         applySuggestion(now: now)
-        logValidation()
     }
 
     func applySuggestion(now: Date) {
@@ -143,7 +143,7 @@ import Observation
     }
 
     func saveCurrent() async -> Bool {
-        guard canSave else { logValidation(); return false }
+        guard canSaveReminder else { logValidation(); return false }
         isBusy = true
         defer { isBusy = false; logValidation() }
         let session = sessionRevision
@@ -183,17 +183,24 @@ import Observation
     }
 
     var disableReason: String? { isBusy ? "saveInProgress" : validationFailure }
-    public var canSave: Bool { disableReason == nil }
+    public var canSaveReminder: Bool { disableReason == nil }
 
     func logValidation() {
         #if DEBUG
         let logger = Logger(subsystem: "Notchium", category: "QuickReminder")
-        logger.debug("rawTitle=\(self.draft.title, privacy: .private) cleanedTitle=\(self.effectiveTitle, privacy: .private) hasPermission=\(self.access == .allowed) selectedList=\(self.selectedList?.id ?? "none", privacy: .private) dueDate=\(self.draft.date.description, privacy: .private) canSave=\(self.canSave) disableReason=\(self.disableReason ?? "none", privacy: .public)")
+        let authorization = switch access {
+        case .allowed: "fullAccess"
+        case .notDetermined: "notDetermined"
+        case .denied: "denied"
+        case .restricted: "restricted"
+        }
+        let time = draft.dueComponents(timeZone: calendar.timeZone)
+        logger.debug("authorization=\(authorization, privacy: .public) rawTitle=\(self.draft.title, privacy: .private) effectiveTitle=\(self.effectiveTitle, privacy: .private) dueDate=\(self.draft.date.description, privacy: .private) atTime=\(self.draft.includesTime) time=\(String(describing: time.hour), privacy: .private):\(String(describing: time.minute), privacy: .private) writableLists.count=\(self.lists.count) selectedList=\(self.selectedList?.id ?? "none", privacy: .private) isSaving=\(self.isBusy) canSaveReminder=\(self.canSaveReminder) disableReason=\(self.disableReason ?? "none", privacy: .public)")
         #endif
     }
 
     public func save() -> Bool {
-        guard canSave else { logValidation(); return false }
+        guard canSaveReminder else { logValidation(); return false }
         isBusy = true
         defer { isBusy = false; logValidation() }
         applySuggestion(now: referenceDate)
