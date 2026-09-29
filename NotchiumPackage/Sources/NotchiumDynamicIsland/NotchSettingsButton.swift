@@ -39,6 +39,7 @@ private struct NotchCaffeineButton: View {
                               glass: controller.mode == .off ? nil : glass)
         }
         .buttonStyle(CaffeinePressButtonStyle(
+            interaction: controller.pressInteraction,
             allowsHold: controller.mode != .systemAndDisplay,
             holdAction: controller.keepDisplayAwake
         ))
