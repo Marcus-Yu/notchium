@@ -6,6 +6,7 @@ struct PlaybackReconciliation: Sendable {
     enum Target: Sendable {
         case trackChange
         case position(Double)
+        case playingPosition(Double)
         case playing(Bool)
         case device(String)
         case event(SpotifyPlaybackEvent)
@@ -34,6 +35,11 @@ struct PlaybackReconciliation: Sendable {
         self.startedAt = startedAt
     }
 
+    func preservesSeekResume(through event: SpotifyPlaybackEvent, uptime: TimeInterval) -> Bool {
+        guard case .playingPosition = target, uptime - startedAt < Self.lifetime else { return false }
+        return event.trackID == nil || event.trackID == origin.trackID
+    }
+
     func accepts(_ value: MediaState, uptime: TimeInterval) -> Bool {
         let elapsed = max(0, uptime - startedAt)
         if elapsed >= Self.lifetime { return true }
@@ -46,9 +52,10 @@ struct PlaybackReconciliation: Sendable {
         switch target {
         case .trackChange:
             return value.hasMedia && changedTrack
-        case .position(let position):
+        case .position(let position), .playingPosition(let position):
             guard value.hasMedia else { return false }
             if changedTrack { return true }
+            if case .playingPosition = target, !value.isPlaying { return false }
             // Execution may lag the click: accept the interval since the requested baseline.
             return value.elapsedTime >= max(0, position - 2)
                 && value.elapsedTime <= position + elapsed + 2
