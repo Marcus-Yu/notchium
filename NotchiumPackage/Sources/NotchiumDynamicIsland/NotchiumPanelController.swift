@@ -136,7 +136,6 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
 
         if model.visualState == .expanded {
             installEscapeMonitorIfNeeded()
-            NSApp.activate(ignoringOtherApps: true)
         } else {
             removeEscapeMonitor()
             if panel.isKeyWindow {
