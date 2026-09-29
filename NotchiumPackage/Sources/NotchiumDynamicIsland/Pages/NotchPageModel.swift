@@ -2,8 +2,13 @@ import Combine
 
 @MainActor
 public final class NotchPageModel: ObservableObject {
+    public private(set) var manualSelectionDuringExpansion = false
+    private var expansionIsActive = false
+    private var selectingAutomatically = false
+
     @Published public var selectedPage: NotchPage {
         didSet {
+            if expansionIsActive && !selectingAutomatically { manualSelectionDuringExpansion = true }
             if !enabledPages.contains(selectedPage) { selectedPage = fallbackPage }
         }
     }
@@ -26,7 +31,24 @@ public final class NotchPageModel: ObservableObject {
             : (pages.contains(defaultPage) ? defaultPage : pages[0])
     }
 
-    public func selectDefaultPage() { selectedPage = fallbackPage }
+    public func beginExpansion(default page: NotchPage) {
+        guard !expansionIsActive else { return }
+        expansionIsActive = true
+        manualSelectionDuringExpansion = false
+        selectingAutomatically = true
+        if selectedPage != page { selectedPage = page }
+        selectingAutomatically = false
+    }
+
+    public func endExpansion() {
+        expansionIsActive = false
+        manualSelectionDuringExpansion = false
+    }
+
+    public func selectDefaultPage() {
+        guard !expansionIsActive else { return }
+        selectedPage = fallbackPage
+    }
 
     public func moveSelection(forward: Bool) {
         guard let index = enabledPages.firstIndex(of: selectedPage) else { return }
