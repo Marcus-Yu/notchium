@@ -2,6 +2,75 @@ import XCTest
 
 @MainActor
 final class NotchiumUITests: XCTestCase {
+    func testStabilitySliderPointerInputAndPageOwnership() throws {
+        let app = XCUIApplication()
+        defer { app.terminate() }
+        app.launchArguments = fixtureArguments(display: "builtInMock", surface: "physical",
+            presentation: "expanded", appearance: "dark") + ["--notchium-stage11-fixture", "--notchium-stability-fixture"]
+        app.launch()
+        let home = app.buttons["notchium.page.home"]
+        XCTAssertTrue(home.waitForExistence(timeout: 5))
+        home.click()
+        let seek = app.sliders.matching(NSPredicate(format: "label == 'Seek' AND enabled == true")).firstMatch
+        XCTAssertTrue(seek.waitForExistence(timeout: 5))
+        seek.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label == 'Pause' AND enabled == true")).firstMatch.waitForExistence(timeout: 2), app.debugDescription)
+        XCTAssertTrue(home.isSelected)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "value BEGINSWITH '1:'")).firstMatch.exists, app.debugDescription)
+        seek.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(forDuration: 0.1, thenDragTo: seek.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5)))
+        XCTAssertTrue(home.isSelected)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "value BEGINSWITH '2:'")).firstMatch.exists, app.debugDescription)
+        app.buttons["notchium.page.music"].click()
+        let musicSeek = app.sliders.matching(NSPredicate(format: "label == 'Seek' AND enabled == true")).firstMatch
+        musicSeek.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5)).click()
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "value BEGINSWITH '0:'")).firstMatch.exists, app.debugDescription)
+        let volume = app.sliders.matching(NSPredicate(format: "label == 'Spotify volume' AND enabled == true")).firstMatch
+        let originalVolume = String(describing: volume.value)
+        XCTAssertNotNil(volume.value, volume.debugDescription)
+        volume.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.5)).click()
+        let clickedValue = String(describing: volume.value)
+        XCTAssertNotEqual(clickedValue, originalVolume)
+        volume.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.5))
+            .press(forDuration: 0.1, thenDragTo: volume.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5)))
+        XCTAssertNotEqual(String(describing: volume.value), clickedValue)
+        XCTAssertTrue(app.buttons["notchium.page.music"].isSelected)
+        app.buttons["notchium.page.audio"].click()
+        let output = app.sliders.matching(NSPredicate(format: "label == 'System volume' AND enabled == true")).firstMatch
+        let originalOutput = String(describing: output.value)
+        XCTAssertNotNil(output.value, output.debugDescription)
+        output.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.5)).click()
+        XCTAssertNotEqual(String(describing: output.value), originalOutput)
+        output.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.5))
+            .press(forDuration: 0.1, thenDragTo: output.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5)))
+        XCTAssertTrue(app.buttons["notchium.page.audio"].isSelected)
+        for page in ["calendar", "home", "music", "audio", "home"] {
+            app.buttons["notchium.page.\(page)"].click()
+            XCTAssertTrue(app.buttons["notchium.page.\(page)"].isSelected)
+        }
+    }
+
+    func testCaffeineFivePointerHoldsReachBlue() throws {
+        let app = XCUIApplication()
+        defer { app.terminate() }
+        app.launchArguments = fixtureArguments(display: "builtInMock", surface: "physical", presentation: "expanded", appearance: "dark") + ["--notchium-stage11-fixture"]
+        app.launch()
+        let caffeine = shellElement("notchium.shell.caffeine", in: app)
+        XCTAssertTrue(caffeine.waitForExistence(timeout: 5))
+        for repetition in 1...5 {
+            XCTAssertEqual(caffeine.value as? String, "Off")
+            caffeine.press(forDuration: 0.85)
+            XCTAssertTrue(waitForCaffeine("Keeping Mac and display awake", element: caffeine), "Hold \(repetition)")
+            caffeine.click()
+            XCTAssertTrue(waitForCaffeine("Off", element: caffeine))
+        }
+    }
+
+    private func waitForCaffeine(_ value: String, element: XCUIElement) -> Bool {
+        let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", value), object: element)
+        return XCTWaiter.wait(for: [expectation], timeout: 2) == .completed
+    }
+
     func testStage11ReminderFocusSaveEscapeAndRetention() throws {
         let app = XCUIApplication()
         defer { app.terminate() }
@@ -123,8 +192,8 @@ final class NotchiumUITests: XCTestCase {
         XCTAssertTrue(shellElement("notchium.shell", in: app).waitForExistence(timeout: 5))
         XCTAssertTrue(waitForState("collapsed", in: app, timeout: 2))
         let collapsedShell = shellElement("notchium.shell", in: app)
-        XCTAssertEqual(collapsedShell.frame.width, 640, accuracy: 1)
-        XCTAssertEqual(collapsedShell.frame.height, 242, accuracy: 1)
+        XCTAssertEqual(collapsedShell.frame.width, 740, accuracy: 1)
+        XCTAssertEqual(collapsedShell.frame.height, 322, accuracy: 1)
         XCTAssertFalse(app.staticTexts["Notchium is ready"].exists)
         XCTAssertEqual(app.alerts.count, 0)
         attachScreenshot(named: "physical-collapsed")
