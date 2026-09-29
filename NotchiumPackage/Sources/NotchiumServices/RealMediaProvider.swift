@@ -353,10 +353,20 @@ public actor RealMediaProvider: MediaProviding {
         expandedVisible = visible
         if visible { await refresh() }
     }
+    public func seek(to seconds: Double, resumePlayback: Bool) async throws {
+        try await perform(.seek(seconds), resumeAfterSeek: resumePlayback)
+    }
+
     public func perform(_ command: MediaCommand) async throws {
+        try await perform(command, resumeAfterSeek: false)
+    }
+
+    private func perform(_ command: MediaCommand, resumeAfterSeek: Bool) async throws {
         guard !pendingControls.contains(command.controlID) else { throw MediaFailure.busy }
         guard connected else { throw MediaFailure.disconnected }
+        if resumeAfterSeek && pendingControls.contains(MediaCommand.play.controlID) { throw MediaFailure.busy }
         pendingControls.insert(command.controlID)
+        if resumeAfterSeek { pendingControls.insert(MediaCommand.play.controlID) }
         invalidatePlaybackReads()
         let input = inputRevision
         let origin = state
@@ -365,8 +375,13 @@ public actor RealMediaProvider: MediaProviding {
                                                       uptime: ProcessInfo.processInfo.systemUptime) {
             reconciliation = expectation
         }
+        if resumeAfterSeek, case .seek(let position) = command {
+            reconciliation = .init(origin: origin, target: .playingPosition(position),
+                                   startedAt: ProcessInfo.processInfo.systemUptime)
+        }
         defer {
             pendingControls.remove(command.controlID)
+            if resumeAfterSeek { pendingControls.remove(MediaCommand.play.controlID) }
             if connected, self.generation == generation, pendingControls.isEmpty {
                 if reconciliation != nil {
                     scheduleReconciliationRefresh(generation: generation, action: inputRevision)
@@ -376,6 +391,9 @@ public actor RealMediaProvider: MediaProviding {
         }
         do {
             try await api.perform(command, state: origin)
+            try Task.checkCancellation()
+            guard self.generation == generation, connected else { throw CancellationError() }
+            if resumeAfterSeek { try await api.perform(.play, state: origin) }
         } catch {
             if self.generation == generation {
                 if inputRevision == input { reconciliation = nil }
@@ -385,13 +403,9 @@ public actor RealMediaProvider: MediaProviding {
         }
         guard self.generation == generation, connected else { return }
         observationRevision &+= 1 // also invalidate reads begun during command execution
-        if case .setVolume(let volume) = command {
-            var next = state
-            next.volumePercent = Int((min(max(volume, 0), 1) * 100).rounded())
-            await publish(next)
-        } else {
-            await readPlayback(reason: "control-confirmation")
-        }
+        // Keep drag writes lightweight; only a later Spotify read confirms volume.
+        if case .setVolume = command { return }
+        await readPlayback(reason: "control-confirmation")
     }
 
     private func invalidatePlaybackReads() {
@@ -527,8 +541,13 @@ public actor RealMediaProvider: MediaProviding {
         guard connected else { return }
         // Consume signals independently of network latency, invalidating old reads immediately.
         invalidatePlaybackReads()
-        reconciliation = .init(origin: state, target: .event(event),
-                               startedAt: ProcessInfo.processInfo.systemUptime)
+        // Intermediate desktop signals must not replace an unfinished seek/resume expectation.
+        let preservesSeek = reconciliation?.preservesSeekResume(
+            through: event, uptime: ProcessInfo.processInfo.systemUptime) == true
+        if !preservesSeek && (reconciliation == nil || pendingControls.isEmpty) {
+            reconciliation = .init(origin: state, target: .event(event),
+                                   startedAt: ProcessInfo.processInfo.systemUptime)
+        }
         desktopRefreshRequested = true
         scheduleDesktopRefresh()
     }
