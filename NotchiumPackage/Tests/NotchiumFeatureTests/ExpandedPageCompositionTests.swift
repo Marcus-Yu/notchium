@@ -111,6 +111,7 @@ import NotchiumServices
 }
 
 @MainActor private final class CompositionCaffeine: NotchCaffeineControlling {
+    let pressInteraction = CaffeinePressInteraction()
     var mode: CaffeineMode { .off }
     var isBusy: Bool { false }
     func cycleMode() {}
