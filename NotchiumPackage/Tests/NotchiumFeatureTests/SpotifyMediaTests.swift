@@ -1192,6 +1192,56 @@ private actor EventPlaybackTransport: MediaHTTPTransport {
         await provider.shutdown()
     }
 
+    func testPausedSeekAndResumeRejectsIntermediateSnapshots() async throws {
+        let transport = ScriptedMediaTransport([
+            .init(data: playback(playing: false), status: 200),
+            .init(status: 204), .init(status: 204),
+            .init(data: playback(playing: false, elapsed: 120000), status: 200),
+            .init(data: playback(playing: true, elapsed: 61000), status: 200),
+            .init(data: playback(playing: true, elapsed: 120500), status: 200)
+        ])
+        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
+        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
+                                        transport: transport, clock: clock)
+        try await provider.connect()
+        await clock.waitForPendingSleeps()
+        try await provider.seek(to: 120, resumePlayback: true)
+        var snapshots = await provider.updates().makeAsyncIterator()
+        let afterPaused = await snapshots.next()
+        XCTAssertEqual(afterPaused?.elapsedTime, 61)
+        await provider.refresh()
+        var unchanged = await provider.updates().makeAsyncIterator()
+        let afterOldPosition = await unchanged.next()
+        XCTAssertEqual(afterOldPosition?.elapsedTime, 61)
+        await provider.refresh()
+        let confirmed = await snapshots.next()
+        XCTAssertEqual(confirmed?.elapsedTime, 120.5)
+        XCTAssertEqual(confirmed?.isPlaying, true)
+        let requests = await transport.requests
+        XCTAssertEqual(requests.map { $0.url!.path }, ["/v1/me/player", "/v1/me/player/seek",
+            "/v1/me/player/play", "/v1/me/player", "/v1/me/player", "/v1/me/player"])
+        await provider.shutdown()
+    }
+
+    func testVolumeAcknowledgementDoesNotFabricateConfirmation() async throws {
+        let data = Data(String(decoding: playback(), as: UTF8.self)
+            .replacingOccurrences(of: "\"is_restricted\":false",
+                                  with: "\"is_restricted\":false,\"supports_volume\":true,\"volume_percent\":40").utf8)
+        let transport = ScriptedMediaTransport([.init(data: data, status: 200),
+            .init(status: 204), .init(data: data, status: 200)])
+        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
+        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
+                                        transport: transport, clock: clock)
+        try await provider.connect()
+        await clock.waitForPendingSleeps()
+        try await provider.perform(.setVolume(0.8))
+        await provider.refresh()
+        var snapshots = await provider.updates().makeAsyncIterator()
+        let snapshot = await snapshots.next()
+        XCTAssertEqual(snapshot?.volumePercent, 40, "Only a Spotify read can confirm the optimistic 80%")
+        await provider.shutdown()
+    }
+
     func testEverySpotifyCommandImmediatelyRefreshesWithoutPolling() async throws {
         let data = Data(String(decoding: playback(), as: UTF8.self)
             .replacingOccurrences(of: "\"skipping_next\":true", with: "\"skipping_next\":false").utf8)
