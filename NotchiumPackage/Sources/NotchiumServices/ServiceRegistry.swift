@@ -83,15 +83,16 @@ public struct ServiceRegistry: Sendable {
         )
     }
 
-    public static func mock() -> ServiceRegistry {
+    public static func mock(media: any MediaService = MockMediaService(),
+                            audioDevices: any AudioDevicesService = MockAudioDevicesService()) -> ServiceRegistry {
         ServiceRegistry(
-            media: MockMediaService(),
+            media: media,
             calendar: MockCalendarService(),
             shelf: MockShelfService(),
             screenshot: MockScreenshotService(),
             clipboard: MockClipboardService(),
             camera: MockCameraService(),
-            audioDevices: MockAudioDevicesService(),
+            audioDevices: audioDevices,
             audioProcesses: MockAudioProcessesService(),
             appAudioMixer: MockAppAudioMixerService(),
             battery: MockBatteryService(),
