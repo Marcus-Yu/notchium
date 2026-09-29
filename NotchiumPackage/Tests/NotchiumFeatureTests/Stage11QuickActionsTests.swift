@@ -310,7 +310,7 @@ import NotchiumServices
             await model.reminder.prepare()
             model.reminder.draft.title = raw
             // Button validation must work before the parsing debounce fires.
-            XCTAssertTrue(model.reminder.canSave, model.reminder.disableReason ?? "")
+            XCTAssertTrue(model.reminder.canSaveReminder, model.reminder.disableReason ?? "")
             XCTAssertEqual(model.reminder.effectiveTitle, effective)
             let saved = await model.reminder.saveCurrent()
             XCTAssertTrue(saved)
@@ -327,12 +327,57 @@ import NotchiumServices
         XCTAssertTrue(Calendar.current.isDate(service.saved[1].date, inSameDayAs: Calendar.current.date(byAdding: .day, value: 1, to: date)!))
         for text in ["friday 1pm", "tomorrow", "   ", ""] {
             model.reminder.draft.title = text
-            XCTAssertFalse(model.reminder.canSave)
+            XCTAssertFalse(model.reminder.canSaveReminder)
             XCTAssertEqual(model.reminder.disableReason, "emptyTitle")
             let saved = await model.reminder.saveCurrent()
             XCTAssertFalse(saved)
         }
         XCTAssertEqual(service.saved.count, 3)
+    }
+
+    func testPermissionGrantLoadsListsImmediatelyAndIsReusedAcrossSessions() async {
+        let service = MockReminderService()
+        service.authorization = .notDetermined
+        service.authorizationAfterRequest = .allowed
+        let (model, presentation) = fixture(reminders: service)
+        defer { presentation.reset(); model.reminder.endSession() }
+        model.store.reminderListID = "deleted-list"
+        await model.reminder.prepare()
+        model.reminder.draft.title = "presentation tuesday 6:00 pm"
+        model.reminder.applySuggestion(now: date)
+        XCTAssertEqual(model.reminder.access, .allowed)
+        XCTAssertEqual(model.reminder.selectedList?.id, "personal")
+        XCTAssertEqual(model.reminder.effectiveTitle, "presentation")
+        XCTAssertTrue(model.reminder.canSaveReminder)
+        XCTAssertEqual(Calendar.current.component(.weekday, from: model.reminder.draft.date), 3)
+        XCTAssertEqual(Calendar.current.component(.hour, from: model.reminder.draft.date), 18)
+        XCTAssertEqual(Calendar.current.component(.minute, from: model.reminder.draft.date), 0)
+        for _ in 0..<3 {
+            model.reminder.endSession()
+            await model.reminder.prepare()
+            XCTAssertTrue(model.reminder.canSaveReminder)
+        }
+        // A new model has no cached permission, just as after relaunch.
+        let (relaunched, secondPresentation) = fixture(reminders: service)
+        defer { secondPresentation.reset(); relaunched.reminder.endSession() }
+        await relaunched.reminder.prepare()
+        relaunched.reminder.draft.title = "buy milk"
+        XCTAssertTrue(relaunched.reminder.canSaveReminder)
+        XCTAssertEqual(service.requestCount, 1)
+    }
+
+    func testDeniedAndRestrictedNeverRequestAgain() async {
+        for authorization in [ReminderAccess.denied, .restricted] {
+            let service = MockReminderService()
+            service.authorization = authorization
+            let (model, presentation) = fixture(reminders: service)
+            defer { presentation.reset(); model.reminder.endSession() }
+            for _ in 0..<2 { await model.reminder.prepare() }
+            await model.reminder.refreshAccess(request: true)
+            model.reminder.draft.title = "buy milk"
+            XCTAssertFalse(model.reminder.canSaveReminder)
+            XCTAssertEqual(service.requestCount, 0)
+        }
     }
 
     func testAccessAndListChangesEnableAddWithoutReopening() async {
@@ -345,9 +390,9 @@ import NotchiumServices
         XCTAssertEqual(model.reminder.disableReason, "permission")
         service.authorization = .allowed
         service.notifyChanges()
-        for _ in 0..<100 where !model.reminder.canSave { await Task.yield() }
-        XCTAssertTrue(model.reminder.canSave)
-        XCTAssertEqual(service.requestCount, 1)
+        for _ in 0..<100 where !model.reminder.canSaveReminder { await Task.yield() }
+        XCTAssertTrue(model.reminder.canSaveReminder)
+        XCTAssertEqual(service.requestCount, 0)
         model.store.reminderListID = "missing"
         service.availableLists = []
         service.notifyChanges()
@@ -355,15 +400,15 @@ import NotchiumServices
         XCTAssertEqual(model.reminder.disableReason, "noWritableList")
         service.availableLists = [ReminderList(id: "default", title: "Default"), ReminderList(id: "other", title: "Other")]
         service.notifyChanges()
-        for _ in 0..<100 where !model.reminder.canSave { await Task.yield() }
-        XCTAssertTrue(model.reminder.canSave)
+        for _ in 0..<100 where !model.reminder.canSaveReminder { await Task.yield() }
+        XCTAssertTrue(model.reminder.canSaveReminder)
         XCTAssertEqual(model.reminder.selectedList?.id, "default")
         model.store.reminderListID = "other"
         XCTAssertEqual(model.reminder.selectedList?.id, "other")
         service.authorization = .denied
         service.notifyChanges()
         for _ in 0..<100 where model.reminder.access == .allowed { await Task.yield() }
-        XCTAssertFalse(model.reminder.canSave)
+        XCTAssertFalse(model.reminder.canSaveReminder)
         XCTAssertFalse(model.reminder.save())
         XCTAssertTrue(service.saved.isEmpty)
     }
@@ -380,7 +425,7 @@ import NotchiumServices
         service.failure = .noWritableList
         let failed = await model.reminder.saveCurrent()
         XCTAssertFalse(failed)
-        XCTAssertTrue(model.reminder.canSave)
+        XCTAssertTrue(model.reminder.canSaveReminder)
         XCTAssertEqual(model.reminder.draft.title, "buy milk")
         XCTAssertNotNil(model.reminder.error)
         service.failure = nil
@@ -388,7 +433,7 @@ import NotchiumServices
         XCTAssertTrue(saved)
         XCTAssertEqual(service.saved.count, 1)
         XCTAssertNil(model.reminder.error)
-        XCTAssertFalse(model.reminder.canSave)
+        XCTAssertFalse(model.reminder.canSaveReminder)
     }
 
     func testPendingSaveBlocksDuplicateSubmission() async {
