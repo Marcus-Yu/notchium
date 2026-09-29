@@ -122,6 +122,7 @@ final class NotificationLifetimeTests: XCTestCase {
 }
 
 @MainActor private final class HeaderCaffeine: NotchCaffeineControlling {
+    let pressInteraction = CaffeinePressInteraction()
     var mode: CaffeineMode { .off }
     var isBusy: Bool { false }
     func cycleMode() {}
