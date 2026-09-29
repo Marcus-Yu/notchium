@@ -345,6 +345,7 @@ public final class MediaSessionController {
         volumeCommandTask = Task { [weak self] in
             do {
                 try await provider.perform(.setVolume(request.value))
+                if request.final { await provider.refresh() }
                 guard let self, self.generation == generation, !Task.isCancelled else { return }
                 self.errorMessage = nil
                 self.completeVolumeRequest(request)
@@ -569,6 +570,7 @@ public final class MediaSessionController {
         let target: Double
         let generation: Int
         let refreshQueueAfterSuccess: Bool
+        let resumePlayback: Bool
         let revision: Int
     }
     private func prepareSeek(to position: Double, at now: Date,
@@ -579,21 +581,26 @@ public final class MediaSessionController {
         }
         let target = min(max(position, 0), duration)
         let origin = state
+        let resumePlayback = !refreshQueueAfterSuccess && !origin.isPlaying && origin.canPlayPause
+        guard !resumePlayback || !isPending(.play) else { throw MediaFailure.busy }
         intentRevision &+= 1
         markPlaybackAction(at: now, revision: intentRevision)
         lastSeekTarget = target
         seekInFlight = true
         pendingControls.insert(MediaCommand.seek(target).controlID)
+        if resumePlayback { pendingControls.insert(MediaCommand.play.controlID) }
 
         // Immediate feedback modifies one snapshot/clock. The next authoritative observation
         // replaces it wholesale; there is no presentation-side seek/track confirmation machine.
         var next = origin
         next.elapsed = target
+        if resumePlayback { next.playbackState = .playing; next.playbackRate = 1 }
         next.timestamp = now
         next.sampledUptime = ProcessInfo.processInfo.systemUptime
         applyPresentation(next)
         return .init(target: target, generation: generation,
-                     refreshQueueAfterSuccess: refreshQueueAfterSuccess, revision: intentRevision)
+                     refreshQueueAfterSuccess: refreshQueueAfterSuccess,
+                     resumePlayback: resumePlayback, revision: intentRevision)
     }
     private func executeSeek(_ request: SeekRequest) async throws {
         let id = MediaCommand.seek(request.target).controlID
@@ -603,10 +610,11 @@ public final class MediaSessionController {
                 pendingControls.remove(id)
                 commandTasks[id] = nil
                 seekInFlight = false
+                if request.resumePlayback { pendingControls.remove(MediaCommand.play.controlID) }
             }
         }
         do {
-            try await provider.seek(to: request.target)
+            try await provider.seek(to: request.target, resumePlayback: request.resumePlayback)
             if request.refreshQueueAfterSuccess && isUpNextVisible {
                 try? await provider.refreshQueue()
             }
