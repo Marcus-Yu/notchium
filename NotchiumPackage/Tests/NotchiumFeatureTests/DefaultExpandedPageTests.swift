@@ -16,7 +16,7 @@ import NotchiumServices
                                 title: "Track", trackID: "track", source: .spotify))
             model.setExpanded(true)
             XCTAssertEqual(model.pageModel.selectedPage, playing ? .music : .home)
-            model.collapse()
+            model.present(.collapsed, animated: false) // Complete collapse before a fresh expansion.
         }
         media.receive(.init(connectionState: .authenticated, source: .spotify))
         XCTAssertTrue(media.isShowingCachedTrack)
@@ -34,7 +34,7 @@ import NotchiumServices
             XCTAssertEqual(model.pageModel.selectedPage, .music)
             model.activityCoordinator.dismiss(id: alert.id)
             XCTAssertEqual(model.pageModel.selectedPage, .music, "Ending an alert must not navigate an open surface")
-            model.collapse()
+            model.present(.collapsed, animated: false) // Complete collapse before a fresh expansion.
             model.setExpanded(true)
             XCTAssertEqual(model.pageModel.selectedPage, .home)
             model.reset()
@@ -73,7 +73,7 @@ import NotchiumServices
                 XCTAssertEqual(model.pageModel.selectedPage, page)
                 XCTAssertTrue(selections.isEmpty, "Activity changes must not cause page flicker")
                 observation.cancel()
-                model.collapse()
+                model.present(.collapsed, animated: false) // Complete collapse before a fresh expansion.
                 model.setExpanded(true)
                 XCTAssertEqual(model.pageModel.selectedPage, .home)
                 model.reset()
@@ -90,7 +90,7 @@ import NotchiumServices
         XCTAssertEqual(model.activityCoordinator.queueCount, 1)
         model.setExpanded(true)
         XCTAssertEqual(model.pageModel.selectedPage, .home)
-        model.collapse()
+        model.present(.collapsed, animated: false) // Complete collapse before a fresh expansion.
         model.activityCoordinator.dismiss(id: calendar.id)
         model.setExpanded(true)
         XCTAssertEqual(model.pageModel.selectedPage, .music)
