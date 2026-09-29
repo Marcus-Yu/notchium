@@ -59,11 +59,16 @@ struct QuickReminderComposer: View {
             if model.draft.includesTime {
                 DatePicker("Time", selection: Binding(get: { model.draft.date }, set: model.setDate), displayedComponents: .hourAndMinute)
             }
-            if model.access == .denied || model.access == .restricted {
-                Text("Allow Reminders access in System Settings → Privacy & Security → Reminders.")
+            if model.access == .denied {
+                Text("Reminders access is disabled.")
                     .font(.caption).foregroundStyle(.secondary)
                 Button("Open System Settings", action: model.openPrivacy)
-                Button("Check Access") { Task { await model.refreshAccess() } }
+            } else if model.access == .restricted {
+                Text("Reminders access is restricted on this Mac.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else if model.access == .allowed && model.lists.isEmpty {
+                Text("Create a writable list in Reminders, then try again.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             if let error = model.error {
                 Text(error).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -73,7 +78,7 @@ struct QuickReminderComposer: View {
                 Button("Add", action: add)
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(!model.canSave)
+                    .disabled(!model.canSaveReminder)
                     .accessibilityIdentifier("notchium.reminder.add")
             }
         }
@@ -84,11 +89,12 @@ struct QuickReminderComposer: View {
         .background(PopoverKeyFocus())
         .task { titleFocused = true; await model.prepare(); titleFocused = true }
         .task(id: model.draft.title) { await model.parseAfterDebounce() }
+        .onChange(of: model.canSaveReminder) { _, _ in model.logValidation() }
         .onDisappear { saveTask?.cancel(); model.endSession() }
         .onExitCommand { saveTask?.cancel(); model.cancel(); close() }
     }
     private func add() {
-        guard model.canSave, saveTask == nil else { return }
+        guard model.canSaveReminder, saveTask == nil else { return }
         saveTask = Task {
             defer { saveTask = nil }
             guard !Task.isCancelled else { return }
@@ -105,7 +111,6 @@ private struct PopoverKeyFocus: NSViewRepresentable {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             guard let window else { return }
-            NSApp.activate(ignoringOtherApps: true)
             window.makeKey()
         }
     }
