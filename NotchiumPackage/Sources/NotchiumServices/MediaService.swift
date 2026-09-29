@@ -297,6 +297,7 @@ public protocol MediaProviding: Sendable {
     func refresh() async
     func setExpandedVisible(_ visible: Bool) async
     func seek(to seconds: Double) async throws
+    func seek(to seconds: Double, resumePlayback: Bool) async throws
     func loadQueue() async throws
     func refreshQueue() async throws
     func addToQueue(uri: String) async throws
@@ -318,6 +319,11 @@ public extension MediaProviding {
     func setExpandedVisible(_ visible: Bool) async {}
 
     func seek(to position: Double) async throws { try await perform(.seek(position)) }
+    func seek(to position: Double, resumePlayback: Bool) async throws {
+        try await seek(to: position)
+        try Task.checkCancellation()
+        if resumePlayback { try await self.resumePlayback() }
+    }
     func loadQueue() async throws { throw MediaFailure.unsupported }
     func refreshQueue() async throws { try await loadQueue() }
     func addToQueue(uri: String) async throws { throw MediaFailure.unsupported }
