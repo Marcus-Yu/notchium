@@ -6,6 +6,30 @@ import XCTest
 
 @MainActor
 final class AudioMixerTests: XCTestCase {
+    func testOutputVolumeConfirmedDuringDragReleasesOnMouseUp() {
+        let model = AudioFeatureModel(devices: MockAudioDevicesService(),
+            processes: MockAudioProcessesService(), mixer: MockAppAudioMixerService())
+        func snapshot(_ volume: Double, id: String = "7") -> AudioDevicesSnapshot {
+            .init(availability: .available, outputs: [.init(id: id, name: "Speakers",
+                isDefaultOutput: true, volume: volume, canSetVolume: true)])
+        }
+        model.receive(snapshot(0.5))
+        model.setVolumeEditing(true)
+        model.changeVolume(0.8)
+        model.receive(snapshot(0.8))
+        XCTAssertEqual(model.displayVolume, 0.8)
+        model.setVolumeEditing(false)
+        XCTAssertNil(model.displayVolume)
+        model.receive(snapshot(0.3))
+        XCTAssertNil(model.displayVolume)
+        XCTAssertEqual(model.devices.currentOutput?.volume, 0.3)
+        model.setVolumeEditing(true)
+        model.changeVolume(0.9)
+        model.receive(snapshot(0.2, id: "8"))
+        XCTAssertNil(model.displayVolume)
+        model.stop()
+    }
+
     func testPerAppSettingsPersistByBundleAndDriveMixerTarget() async throws {
         let suiteName = "AudioMixerTests.\(UUID().uuidString)"
         let preferences = try XCTUnwrap(UserDefaults(suiteName: suiteName))
