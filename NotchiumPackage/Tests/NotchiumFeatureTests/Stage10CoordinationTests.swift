@@ -74,7 +74,7 @@ final class Stage10CoordinationTests: XCTestCase {
             XCTAssertEqual(model.pageModel.selectedPage, page)
             XCTAssertTrue(selections.isEmpty)
             observation.cancel()
-            model.collapse()
+            model.present(.collapsed, animated: false) // Complete collapse before a fresh expansion.
             model.setExpanded(true)
             XCTAssertEqual(model.pageModel.selectedPage, .home)
             model.reset()
