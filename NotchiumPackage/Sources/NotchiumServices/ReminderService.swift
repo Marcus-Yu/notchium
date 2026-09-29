@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import EventKit
 import Foundation
+import OSLog
 import NotchiumCore
 
 public enum ReminderFailure: LocalizedError, Equatable {
@@ -30,6 +31,7 @@ public extension ReminderService {
 /// EventKit objects remain confined to this adapter. No calendar event is created.
 @MainActor public final class EventKitReminderService: ReminderService {
     private let store: EKEventStore
+    private var accessRequest: Task<ReminderAccess, Error>?
     public init() { store = EKEventStore() }
     public var changes: AnyPublisher<Void, Never> {
         NotificationCenter.default.publisher(for: .EKEventStoreChanged)
@@ -41,12 +43,26 @@ public extension ReminderService {
         case .fullAccess: .allowed
         case .notDetermined: .notDetermined
         case .restricted: .restricted
-        default: .denied
+        case .denied, .writeOnly: .denied
+        @unknown default: .restricted
         }
     }
     public func requestAccess() async throws -> ReminderAccess {
-        if access() == .notDetermined { _ = try await store.requestFullAccessToReminders() }
-        return access()
+        if let accessRequest { return try await accessRequest.value }
+        guard access() == .notDetermined else { return access() }
+        // Settings and the composer may ask concurrently. Both await the same TCC request.
+        let request = Task { @MainActor in
+            _ = try await store.requestFullAccessToReminders()
+            let status = access()
+            #if DEBUG
+            Logger(subsystem: "Notchium", category: "QuickReminder")
+                .debug("Authorization request completed; EventKit status=\(EKEventStore.authorizationStatus(for: .reminder).rawValue)")
+            #endif
+            return status
+        }
+        accessRequest = request
+        defer { accessRequest = nil }
+        return try await request.value
     }
     private var writable: [EKCalendar] {
         guard access() == .allowed else { return [] }
@@ -83,13 +99,18 @@ public extension ReminderService {
     public var changes: AnyPublisher<Void, Never> { changeSubject.eraseToAnyPublisher() }
     public func notifyChanges() { changeSubject.send() }
     public var authorization: ReminderAccess = .allowed
+    public var authorizationAfterRequest: ReminderAccess?
     public var availableLists = [ReminderList(id: "personal", title: "Personal")]
     public var failure: ReminderFailure?
     public private(set) var saved: [ReminderDraft] = []
     public private(set) var requestCount = 0
     public init() {}
     public func access() -> ReminderAccess { authorization }
-    public func requestAccess() async throws -> ReminderAccess { requestCount += 1; return authorization }
+    public func requestAccess() async throws -> ReminderAccess {
+        requestCount += 1
+        if let authorizationAfterRequest { authorization = authorizationAfterRequest }
+        return authorization
+    }
     public func lists() -> [ReminderList] { authorization == .allowed ? availableLists : [] }
     public func save(_ draft: ReminderDraft, listID: String?) throws {
         if let failure { throw failure }
