@@ -89,6 +89,9 @@ public final class AudioFeatureModel: NotchAudioRendering {
         let old = devices.currentOutput
         devices = next
         if old?.id != next.currentOutput?.id || next.currentOutput?.volume == nil {
+            volumeTask?.cancel()
+            volumeTask = nil
+            isEditingVolume = false
             displayVolume = nil
         } else if !isEditingVolume, let shown = displayVolume, let confirmed = next.currentOutput?.volume,
                   abs(shown - confirmed) < 0.02 {
@@ -116,7 +119,8 @@ public final class AudioFeatureModel: NotchAudioRendering {
     }
 
     public func changeVolume(_ value: Double, finished: Bool = false) {
-        guard let current = devices.currentOutput else { return }
+        guard value.isFinite, let current = devices.currentOutput, current.canSetVolume else { return }
+        let value = min(max(value, 0), 1)
         displayVolume = value
         volumeTask?.cancel()
         volumeTask = Task { [weak self, deviceService] in
@@ -126,15 +130,28 @@ public final class AudioFeatureModel: NotchAudioRendering {
             guard !Task.isCancelled else { return }
             do {
                 try await deviceService.setVolume(value, deviceID: current.id)
-                self?.errorMessage = nil
+                guard !Task.isCancelled, let self, self.devices.currentOutput?.id == current.id else { return }
+                self.errorMessage = nil
+                self.clearConfirmedVolume()
             } catch {
-                self?.displayVolume = nil
-                self?.errorMessage = "This output does not expose volume control."
+                guard !Task.isCancelled, let self, self.devices.currentOutput?.id == current.id else { return }
+                self.displayVolume = nil
+                self.errorMessage = "This output does not expose volume control."
             }
         }
     }
 
-    public func setVolumeEditing(_ editing: Bool) { isEditingVolume = editing }
+    public func setVolumeEditing(_ editing: Bool) {
+        isEditingVolume = editing
+        if !editing { clearConfirmedVolume() }
+    }
+
+    private func clearConfirmedVolume() {
+        guard !isEditingVolume, let shown = displayVolume,
+              let confirmed = devices.currentOutput?.volume,
+              abs(shown - confirmed) < 0.02 else { return }
+        displayVolume = nil
+    }
 
     public func toggleMute() {
         guard let current = devices.currentOutput, let muted = current.isMuted else { return }
