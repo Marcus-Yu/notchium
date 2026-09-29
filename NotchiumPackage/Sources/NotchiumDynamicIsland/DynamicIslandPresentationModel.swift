@@ -132,6 +132,7 @@ public final class DynamicIslandPresentationModel {
         self.clock = clock
         activityCoordinator = ActivityCoordinator(clock: clock)
         pageModel = NotchPageModel()
+        if phase.visualState != .collapsed { pageModel.beginExpansion(default: .home) }
         activityObservation = activityCoordinator.$activeTransient
             .combineLatest(activityCoordinator.$persistentActivity)
             .sink { [weak self] _, _ in
@@ -218,9 +219,8 @@ public final class DynamicIslandPresentationModel {
         _ expanded: Bool,
         target: NotchStableState = .expanded
     ) {
-        if expanded && visualState == .collapsed {
-            let page = activityCoordinator.preferredExpandedPage
-            if pageModel.selectedPage != page { pageModel.selectedPage = page }
+        if expanded {
+            pageModel.beginExpansion(default: activityCoordinator.preferredExpandedPage)
         }
         transition(to: expanded ? target : .collapsed)
     }
@@ -233,6 +233,8 @@ public final class DynamicIslandPresentationModel {
         } else {
             transitionTask?.cancel()
             transitionGeneration &+= 1
+            if state == .collapsed { pageModel.endExpansion() }
+            else { pageModel.beginExpansion(default: activityCoordinator.preferredExpandedPage) }
             phase = Self.phase(for: state)
         }
     }
@@ -249,6 +251,7 @@ public final class DynamicIslandPresentationModel {
         auxiliarySources.removeAll()
         auxiliaryInteractionObservedClick = false
         suppressNextAuxiliaryActionClick = false
+        pageModel.endExpansion()
         phase = .collapsed
     }
 
@@ -358,6 +361,7 @@ public final class DynamicIslandPresentationModel {
 
     private func completeTransition(to target: NotchStableState, generation: Int) {
         guard generation == transitionGeneration, visualState == target else { return }
+        if target == .collapsed { pageModel.endExpansion() }
         phase = Self.phase(for: target)
     }
 
