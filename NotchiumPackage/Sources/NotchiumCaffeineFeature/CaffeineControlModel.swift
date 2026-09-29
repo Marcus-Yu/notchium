@@ -6,6 +6,7 @@ import Observation
 @MainActor
 @Observable
 public final class CaffeineControlModel: NotchCaffeineControlling {
+    public let pressInteraction = CaffeinePressInteraction()
     public let lidAwake = LidAwakeController()
     public private(set) var mode: CaffeineMode = .off
     public private(set) var isBusy = false
@@ -36,6 +37,7 @@ public final class CaffeineControlModel: NotchCaffeineControlling {
     }
 
     public func stop() {
+        pressInteraction.cancel()
         observation?.cancel(); observation = nil
         operation?.cancel(); operation = nil
         service.shutdown()
