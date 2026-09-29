@@ -9,6 +9,13 @@ import NotchiumCore
               duration: 240, trackID: id, source: .spotify)
     }
 
+    func testLatePausedEventCannotReplaceSeekResumeExpectation() {
+        let expectation = PlaybackReconciliation(origin: state(), target: .playingPosition(120), startedAt: 10)
+        XCTAssertTrue(expectation.preservesSeekResume(through: .init(trackID: "one", isPlaying: false), uptime: 11))
+        XCTAssertFalse(expectation.preservesSeekResume(through: .init(trackID: "two"), uptime: 11))
+        XCTAssertFalse(expectation.preservesSeekResume(through: .init(isPlaying: false), uptime: 21))
+    }
+
     func testCommandExpectationsAreBoundedAndShareTheSameTrackRule() throws {
         for command: MediaCommand in [.next, .previous] {
             let expectation = try XCTUnwrap(PlaybackReconciliation(command: command, origin: state(), uptime: 100))
