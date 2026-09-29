@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// A compact pointer-first slider that keeps gesture tracking separate from command handling.
@@ -65,7 +66,15 @@ public struct NotchiumSlider: View {
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
             .animation(interactionAnimation, value: active)
             .contentShape(.rect)
-            .gesture(dragGesture(width: proxy.size.width, inset: horizontalInset))
+            .overlay {
+                SliderPointerInput(isEnabled: isEnabled, editing: { editing in
+                    isDragging = editing
+                    onEditingChanged(editing)
+                }, update: { location, width in
+                    updateValue(at: location, width: width, inset: horizontalInset)
+                })
+                .accessibilityHidden(true)
+            }
         }
         .frame(minHeight: 20)
         .contentShape(.rect)
@@ -79,14 +88,21 @@ public struct NotchiumSlider: View {
             adjust(by: press.key == .rightArrow || press.key == .upArrow ? accessibilityStep : -accessibilityStep)
             return .handled
         }
-        .accessibilityElement()
-        .accessibilityLabel(accessibilityLabel)
-        .accessibilityValue(accessibilityValue(value))
-        .accessibilityRespondsToUserInteraction(isEnabled)
-        .accessibilityAdjustableAction { direction in
-            guard isEnabled else { return }
-            let delta = direction == .increment ? accessibilityStep : -accessibilityStep
-            adjust(by: delta)
+        .accessibilityRepresentation {
+            Slider(value: Binding(get: { value }, set: { candidate in
+                guard isEnabled else { return }
+                onEditingChanged(true)
+                value = clamp(candidate)
+                onEditingChanged(false)
+            }), in: bounds) {
+                Text(accessibilityLabel)
+            }
+            .disabled(!isEnabled)
+            .accessibilityValue(accessibilityValue(value))
+            .accessibilityAdjustableAction { direction in
+                guard isEnabled else { return }
+                adjust(by: direction == .increment ? accessibilityStep : -accessibilityStep)
+            }
         }
     }
 
@@ -106,24 +122,6 @@ public struct NotchiumSlider: View {
         reduceMotion ? .easeOut(duration: 0.1) : .smooth(duration: 0.16)
     }
 
-    private func dragGesture(width: CGFloat, inset: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 0)
-            .onChanged { gesture in
-                guard isEnabled else { return }
-                if !isDragging {
-                    isDragging = true
-                    onEditingChanged(true)
-                }
-                updateValue(at: gesture.location.x, width: width, inset: inset)
-            }
-            .onEnded { gesture in
-                guard isDragging else { return }
-                updateValue(at: gesture.location.x, width: width, inset: inset)
-                isDragging = false
-                onEditingChanged(false)
-            }
-    }
-
     private func updateValue(at location: CGFloat, width: CGFloat, inset: CGFloat) {
         let usableWidth = max(1, width - inset * 2)
         let fraction = min(max((location - inset) / usableWidth, 0), 1)
@@ -132,5 +130,52 @@ public struct NotchiumSlider: View {
 
     private func clamp(_ candidate: Double) -> Double {
         min(max(candidate, bounds.lowerBound), bounds.upperBound)
+    }
+}
+
+/// Local responder tracking works in the non-key notch panel and never observes sibling controls.
+private struct SliderPointerInput: NSViewRepresentable {
+    let isEnabled: Bool
+    let editing: (Bool) -> Void
+    let update: (CGFloat, CGFloat) -> Void
+
+    func makeNSView(context: Context) -> PointerView { PointerView() }
+    func updateNSView(_ view: PointerView, context: Context) {
+        view.input = self
+        if !isEnabled { view.finish() }
+    }
+    static func dismantleNSView(_ view: PointerView, coordinator: ()) { view.finish() }
+
+    final class PointerView: NSView {
+        var input: SliderPointerInput?
+        private var tracking = false
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+        override func mouseDown(with event: NSEvent) {
+            guard let input, input.isEnabled else { return }
+            tracking = true
+            input.editing(true)
+            update(event)
+        }
+        override func mouseDragged(with event: NSEvent) {
+            guard tracking else { return }
+            update(event)
+        }
+        override func mouseUp(with event: NSEvent) {
+            guard tracking else { return }
+            update(event)
+            finish()
+        }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window == nil { finish() }
+        }
+        private func update(_ event: NSEvent) {
+            input?.update(convert(event.locationInWindow, from: nil).x, bounds.width)
+        }
+        func finish() {
+            guard tracking else { return }
+            tracking = false
+            input?.editing(false)
+        }
     }
 }
