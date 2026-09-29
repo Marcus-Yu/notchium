@@ -317,15 +317,14 @@ private struct SpotifySecondaryControls: View {
                   ? "Spotify volume"
                   : "This Spotify device doesn’t support remote volume")
 
-            if isAdjustingVolume {
-                Text("\(Int((volume * 100).rounded()))%")
-                    .font(.system(size: 10, weight: .semibold).monospacedDigit())
-                    .foregroundStyle(.white.opacity(0.72))
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .frame(width: 36, alignment: .trailing)
-                    .transition(.opacity)
-            }
+            Text("\(Int((volume * 100).rounded()))%")
+                .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                .foregroundStyle(.white.opacity(0.72))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(width: 36, alignment: .trailing)
+                .opacity(isAdjustingVolume ? 1 : 0)
+                .accessibilityHidden(!isAdjustingVolume)
 
             Spacer(minLength: 4)
 
