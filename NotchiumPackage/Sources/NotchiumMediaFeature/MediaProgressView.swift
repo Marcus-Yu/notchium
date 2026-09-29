@@ -29,6 +29,7 @@ struct MediaProgressView: View {
                         isSeeking = true
                         seekPosition = model.displayedPosition(at: timeline.date, uptime: ProcessInfo.processInfo.systemUptime)
                     } else {
+                        guard isSeeking else { return }
                         let target = seekPosition
                         model.send(.seek(target))
                         seekPosition = target
