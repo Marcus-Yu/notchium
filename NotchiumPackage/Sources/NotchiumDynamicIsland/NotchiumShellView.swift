@@ -201,6 +201,16 @@ private struct NotchShellOuterSurface: View {
                 }
             }
             .padding(.top, layout.collapsedVisibleFrame.height)
+            .overlay(alignment: .bottom) {
+                // A successful composer save must remain visible without closing
+                // the user's page. Reuse the existing feedback content and slot.
+                if model.surfaceState != .collapsed,
+                   model.notificationCoordinator.active?.kind == .reminderAdded {
+                    UnifiedNotchNotificationContent(model: model, presentedExpanded: true)
+                        .frame(height: NotchNotificationGeometry.contentHeight(for: .feedback))
+                        .background(.black)
+                }
+            }
         }
     }
 }
