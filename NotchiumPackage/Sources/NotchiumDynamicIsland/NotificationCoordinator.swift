@@ -30,6 +30,11 @@ public final class NotificationCoordinator {
         activities?.dismiss(id: target)
     }
 
+    /// Removes a notification by its source identity, e.g. a persistent transfer when its feature stops.
+    public func dismiss(coalescingKey: String) {
+        activities?.dismiss(key: NotchActivityKey(coalescingKey))
+    }
+
     public func dismissByUser(id: UUID? = nil) {
         guard let active, active.dismissible, id == nil || id == active.id else { return }
         dismiss(id: active.id)
