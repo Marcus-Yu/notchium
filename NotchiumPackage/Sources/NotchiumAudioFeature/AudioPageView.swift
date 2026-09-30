@@ -41,11 +41,15 @@ struct AudioPageView: View {
                     Text("Output")
                         .font(ExpandedPageStyle.sectionTitle)
                         .foregroundStyle(ExpandedPageStyle.secondary)
-                    Image(systemName: outputSymbol(output.name))
+                    Image(systemName: outputSymbol(output))
                         .font(.system(size: 14, weight: .medium))
                     Text(output.name)
                         .font(.system(size: 14, weight: .semibold))
                         .lineLimit(1)
+                    if let battery = model.state(for: output)?.battery,
+                       case let .available(levels) = battery {
+                        DeviceBatteryDetail(levels: levels)
+                    }
                     Spacer(minLength: 4)
                     if output.isMuted == true {
                         Text("Muted")
@@ -112,7 +116,7 @@ struct AudioPageView: View {
                     ForEach(model.devices.outputs) { output in
                         Button { model.select(output) } label: {
                             HStack(spacing: 8) {
-                                Image(systemName: outputSymbol(output.name))
+                                Image(systemName: outputSymbol(output))
                                     .font(.system(size: 12))
                                     .frame(width: 16)
                                 Text(output.name)
@@ -253,11 +257,40 @@ struct AudioPageView: View {
             .foregroundStyle(ExpandedPageStyle.secondary)
     }
 
-    private func outputSymbol(_ name: String) -> String {
-        let lower = name.lowercased()
-        if lower.contains("airpod") || lower.contains("headphone") { return "headphones" }
-        if lower.contains("display") || lower.contains("monitor") { return "display" }
-        return "speaker.wave.2"
+    /// The same device category as the notch activity: AirPods glyphs only for AirPods.
+    private func outputSymbol(_ output: AudioDevice) -> String {
+        model.state(for: output)?.category.symbol ?? "speaker.wave.2"
+    }
+}
+
+/// Only the components the source reported, e.g. "L 80%  R 75%  Case 40%". Never estimated.
+struct DeviceBatteryDetail: View {
+    let levels: DeviceBatteryLevels
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(Self.components(levels), id: \.label) { component in
+                Text(component.label.isEmpty ? component.value : "\(component.label) \(component.value)")
+            }
+            if levels.isCharging == true {
+                Image(systemName: "bolt.fill").accessibilityLabel("Charging")
+            }
+        }
+        .font(.system(size: 10, weight: .medium).monospacedDigit())
+        .foregroundStyle(.white.opacity(0.6))
+        .lineLimit(1)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Battery")
+    }
+
+    static func components(_ levels: DeviceBatteryLevels) -> [(label: String, value: String)] {
+        func percent(_ value: Double) -> String { "\(Int((min(max(value, 0), 1) * 100).rounded()))%" }
+        var result: [(label: String, value: String)] = []
+        if let single = levels.single { result.append(("", percent(single))) }
+        if let left = levels.left { result.append(("L", percent(left))) }
+        if let right = levels.right { result.append(("R", percent(right))) }
+        if let caseLevel = levels.caseLevel { result.append(("Case", percent(caseLevel))) }
+        return result
     }
 }
 
