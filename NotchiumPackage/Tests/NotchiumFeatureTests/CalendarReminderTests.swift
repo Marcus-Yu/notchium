@@ -88,9 +88,20 @@ final class CalendarReminderTests: XCTestCase {
         activities.present(critical)
         let another = event(minutesAway: 6)
         await reminders.update(events: [another])
-        XCTAssertNil(reminders.current)
+        // Stage 12: the reminder is live underneath the critical activity, not presented.
         XCTAssertEqual(activities.activeTransient?.id, critical.id)
+        XCTAssertEqual(activities.queueCount, 1)
+        XCTAssertEqual(reminders.current?.event.id, another.id)
+        XCTAssertNotEqual(activities.activeTransient?.kind, .calendar)
+        // Its own absolute lifetime elapses underneath; it never replays afterwards.
+        for _ in 0..<100 { await Task.yield() }
+        await clock.waitForPendingSleeps()
+        await clock.advance(by: .seconds(5))
+        await waitUntil { reminders.current == nil }
+        XCTAssertNil(reminders.current)
         XCTAssertEqual(activities.queueCount, 0)
+        activities.dismissActive()
+        XCTAssertNil(activities.activeTransient)
         reminders.stop()
     }
 
