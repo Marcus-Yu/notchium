@@ -83,11 +83,23 @@ struct NotchTransitionSurface<Content: View>: View {
             keepsNotificationContent: preservesNotificationContent,
             preservesCollapsedMedia: retainsMedia && !expanded
                 && (targetChanged ? !wasExpanded : (isNotificationTransition || !transition.isBlack)),
-            compactSpan: compactVisible ? compactSpan : (compactRetracting ? enteredCompactSpan ?? compactSpan : nil),
+            // Retraction runs from the width the activity entered at down to the shell's CURRENT
+            // resting width. The resting width can differ from entry (Music appeared or was
+            // promoted meanwhile); measuring against it guarantees the reveal reaches exactly 0.
+            compactSpan: compactVisible ? compactSpan
+                : (compactRetracting ? NotchCompactSpan(base: compactSpan.base,
+                                                        full: enteredCompactSpan?.full ?? compactSpan.full) : nil),
             compactRetracting: compactRetracting,
             content: content
         )
         .onChange(of: shape.animatableData) { _, _ in retarget() }
+    }
+
+    /// Collapsing from the open notch is always the main close (black gate), even when a
+    /// persistent compact activity (a transfer) is waiting at the target. Only a notification
+    /// appearing on an already-collapsed notch uses the notification reveal.
+    static func revealsContent(expanded: Bool, notificationVisible: Bool, wasExpanded: Bool) -> Bool {
+        expanded || (notificationVisible && !wasExpanded)
     }
 
     private func retarget() {
@@ -96,7 +108,8 @@ struct NotchTransitionSurface<Content: View>: View {
         let compactMotion = notificationMotion && (compactVisible || wasCompactVisible)
         isNotificationTransition = notificationMotion
         compactExiting = compactMotion && !compactVisible
-        let generation = transition.begin(expanded: expanded || notificationVisible)
+        let generation = transition.begin(expanded: Self.revealsContent(expanded: expanded,
+            notificationVisible: notificationVisible, wasExpanded: wasExpanded))
         let animation = compactMotion
             ? (compactVisible ? NotchMotion.compactIn : NotchMotion.compactOut)
             : notificationMotion
@@ -141,6 +154,10 @@ nonisolated struct NotchSurfaceFrame<Content: View>: View, Animatable {
     var contentPhase: NotchVisualTransition.Phase {
         guard !hidesPendingTarget else { return .closingBlack }
         if notificationVisible && keepsNotificationContent { return .collapsed }
+        // Closing onto a compact activity (a transfer): reveal once the shell has landed at its
+        // target height, read from the interpolated geometry, instead of waiting for the spring's
+        // removal callback. At or below the target, so overshoot never flickers it back.
+        if phase == .closingBlack, notificationVisible, shape.height <= expandedHeight + 0.75 { return .collapsed }
         if notificationVisible && phase == .expanded { return .collapsed }
         if phase == .openingBlack {
             let collapsedHeight = shape.passiveShape.height
@@ -174,6 +191,8 @@ nonisolated struct NotchSurfaceFrame<Content: View>: View, Animatable {
                 .allowsHitTesting(visible || notificationVisible || preservesCollapsedMedia)
                 .accessibilityHidden(!visible && !preservesCollapsedMedia)
         }
+        .preference(key: NotchCollapsedContentRevealedKey.self,
+                    value: contentPhase == .collapsed || preservesCollapsedMedia)
         // This wrapper has already interpolated geometry. Neither its shape nor
         // the fixed-size content should start a second animation on each sample.
         .transaction { transaction in
@@ -191,6 +210,13 @@ extension EnvironmentValues {
     /// 0 at the notch, 1 at the compact activity's full width; 0 when no compact activity is involved.
     @Entry var notchCompactReveal: CGFloat = 0
     @Entry var notchCompactRetracting = false
+}
+
+/// Whether the collapsed row is currently revealed by the shell (false during the black
+/// open/close gate). Content outside the shell, such as the secondary chip, follows it.
+struct NotchCollapsedContentRevealedKey: PreferenceKey {
+    static let defaultValue = true
+    static func reduce(value: inout Bool, nextValue: () -> Bool) { value = nextValue() }
 }
 
 /// The widths a compact activity grows between: the shell without it, and with it.
