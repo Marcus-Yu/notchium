@@ -112,11 +112,21 @@ public struct NotchNotification: Identifiable, Equatable, Sendable {
         case .audio: .audio
         case .none: nil
         }
-        return NotchActivity(id: id, kind: activityKind,
+        return NotchActivity(id: id, key: NotchActivityKey(coalescingKey), kind: activityKind,
             title: title, subtitle: subtitle, priority: priority,
             presentationStyle: presentationStyle == .calendar ? .downwardBanner : .compactHUD,
             lifetime: .transient, isDismissible: dismissible,
             destination: destination, usesDefaultDestination: false,
-            duration: nil, payload: payload)
+            duration: duration, payload: payload, minimal: minimal)
+    }
+
+    /// Compact activities reuse their own glyph; utility text results have no minimal form.
+    private var minimal: NotchActivityMinimal? {
+        switch content {
+        case .calendar: .glyph(.symbol("calendar"), tint: .primary)
+        case .feedback: nil
+        case .audio, .compact:
+            content.compactActivity.map { .glyph($0.glyph, tint: $0.tint) }
+        }
     }
 }
