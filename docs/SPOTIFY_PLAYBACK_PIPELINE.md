@@ -40,11 +40,14 @@ execution too. Request guards finish independently of reconciliation.
 `PlaybackReconciliation` is one provider-owned, short-lived read expectation. Next and Previous
 share the same track-change condition. Seek accepts the requested position plus the possible
 elapsed interval since the action, including a delayed restart at zero. Playback and device
-expectations use their respective fields. External events can supersede a command expectation.
-Unchanged observations trigger at most three retries, separated by 250 ms, 500 ms, and 1 second.
-Confirmation clears the expectation. Exhausting the budget also clears it, so normal polling
-cannot remain filtered by a completed command. A monotonic ten-second safety bound applies
-while requests are delayed. Errors and Spotify's shared Retry-After cooldown remain bounded.
+expectations use their respective fields. External events can supersede a command expectation,
+except that a same-track desktop hint cannot weaken a seek: only a hint reporting a different
+position (an external seek) replaces it. Unchanged observations trigger at most three retries,
+separated by 250 ms, 500 ms, and 1 second. Confirmation clears the expectation. Exhausting the
+budget also clears it, so normal polling cannot remain filtered by a completed command; a seek
+expectation instead survives until confirmation, a track change, or the monotonic ten-second
+safety bound, because Spotify can report the old progress for seconds after a seek. The session
+serializes seeks: a release during an in-flight seek is shown immediately and sent afterwards. Errors and Spotify's shared Retry-After cooldown remain bounded.
 
 A monotonically increasing observation revision rejects older reads, including errors and
 responses returning after a newer action or event. Publication rechecks the revision after its
