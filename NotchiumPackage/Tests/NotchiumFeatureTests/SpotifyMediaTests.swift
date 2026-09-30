@@ -739,7 +739,7 @@ private actor EventPlaybackTransport: MediaHTTPTransport {
         XCTAssertEqual(requests.map(\.url?.path), ["/v1/me/player", "/v1/me/player/volume"])
         var iterator = await provider.updates().makeAsyncIterator()
         let state = await iterator.next()
-        XCTAssertEqual(state?.volumePercent, 73)
+        XCTAssertEqual(state?.volumePercent, 50, "The acknowledgement is not a Spotify read; the session owns 73% optimistically")
         await provider.shutdown()
     }
     func testExpandedPlayerRefreshesImmediatelyAndUsesActiveCadence() async throws {
@@ -1223,6 +1223,42 @@ private actor EventPlaybackTransport: MediaHTTPTransport {
         await provider.shutdown()
     }
 
+    /// Live Spotify (2026-09-29): PUT /seek returned 200 with an opaque body, then applied the seek
+    /// ~1.5 s later. A strict 204 check rejected every successful seek and skipped the resume.
+    func testLivePausedSeekAcknowledgementWith200BodyStaysPausedAndConfirms() async throws {
+        let live = MediaHTTPResponse(data: Data("DZYUkwoXKANIYSe0seKNfN-QYpw".utf8), status: 200)
+        let transport = ScriptedMediaTransport([
+            .init(data: playback(playing: false), status: 200),
+            live,
+            .init(data: playback(playing: false, elapsed: 61000), status: 200),
+            .init(data: playback(playing: false, elapsed: 120000), status: 200)
+        ])
+        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
+        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
+                                        transport: transport, clock: clock)
+        try await provider.connect()
+        await clock.waitForPendingSleeps()
+        try await provider.seek(to: 120)
+        await provider.refresh()
+        var snapshots = await provider.updates().makeAsyncIterator()
+        let confirmed = await snapshots.next()
+        XCTAssertEqual(confirmed?.elapsedTime, 120)
+        XCTAssertEqual(confirmed?.isPlaying, false)
+        let requests = await transport.requests
+        XCTAssertEqual(requests.map { "\($0.httpMethod!) \($0.url!.path)" }, ["GET /v1/me/player",
+            "PUT /v1/me/player/seek", "GET /v1/me/player", "GET /v1/me/player"])
+        await provider.shutdown()
+    }
+
+    func testQueueAndTransferAccept200Acknowledgements() async throws {
+        let live = MediaHTTPResponse(data: Data("opaque".utf8), status: 200)
+        let transport = ScriptedMediaTransport([live, live])
+        let api = SpotifyPlaybackAPI(authorization: .init(store: authorizedStore(), transport: transport),
+                                     transport: transport)
+        try await api.addToQueue(uri: "spotify:track:awake")
+        try await api.transferPlayback(to: "speaker")
+    }
+
     func testVolumeAcknowledgementDoesNotFabricateConfirmation() async throws {
         let data = Data(String(decoding: playback(), as: UTF8.self)
             .replacingOccurrences(of: "\"is_restricted\":false",
@@ -1451,6 +1487,37 @@ private actor EventPlaybackTransport: MediaHTTPTransport {
         await clock.advance(by: .milliseconds(250))
         let confirmed = await updates.next()
         XCTAssertEqual(confirmed?.elapsed, 1)
+        await provider.shutdown()
+    }
+
+    func testSeekKeepsRejectingStaleProgressAfterRetryBudget() async throws {
+        let stale = playback(elapsed: 91000)
+        let transport = ScriptedMediaTransport([
+            .init(data: playback(elapsed: 90000), status: 200), .init(status: 204),
+            .init(data: stale, status: 200), .init(data: stale, status: 200),
+            .init(data: stale, status: 200), .init(data: stale, status: 200),
+            .init(data: stale, status: 200), // ordinary read after the retry budget
+            .init(data: playback(elapsed: 121000), status: 200),
+        ])
+        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
+        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
+                                         transport: transport, clock: clock)
+        try await provider.connect()
+        await clock.waitForPendingSleeps()
+        try await provider.seek(to: 120)
+        for (index, delay) in [250, 500, 1000].enumerated() {
+            await clock.waitForPendingSleeps(2)
+            await clock.advance(by: .milliseconds(delay))
+            for _ in 0..<500 where await transport.requests.count < 4 + index { await Task.yield() }
+        }
+        for _ in 0..<50 { await Task.yield() }
+        await provider.refresh()
+        var updates = await provider.updates().makeAsyncIterator()
+        let held = await updates.next()
+        XCTAssertEqual(held?.elapsed, 90, "Stale progress after the retry budget must not roll the seek back")
+        await provider.refresh()
+        let confirmed = await updates.next()
+        XCTAssertEqual(confirmed?.elapsed, 121)
         await provider.shutdown()
     }
 
