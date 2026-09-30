@@ -35,9 +35,29 @@ struct PlaybackReconciliation: Sendable {
         self.startedAt = startedAt
     }
 
-    func preservesSeekResume(through event: SpotifyPlaybackEvent, uptime: TimeInterval) -> Bool {
-        guard case .playingPosition = target, uptime - startedAt < Self.lifetime else { return false }
-        return event.trackID == nil || event.trackID == origin.trackID
+    /// Seek expectations outlive the retry budget: Spotify can report the old progress for seconds.
+    var holdsPosition: Bool {
+        switch target {
+        case .position, .playingPosition: true
+        default: false
+        }
+    }
+
+    /// Desktop hints must not weaken an unfinished seek into a hint that accepts stale progress.
+    /// Only a same-track hint reporting a different position (an external seek) replaces a plain seek.
+    func preservesSeek(through event: SpotifyPlaybackEvent, uptime: TimeInterval) -> Bool {
+        let elapsed = uptime - startedAt
+        guard elapsed < Self.lifetime else { return false }
+        let position: Double
+        switch target {
+        case .position(let value), .playingPosition(let value): position = value
+        default: return false
+        }
+        guard event.trackID == nil || event.trackID == origin.trackID else { return false }
+        // Seek-then-resume also passes through intermediate paused/old-position hints.
+        if case .playingPosition = target { return true }
+        guard let reported = event.position else { return true }
+        return reported >= max(0, position - 2) && reported <= position + max(0, elapsed) + 2
     }
 
     func accepts(_ value: MediaState, uptime: TimeInterval) -> Bool {
