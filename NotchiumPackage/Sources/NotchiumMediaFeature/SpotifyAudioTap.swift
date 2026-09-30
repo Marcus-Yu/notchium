@@ -222,6 +222,16 @@ private final class CoreAudioProcessTap: @unchecked Sendable {
     }
 }
 
+/// Realtime-safe: reads the HAL's buffers in place, without allocating.
+func isDigitalSilence(_ list: UnsafeMutableAudioBufferListPointer) -> Bool {
+    for buffer in list {
+        guard let data = buffer.mData else { continue }
+        let bytes = UnsafeRawBufferPointer(start: data, count: Int(buffer.mDataByteSize))
+        if bytes.contains(where: { $0 != 0 }) { return false }
+    }
+    return true
+}
+
 private struct CapturedPCM: Sendable {
     struct Buffer: Sendable {
         let data: Data
@@ -243,12 +253,18 @@ private final class SpotifyPCMAnalyzer: @unchecked Sendable {
     private var didLogUnsupportedFormat = false
     private var didLogSamples = false
     private var didLogNonSilentSamples = false
+    // IOProc-thread state. `ioFormat` is written only before the IOProc starts.
+    private var ioFormat = AudioStreamBasicDescription()
+    private var silentFrames = 0.0
+    static let silenceTail = 0.5
 
     init(publish: @escaping @Sendable ([CGFloat]) -> Void) {
         self.publish = publish
     }
 
     func configure(format: AudioStreamBasicDescription) {
+        ioFormat = format
+        silentFrames = 0
         queue.sync {
             self.format = format
             pending = Array(repeating: [], count: Int(format.mChannelsPerFrame))
@@ -256,7 +272,18 @@ private final class SpotifyPCMAnalyzer: @unchecked Sendable {
     }
 
     func enqueue(_ inputData: UnsafePointer<AudioBufferList>) {
-        let buffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: inputData)).compactMap { buffer -> CapturedPCM.Buffer? in
+        let list = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: inputData))
+        // The tap keeps cycling while Spotify is paused so external playback can wake Notchium.
+        // After a short tail (lets the meter decay), digital silence costs only this scan:
+        // no copy, allocation, dispatch, decode or FFT until a non-zero sample arrives.
+        if isDigitalSilence(list) {
+            silentFrames += Double(list.first.map { Int($0.mDataByteSize) } ?? 0)
+                / Double(max(1, ioFormat.mBytesPerFrame))
+            guard silentFrames < ioFormat.mSampleRate * Self.silenceTail else { return }
+        } else {
+            silentFrames = 0
+        }
+        let buffers = list.compactMap { buffer -> CapturedPCM.Buffer? in
             guard let bytes = buffer.mData, buffer.mDataByteSize > 0 else { return nil }
             return CapturedPCM.Buffer(data: Data(bytes: bytes, count: Int(buffer.mDataByteSize)),
                                       channelCount: Int(buffer.mNumberChannels))
