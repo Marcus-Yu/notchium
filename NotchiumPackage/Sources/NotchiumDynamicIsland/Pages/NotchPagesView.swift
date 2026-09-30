@@ -11,6 +11,7 @@ struct NotchPagesView: View {
     var auxiliaryInteractionPresented = false
     var caffeine: (any NotchCaffeineControlling)?
     var quickActions: (any NotchQuickActionsRendering)?
+    var shelfRenderer: (any NotchShelfRendering)?
     var close: () -> Void = {}
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -67,6 +68,21 @@ struct NotchPagesView: View {
                 .disabled(model.selectedPage != .audio)
                 .allowsHitTesting(model.selectedPage == .audio)
                 .accessibilityHidden(model.selectedPage != .audio)
+
+                Group {
+                    if let shelfRenderer {
+                        shelfRenderer.expandedShelf()
+                    } else {
+                        Text("Shelf is unavailable.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white.opacity(0.55))
+                    }
+                }
+                .environment(\.notchShelfPageVisible, model.selectedPage == .shelf)
+                .opacity(model.selectedPage == .shelf ? 1 : 0)
+                .disabled(model.selectedPage != .shelf)
+                .allowsHitTesting(model.selectedPage == .shelf)
+                .accessibilityHidden(model.selectedPage != .shelf)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -74,7 +90,13 @@ struct NotchPagesView: View {
         .onChange(of: isExpanded && model.selectedPage == .audio, initial: true) { _, visible in
             audioRenderer?.setPageVisible(visible)
         }
-        .onDisappear { audioRenderer?.setPageVisible(false) }
+        .onChange(of: isExpanded && model.selectedPage == .shelf, initial: true) { _, visible in
+            shelfRenderer?.setPageVisible(visible)
+        }
+        .onDisappear {
+            audioRenderer?.setPageVisible(false)
+            shelfRenderer?.setPageVisible(false)
+        }
         .accessibilityElement(children: .contain)
         .accessibilityValue(model.selectedPage.title)
         .accessibilityHint("Use page buttons, or swipe horizontally in the empty space beside them")
