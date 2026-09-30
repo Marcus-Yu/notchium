@@ -6,6 +6,7 @@ public struct NotchNotification: Identifiable, Equatable, Sendable {
         case reminder60, reminder30, reminder5
         case volume, mute, outputDeviceChanged
         case actionSucceeded, actionFailed, reminderAdded
+        case charging, lowBattery
 
         public var defaultDuration: Duration {
             switch self {
@@ -15,15 +16,28 @@ public struct NotchNotification: Identifiable, Equatable, Sendable {
             case .actionSucceeded: .milliseconds(1500)
             case .actionFailed: .seconds(3)
             case .reminderAdded: .seconds(2)
+            case .charging: .milliseconds(2500)
+            case .lowBattery: .seconds(4)
             }
         }
     }
-    public enum PresentationStyle: Equatable, Sendable { case calendar, audio, feedback }
+    /// `.compact` occupies the notch's two sides at collapsed height; the others grow downward.
+    public enum PresentationStyle: Equatable, Sendable { case calendar, feedback, compact }
     public enum Action: Equatable, Sendable { case calendar, audio, join(URL), none }
     public enum Content: Equatable, Sendable {
         case calendar(title: String, status: String)
         case audio(NotchAudioHUD)
         case feedback(title: String, symbol: String)
+        case compact(NotchCompactActivity)
+
+        /// Every audio HUD is rendered as a compact activity beside the notch.
+        public var compactActivity: NotchCompactActivity? {
+            switch self {
+            case let .audio(hud): NotchCompactActivity(hud)
+            case let .compact(activity): activity
+            case .calendar, .feedback: nil
+            }
+        }
     }
 
     public var id: UUID
@@ -53,7 +67,17 @@ public struct NotchNotification: Identifiable, Equatable, Sendable {
         let output = hud.kind == .outputChanged
         return Self(kind: output ? .outputDeviceChanged : (hud.isMuted ? .mute : .volume),
                     coalescingKey: output ? "audio.output" : "audio.level",
-                    action: .audio, presentationStyle: .audio, content: .audio(hud))
+                    action: .audio, presentationStyle: .compact, content: .audio(hud))
+    }
+
+    public static func charging(level: Double) -> Self {
+        Self(kind: .charging, coalescingKey: "battery", action: .none, presentationStyle: .compact,
+             content: .compact(.charging(level: level)))
+    }
+
+    public static func lowBattery(level: Double) -> Self {
+        Self(kind: .lowBattery, coalescingKey: "battery", action: .none, presentationStyle: .compact,
+             content: .compact(.lowBattery(level: level)))
     }
 
     public static func feedback(_ title: String, kind: Kind, key: String) -> Self {
@@ -73,14 +97,26 @@ public struct NotchNotification: Identifiable, Equatable, Sendable {
         case let .audio(hud):
             title = hud.deviceName; subtitle = hud.isMuted ? "Muted" : "Volume"
             payload = .audio(hud)
+        case let .compact(activity):
+            title = activity.title; subtitle = nil; payload = .none
         }
-        return NotchActivity(id: id,
-            kind: presentationStyle == .calendar ? .calendar : (kind == .outputDeviceChanged ? .audioDevice : .systemHUD),
+        let activityKind: NotchActivityKind = switch kind {
+        case .reminder60, .reminder30, .reminder5: .calendar
+        case .outputDeviceChanged: .audioDevice
+        case .charging: .charging
+        case .lowBattery: .battery
+        default: .systemHUD
+        }
+        let destination: NotchActivityDestination? = switch action {
+        case .calendar, .join: .calendar
+        case .audio: .audio
+        case .none: nil
+        }
+        return NotchActivity(id: id, kind: activityKind,
             title: title, subtitle: subtitle, priority: priority,
             presentationStyle: presentationStyle == .calendar ? .downwardBanner : .compactHUD,
             lifetime: .transient, isDismissible: dismissible,
-            destination: presentationStyle == .feedback ? nil : (presentationStyle == .calendar ? .calendar : .audio),
-            usesDefaultDestination: presentationStyle != .feedback,
+            destination: destination, usesDefaultDestination: false,
             duration: nil, payload: payload)
     }
 }
