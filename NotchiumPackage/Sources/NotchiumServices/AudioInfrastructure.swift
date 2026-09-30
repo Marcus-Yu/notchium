@@ -29,9 +29,17 @@ enum ProcessTapSupport {
             && format.mChannelsPerFrame == 2
     }
 
-    static func canCreateTap(processObjectID: AudioObjectID, deviceID: AudioObjectID) -> Bool {
+    enum TapEligibility: Equatable { case supported, unsupported, permissionDenied }
+
+    static func isPermissionError(_ status: OSStatus) -> Bool {
+        status == kAudioDevicePermissionsError || status == OSStatus(0x7065726D) // 'perm'
+    }
+
+    /// A denied System Audio Recording permission is not "this app cannot be controlled":
+    /// callers must keep it distinguishable so the recovery UI stays reachable.
+    static func tapEligibility(processObjectID: AudioObjectID, deviceID: AudioObjectID) -> TapEligibility {
         guard let deviceUID = stringProperty(deviceID, selector: kAudioDevicePropertyDeviceUID) else {
-            return false
+            return .unsupported
         }
         let description = CATapDescription(processes: [processObjectID],
                                            deviceUID: deviceUID,
@@ -42,7 +50,8 @@ enum ProcessTapSupport {
         description.isProcessRestoreEnabled = false
 
         var tapID = AudioObjectID(kAudioObjectUnknown)
-        guard AudioHardwareCreateProcessTap(description, &tapID) == noErr else { return false }
+        let status = AudioHardwareCreateProcessTap(description, &tapID)
+        guard status == noErr else { return isPermissionError(status) ? .permissionDenied : .unsupported }
         defer { AudioHardwareDestroyProcessTap(tapID) }
 
         var address = AudioObjectPropertyAddress(mSelector: kAudioTapPropertyFormat,
@@ -51,9 +60,9 @@ enum ProcessTapSupport {
         var format = AudioStreamBasicDescription()
         var size = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
         guard AudioObjectGetPropertyData(tapID, &address, 0, nil, &size, &format) == noErr else {
-            return false
+            return .unsupported
         }
-        return isMixerInputFormat(format)
+        return isMixerInputFormat(format) ? .supported : .unsupported
     }
 
     static func stringProperty(_ object: AudioObjectID,
