@@ -6,12 +6,15 @@ public struct NotchAudioHUD: Equatable, Sendable {
     public let deviceName: String
     public let volume: Double?
     public let isMuted: Bool
+    public let deviceStyle: NotchDeviceStyle
 
-    public init(kind: Kind, deviceName: String, volume: Double?, isMuted: Bool) {
+    public init(kind: Kind, deviceName: String, volume: Double?, isMuted: Bool,
+                deviceStyle: NotchDeviceStyle = .speaker) {
         self.kind = kind
         self.deviceName = deviceName
         self.volume = volume
         self.isMuted = isMuted
+        self.deviceStyle = deviceStyle
     }
 }
 
