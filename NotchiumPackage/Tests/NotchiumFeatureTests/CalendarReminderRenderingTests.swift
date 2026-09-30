@@ -176,9 +176,13 @@ final class CalendarReminderRenderingTests: XCTestCase {
             let view = NotchiumShellView(model: presentation, layout: layout)
                 .frame(width: layout.panelFrame.width, height: layout.panelFrame.height)
             let bitmap = try render(view, name: "stage9-audio-\(name)")
-            let frame = NotchNotificationGeometry.frame(for: .audio, layout: layout)
-            XCTAssertLessThan(frame.height, layout.collapsedVisibleFrame.height + 88)
-            XCTAssertGreaterThan(inkBands(bitmap, x: 250..<475, y: 40..<86, scale: 1).count, 0)
+            // Compact activities occupy the notch's two sides and never grow downward.
+            let frame = NotchNotificationGeometry.frame(for: .compact, layout: layout)
+            XCTAssertEqual(frame.height, layout.collapsedVisibleFrame.height)
+            let collapsed = Int(layout.collapsedVisibleFrame.height)
+            XCTAssertGreaterThan(inkBands(bitmap, x: 170..<260, y: 4..<collapsed, scale: 1).count, 0, name)
+            XCTAssertGreaterThan(inkBands(bitmap, x: 480..<570, y: 4..<collapsed, scale: 1).count, 0, name)
+            XCTAssertEqual(inkBands(bitmap, x: 170..<570, y: collapsed + 4..<86, scale: 1).count, 0, name)
         }
         calendar.reminders.stop()
         presentation.reset()
