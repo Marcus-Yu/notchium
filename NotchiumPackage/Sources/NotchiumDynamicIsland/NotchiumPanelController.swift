@@ -154,6 +154,7 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
             positionedScreenFrame = screen.frame
         }
         panel.orderFrontRegardless()
+        #if DEBUG
         print("""
         [Notchium Actual Panel]
         screen.frame: \(screen.frame)
@@ -162,6 +163,7 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         panel.maxY: \(panel.frame.maxY)
         panel.level: \(panel.level.rawValue)
         """)
+        #endif
     }
 
     private func updateRootView(
