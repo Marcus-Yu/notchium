@@ -13,6 +13,7 @@ import XCTest
 final class Stage12ActivityTests: XCTestCase {
     private let base = Date(timeIntervalSince1970: 1_800_000_000)
     private let musicID = UUID()
+    private let downloadID = UUID()
 
     private func clock() -> TestAppClock { TestAppClock(now: base, automaticallyAdvances: false) }
     private func drain() async { for _ in 0..<200 { await Task.yield() } }
@@ -71,6 +72,8 @@ final class Stage12ActivityTests: XCTestCase {
         await clock.advance(by: .milliseconds(1750))
         await waitUntil { activities.primary?.id == self.musicID }
         XCTAssertEqual(activities.primary?.id, musicID)
+        XCTAssertNil(activities.secondary)
+        XCTAssertEqual(activities.liveActivities.map(\.key), [.media], "No volume state remains eligible")
         XCTAssertNil(activities.notifications.active)
         XCTAssertEqual(activities.presentationMode, .mediaSides)
         XCTAssertEqual(musicChanges, 0, "Music is never recreated by an interruption")
@@ -78,7 +81,7 @@ final class Stage12ActivityTests: XCTestCase {
         XCTAssertEqual(sleepers, 0)
     }
 
-    func testMusicAirPodsConnectionShowsMusicAsSecondaryThenMusicReturns() async {
+    func testMusicAirPodsConnectionOwnsCompactPresentationAndMusicReturns() async {
         let clock = clock()
         let activities = ActivityCoordinator(clock: clock)
         activities.present(music())
@@ -86,7 +89,8 @@ final class Stage12ActivityTests: XCTestCase {
 
         XCTAssertTrue(activities.notifications.present(airPods()))
         XCTAssertEqual(activities.primary?.kind, .audioDevice)
-        XCTAssertEqual(activities.secondary?.id, musicID)
+        XCTAssertNil(activities.secondary, "No Music artwork beside a device transient")
+        XCTAssertEqual(activities.persistentActivity?.id, musicID, "Music stays alive underneath")
         // A repeated identical device event is not a new card and does not extend the lifetime.
         await settle(clock)
         let deadline = activities.notifications.expiresAt
@@ -101,6 +105,45 @@ final class Stage12ActivityTests: XCTestCase {
         XCTAssertNil(activities.secondary)
     }
 
+    func testMusicChargingOwnsCompactPresentationAndMusicReturns() async {
+        let clock = clock()
+        let activities = ActivityCoordinator(clock: clock)
+        activities.present(music())
+        var musicChanges = 0
+        let observation = activities.$persistentActivity.dropFirst().sink { _ in musicChanges += 1 }
+        defer { observation.cancel(); activities.clearAll() }
+
+        XCTAssertTrue(activities.notifications.present(.charging(level: 0.37)))
+        XCTAssertEqual(activities.primary?.kind, .charging)
+        XCTAssertNil(activities.secondary)
+        XCTAssertTrue(activities.contains(id: musicID))
+        await settle(clock)
+        await clock.advance(by: .milliseconds(2500))
+        await waitUntil { activities.primary?.id == self.musicID }
+        XCTAssertNil(activities.secondary)
+        XCTAssertEqual(musicChanges, 0)
+    }
+
+    /// The reported linger: volume arriving around a device switch was kept underneath, shown as
+    /// a speaker chip, and resurfaced after the device transient. Replaceable feedback never waits.
+    func testVolumeInterruptedByDeviceTransientIsDroppedNeverChippedOrResumed() async {
+        let clock = clock()
+        let activities = ActivityCoordinator(clock: clock)
+        activities.present(music())
+        defer { activities.clearAll() }
+        activities.notifications.present(volume(0.4))
+        activities.notifications.present(airPods())
+        XCTAssertEqual(activities.primary?.kind, .audioDevice)
+        XCTAssertNil(activities.secondary)
+        XCTAssertFalse(activities.notifications.present(volume(0.45)), "Blocked volume is not queued")
+        XCTAssertEqual(activities.queueCount, 0)
+        XCTAssertFalse(activities.liveActivities.contains { $0.key == NotchActivityKey("audio.level") })
+        await settle(clock)
+        await clock.advance(by: .milliseconds(2500))
+        await waitUntil { activities.primary?.id == self.musicID }
+        XCTAssertEqual(activities.liveActivities.map(\.key), [.media])
+    }
+
     func testMusicCalendarAlertKeepsMusicAliveAndRestoresIt() async {
         let clock = clock()
         let activities = ActivityCoordinator(clock: clock)
@@ -112,6 +155,13 @@ final class Stage12ActivityTests: XCTestCase {
         XCTAssertEqual(activities.persistentActivity?.id, musicID)
         XCTAssertEqual(activities.presentationMode, .combined, "Music flanks stay in the top row")
         XCTAssertNil(activities.secondary, "A downward banner already keeps Music visible")
+        let model = DynamicIslandPresentationModel(clock: clock)
+        model.mediaRenderer = VisibleMediaRenderer()
+        model.activityCoordinator.present(music())
+        model.notificationCoordinator.present(reminder())
+        XCTAssertTrue(model.showsCollapsedMedia, "Calendar keeps its Music continuity")
+        XCTAssertNil(model.presentedSecondary)
+        model.reset()
 
         await settle(clock)
         await clock.advance(by: .seconds(5))
@@ -131,11 +181,11 @@ final class Stage12ActivityTests: XCTestCase {
 
         XCTAssertFalse(activities.notifications.present(volume(0.5)))
         XCTAssertEqual(activities.primary?.kind, .battery)
-        XCTAssertEqual(activities.queueCount, 2)
+        XCTAssertEqual(activities.queueCount, 1, "Replaceable volume is dropped, not queued")
         activities.notifications.dismiss()
         XCTAssertEqual(activities.primary?.kind, .audioDevice, "Unexpired lower priority resumes by rank")
         activities.notifications.dismiss()
-        XCTAssertEqual(activities.primary?.kind, .systemHUD)
+        XCTAssertNil(activities.primary)
     }
 
     func testChargingAndLowBatteryShareOneBatteryActivity() {
@@ -223,73 +273,75 @@ final class Stage12ActivityTests: XCTestCase {
 
     // MARK: Secondary / promotion
 
-    func testOneSecondaryCoexistsAndPromotionPreservesUnderlyingActivities() async {
-        let clock = clock()
-        let activities = ActivityCoordinator(clock: clock)
-        defer { activities.clearAll() }
-        activities.present(music())
-        activities.notifications.present(.lowBattery(level: 0.1))
-        XCTAssertEqual(activities.primary?.kind, .battery)
-        XCTAssertEqual(activities.secondary?.id, musicID)
-
-        activities.promoteSecondary()
-        XCTAssertEqual(activities.primary?.id, musicID)
-        XCTAssertEqual(activities.secondary?.kind, .battery, "The previous primary stays live as the secondary")
-        XCTAssertNil(activities.notifications.active)
-        XCTAssertEqual(activities.presentationMode, .mediaSides)
-        XCTAssertEqual(activities.queueCount, 1)
-
-        // Promotion changes the role back, never the identity.
-        let batteryID = activities.secondary?.id
-        activities.promoteSecondary()
-        XCTAssertEqual(activities.primary?.id, batteryID)
-        activities.promoteSecondary()
-        XCTAssertEqual(activities.primary?.id, musicID)
-
-        // A new event releases the promotion; natural ranking resumes (high battery > medium output).
-        activities.notifications.present(airPods())
-        XCTAssertEqual(activities.primary?.kind, .battery)
-        XCTAssertEqual(activities.secondary?.kind, .audioDevice)
-        // Only ever one secondary, even with three live activities.
-        XCTAssertEqual(activities.liveActivities.count, 3)
-        XCTAssertNotNil(activities.secondary)
+    /// A future persistent activity (e.g. a download) — the case the chip is reserved for.
+    private func download() -> NotchActivity {
+        NotchActivity(id: downloadID, key: NotchActivityKey("download.fixture"), kind: .download,
+                      title: "Download", subtitle: nil, priority: .low, presentationStyle: .compactHUD,
+                      lifetime: .persistent, duration: nil,
+                      minimal: .glyph(.symbol("arrow.down.circle"), tint: .primary))
     }
 
-    func testPromotedActivityExpiringUnderneathLeavesNoStaleSecondary() async {
-        let clock = clock()
-        let activities = ActivityCoordinator(clock: clock)
+    func testTwoBaselinesPairAsSecondaryAndAnInterruptionReRanksThem() async {
+        let activities = ActivityCoordinator(clock: clock())
         defer { activities.clearAll() }
         activities.present(music())
-        activities.notifications.present(.charging(level: 0.4))
+        activities.present(download())
+        XCTAssertEqual(activities.primary?.id, musicID)
+        XCTAssertEqual(activities.secondary?.id, downloadID)
+
         activities.promoteSecondary()
-        XCTAssertEqual(activities.secondary?.kind, .charging)
-        await settle(clock)
-        await clock.advance(by: .milliseconds(2500))
-        await waitUntil { activities.secondary == nil }
+        XCTAssertEqual(activities.primary?.id, downloadID)
+        XCTAssertEqual(activities.secondary?.id, musicID, "The previous primary stays live as the secondary")
+
+        // Transients interrupt without a chip; afterwards the primary is re-ranked from the
+        // live activities (equal-priority baselines: the earliest), not restored from the promotion.
+        activities.notifications.present(.charging(level: 0.4))
+        XCTAssertEqual(activities.primary?.kind, .charging)
+        XCTAssertNil(activities.secondary)
+        activities.notifications.dismiss()
+        XCTAssertEqual(activities.primary?.id, musicID)
+        XCTAssertEqual(activities.secondary?.id, downloadID)
+    }
+
+    func testRemovingAPromotedBaselineLeavesNoStaleSecondary() {
+        let activities = ActivityCoordinator(clock: clock())
+        defer { activities.clearAll() }
+        activities.present(music())
+        activities.present(download())
+        activities.promoteSecondary()
+        activities.dismiss(id: downloadID)
         XCTAssertEqual(activities.primary?.id, musicID)
         XCTAssertNil(activities.secondary)
     }
 
-    func testSecondaryChipIsOnlyPresentedBesideVisibleCollapsedSideContent() {
+    func testMusicFlanksWithoutVisibleAudioNeverStrandAChip() {
+        let activities = ActivityCoordinator(clock: clock())
+        defer { activities.clearAll() }
+        activities.present(music(visible: false))
+        activities.present(download())
+        XCTAssertNil(activities.secondary)
+    }
+
+    func testSecondaryChipFollowsTheGeneralPersistentActivityRule() {
         let model = DynamicIslandPresentationModel(clock: clock())
-        let renderer = VisibleMediaRenderer()
-        model.mediaRenderer = renderer
+        model.mediaRenderer = VisibleMediaRenderer()
         defer { model.reset() }
         model.activityCoordinator.present(music())
-        model.notificationCoordinator.present(airPods())
-        XCTAssertEqual(model.presentedSecondary?.id, musicID)
+        model.activityCoordinator.present(download())
+        XCTAssertEqual(model.presentedSecondary?.id, downloadID)
 
+        for transient in [airPods(), .charging(level: 0.37), volume(0.3)] {
+            model.notificationCoordinator.present(transient)
+            XCTAssertNil(model.presentedSecondary, "\(transient.kind) owns the notch alone")
+            model.notificationCoordinator.dismiss()
+        }
+        // A Calendar alert keeps the highest persistent (non-Music) activity visible beside it.
+        model.notificationCoordinator.present(reminder())
+        XCTAssertEqual(model.presentedSecondary?.id, downloadID)
+        model.notificationCoordinator.dismiss()
+        XCTAssertEqual(model.presentedSecondary?.id, downloadID)
         model.present(.expanded, animated: false)
         XCTAssertNil(model.presentedSecondary, "Expanded pages never show the chip")
-        model.present(.collapsed, animated: false)
-
-        model.notificationCoordinator.present(reminder())
-        XCTAssertNil(model.presentedSecondary, "Calendar banners keep Music in the top row instead")
-        model.activityCoordinator.dismiss(kind: .calendar)
-
-        model.activityCoordinator.dismiss(kind: .audioDevice)
-        model.notificationCoordinator.present(volume(0.3))
-        XCTAssertNil(model.presentedSecondary)
     }
 
     // MARK: Navigation
@@ -303,14 +355,16 @@ final class Stage12ActivityTests: XCTestCase {
             var selections: [NotchPage] = []
             let observation = model.pageModel.$selectedPage.dropFirst().sink { selections.append($0) }
             model.activityCoordinator.present(music())
-            model.notificationCoordinator.present(.lowBattery(level: 0.1))
+            model.activityCoordinator.present(download())
             model.activateSecondaryActivity()
+            model.notificationCoordinator.present(.lowBattery(level: 0.1))
             model.notificationCoordinator.present(volume(0.5))
             model.notificationCoordinator.present(reminder())
             await settle(clock)
             await clock.advance(by: .seconds(10))
             await drain()
             model.activityCoordinator.dismiss(id: musicID)
+            model.activityCoordinator.dismiss(id: downloadID)
             XCTAssertEqual(model.pageModel.selectedPage, page)
             XCTAssertTrue(selections.isEmpty, "\(page): \(selections)")
             observation.cancel()
@@ -333,10 +387,12 @@ final class Stage12ActivityTests: XCTestCase {
         // Relaunch: nothing is replayed; Music comes only from current provider state.
         let second = DynamicIslandPresentationModel(clock: clock())
         XCTAssertTrue(second.activityCoordinator.liveActivities.isEmpty)
-        let media = MediaSessionController(provider: MockMediaProvider(), coordinator: second.activityCoordinator)
+        let media = MediaSessionController(provider: MockMediaProvider(), coordinator: second.activityCoordinator,
+                                           localDeviceNames: ["this mac"])
         defer { media.stop(); second.reset() }
         media.receive(.init(connectionState: .authenticated, playbackState: .playing,
-                            title: "Track", trackID: "track", source: .spotify))
+                            title: "Track", trackID: "track", activeDeviceID: "mac",
+                            activeDeviceName: "This Mac", activeDeviceType: "Computer", source: .spotify))
         XCTAssertEqual(second.activityCoordinator.liveActivities.map(\.key), [.media])
         XCTAssertNil(second.activityCoordinator.activeTransient)
         XCTAssertEqual(second.activityCoordinator.preferredExpandedPage, .music)
