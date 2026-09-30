@@ -20,6 +20,8 @@ public struct NotchiumShellView: View {
     private let layout: NotchPanelLayout
     private let renderConfiguration: NotchShellRenderConfiguration
 
+    /// Mirrors the shell's content gate so the secondary chip never appears before its primary.
+    @State private var collapsedContentRevealed = true
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.accessibilityReduceTransparency) private var systemReduceTransparency
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
@@ -50,9 +52,12 @@ public struct NotchiumShellView: View {
                 layout: layout
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .onPreferenceChange(NotchCollapsedContentRevealedKey.self) { revealed in
+                collapsedContentRevealed = revealed
+            }
 
             // Above the shell: the shell's full-panel content shape would otherwise take its clicks.
-            NotchSecondaryActivityChip(model: model, layout: layout)
+            NotchSecondaryActivityChip(model: model, layout: layout, isRevealed: collapsedContentRevealed)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .ignoresSafeArea(.all, edges: .top)
@@ -119,9 +124,14 @@ private struct NotchShellOuterSurface: View {
         let showMedia = model.showsCollapsedMedia
         let collapsedMediaEligible = [.mediaSides, .combined].contains(model.activityCoordinator.presentationMode)
         let notification = model.presentedNotification
-        let compact = notification?.presentationStyle == .compact
+        // A file drag near the notch borrows the feedback banner geometry and motion: the same
+        // downward growth as every notification, no new animation path.
+        let dropping = model.showsFileDropTarget
+        let bannerStyle = dropping ? NotchNotification.PresentationStyle.feedback : notification?.presentationStyle
+        let surfaced = bannerStyle != nil
+        let compact = bannerStyle == .compact
         let compactGeometry = NotchCompactGeometry(layout: layout, activity: notification?.content.compactActivity)
-        let notificationSize = NotchNotificationGeometry.size(for: notification?.presentationStyle ?? .feedback, layout: layout)
+        let notificationSize = NotchNotificationGeometry.size(for: bannerStyle ?? .feedback, layout: layout)
         let notificationWidth = notificationSize.width
         let notificationHeight = notificationSize.height - layout.collapsedVisibleFrame.height
         let expanded = model.surfaceState != .collapsed
@@ -129,17 +139,17 @@ private struct NotchShellOuterSurface: View {
         let baseWidth = expanded ? layout.expandedSize.width
             : (showMedia ? mediaGeometry.width : layout.collapsedVisibleFrame.width)
         let shape = NotchShellSurface(
-            width: compact ? compactGeometry.width : (notification != nil ? notificationWidth
+            width: compact ? compactGeometry.width : (surfaced ? notificationWidth
                 : (expanded ? layout.expandedSize.width + ExpandedShellSilhouette.shoulderRadius * 2 : baseWidth)),
-            height: notification != nil ? layout.collapsedVisibleFrame.height + notificationHeight
+            height: surfaced ? layout.collapsedVisibleFrame.height + notificationHeight
                 : (model.surfaceState == .collapsed ? layout.collapsedVisibleFrame.height : layout.expandedSize.height),
             centerX: model.surfaceState == .collapsed ? passiveShape.centerX : layout.panelFrame.width / 2,
             bottomRadius: compact ? compactGeometry.bottomRadius
-                : (notification != nil ? NotchNotificationGeometry.lowerRadius
+                : (surfaced ? NotchNotificationGeometry.lowerRadius
                    : (model.surfaceState == .collapsed ? passiveShape.bottomCornerRadius : ExpandedShellSilhouette.bottomRadius)),
             passiveShape: passiveShape,
             shoulderRadius: compact ? NotchCompactGeometry.shoulderRadius
-                : (notification != nil ? NotchNotificationGeometry.shoulderRadius
+                : (surfaced ? NotchNotificationGeometry.shoulderRadius
                    : (expanded ? ExpandedShellSilhouette.shoulderRadius : 0))
         )
 
@@ -147,8 +157,10 @@ private struct NotchShellOuterSurface: View {
             expanded: model.surfaceState != .collapsed,
             shape: shape,
             reduceMotion: model.reduceMotion,
-            notificationVisible: notification != nil,
-            retainsMedia: model.activityCoordinator.retainsMediaPresentation,
+            notificationVisible: surfaced,
+            // Music is carried through notification transitions only while it is the context the
+            // notch shows (media sides / combined); a higher persistent activity (a transfer) wins.
+            retainsMedia: model.activityCoordinator.retainsMediaPresentation && collapsedMediaEligible,
             compactVisible: compact,
             compactSpan: NotchCompactSpan(base: baseWidth, full: compactGeometry.width)
         ) { phase in
@@ -171,13 +183,21 @@ private struct NotchShellOuterSurface: View {
                     }
                     .frame(height: layout.collapsedVisibleFrame.height)
 
-                    UnifiedNotchNotificationContent(model: model)
-                        .frame(width: notificationWidth, height: notification != nil && !compact ? notificationHeight : 0)
-                        .modifier(NotchPresentationClip(visible: phase == .collapsed))
-                        .allowsHitTesting(model.surfaceState == .collapsed)
-                        .accessibilityHidden(model.surfaceState != .collapsed)
+                    ZStack {
+                        if dropping {
+                            // Visual only: the panel window itself receives the drop (AppKit).
+                            NotchFileDropAffordance(state: model.fileDrag, reduceMotion: model.reduceMotion)
+                                .transition(.opacity)
+                        } else {
+                            UnifiedNotchNotificationContent(model: model)
+                        }
+                    }
+                    .frame(width: notificationWidth, height: surfaced && !compact ? notificationHeight : 0)
+                    .modifier(NotchPresentationClip(visible: phase == .collapsed))
+                    .allowsHitTesting(model.surfaceState == .collapsed)
+                    .accessibilityHidden(model.surfaceState != .collapsed)
                 }
-                .frame(width: compact ? compactGeometry.width : (notification != nil ? notificationWidth : mediaGeometry.width),
+                .frame(width: compact ? compactGeometry.width : (surfaced ? notificationWidth : mediaGeometry.width),
                        alignment: .top)
                 .zIndex(3)
 
@@ -211,6 +231,7 @@ private struct NotchShellOuterSurface: View {
                                auxiliaryInteractionPresented: model.isAuxiliaryInteractionPresented,
                                caffeine: model.caffeineController,
                                quickActions: model.quickActionsRenderer,
+                               shelfRenderer: model.shelfRenderer,
                                close: model.collapse)
                 if model.presentationState == .activity,
                    let activity = model.activityCoordinator.activeTransient,
@@ -233,6 +254,31 @@ private struct NotchShellOuterSurface: View {
     }
 }
 
+/// Magnetic, not flashy: the tray fills and the label tightens when the pointer is over it.
+private struct NotchFileDropAffordance: View {
+    let state: NotchFileDragState
+    let reduceMotion: Bool
+
+    var body: some View {
+        let targeted = state == .targeted
+        HStack(spacing: 9) {
+            Image(systemName: targeted ? "tray.and.arrow.down.fill" : "tray.and.arrow.down")
+                .font(.system(size: 16, weight: .medium))
+                .contentTransition(.symbolEffect(.replace))
+            Text(targeted ? "Release to Add to Shelf" : "Drop to Add to Shelf")
+                .font(.system(size: 13, weight: .medium))
+                .contentTransition(.opacity)
+        }
+        .foregroundStyle(.white.opacity(targeted ? 1 : 0.7))
+        .scaleEffect(targeted && !reduceMotion ? 1.03 : 1)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.18), value: targeted)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(.rect)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("notchium.shelf.drop")
+    }
+}
+
 /// Alcove-like expanded silhouette: the notch's black flares into the screen edge through
 /// concave shoulders (outside the unchanged content width), with continuous lower corners.
 enum ExpandedShellSilhouette {
@@ -245,7 +291,8 @@ private struct CompactActivityYield: ViewModifier {
     @Environment(\.notchCompactReveal) private var reveal
 
     func body(content: Content) -> some View {
-        content.opacity(Double(max(0, 1 - reveal * 1.6)))
+        // Gone by a third of the reveal, so the incoming glyph never slides over the artwork.
+        content.opacity(Double(max(0, 1 - reveal * 3)))
     }
 }
 
