@@ -60,7 +60,7 @@ final class ActivityCoordinatorTests: XCTestCase {
 
     func testHigherPriorityPreemptsAndUnexpiredActivityCanResume() {
         let coordinator = ActivityCoordinator(clock: clock())
-        let audio = activity(.systemHUD, priority: .low, duration: .seconds(5))
+        let audio = activity(.audioDevice, priority: .low, duration: .seconds(5))
         let calendar = activity(.calendar, priority: .high, duration: .seconds(10))
 
         coordinator.present(audio)
@@ -85,12 +85,12 @@ final class ActivityCoordinatorTests: XCTestCase {
         coordinator.present(updatedAudio)
 
         XCTAssertEqual(coordinator.activeTransient?.id, firstAudio.id)
-        XCTAssertEqual(coordinator.queueCount, 2)
+        XCTAssertEqual(coordinator.queueCount, 1, "Replaceable volume is dropped, not queued")
         coordinator.dismissActive()
         XCTAssertEqual(coordinator.activeTransient?.id, calendar.id)
         coordinator.dismissActive()
-        XCTAssertEqual(coordinator.activeTransient?.id, updatedAudio.id)
-        XCTAssertEqual(coordinator.activeTransient?.priority, .low)
+        XCTAssertNil(coordinator.activeTransient)
+        XCTAssertFalse(coordinator.contains(id: updatedAudio.id))
     }
 
     func testPendingAudioExpiresAgainstItsOriginalDeadline() async {
