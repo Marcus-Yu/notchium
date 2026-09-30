@@ -31,9 +31,9 @@ final class NotificationCoordinatorTests: XCTestCase {
         for level in [0.5, 0.54, 0.58, 0.62] { XCTAssertFalse(notifications.present(audio(level))) }
         XCTAssertFalse(notifications.present(audio(output: true)))
         XCTAssertEqual(notifications.active, reminder)
-        // Stage 12: both wait underneath (volume coalesced to one) with their own deadlines,
-        // and the reminder's deadline is not reset by them.
-        XCTAssertEqual(activities.queueCount, 2)
+        // Stage 12: replaceable volume is dropped; the output change waits underneath on its own
+        // deadline, and the reminder's deadline is not reset by either.
+        XCTAssertEqual(activities.queueCount, 1)
         await drain()
         await clock.waitForPendingSleeps()
         XCTAssertEqual(notifications.expiresAt, base.addingTimeInterval(10))
@@ -162,8 +162,7 @@ final class NotificationCoordinatorTests: XCTestCase {
         activities.notifications.dismissByUser()
         activities.notifications.present(audio(output: true))
         XCTAssertEqual(activities.notifications.active?.kind, .outputDeviceChanged)
-        // The unexpired volume activity is still live underneath the output change.
-        XCTAssertEqual(activities.queueCount, 1)
+        XCTAssertEqual(activities.queueCount, 0)
         observation.cancel()
         activities.clearAll()
     }
@@ -209,7 +208,10 @@ final class NotificationCoordinatorTests: XCTestCase {
         XCTAssertEqual(surface.contentPhase, .openingBlack)
         surface.shape.height = 104
         XCTAssertEqual(surface.contentPhase, .collapsed)
-        var closing = NotchSurfaceFrame(shape: surface.shape, phase: .closingBlack,
+        // A real close shrinks toward its target; mid-close (still above it) the gate is black.
+        var closingShape = surface.shape
+        closingShape.height = 140
+        var closing = NotchSurfaceFrame(shape: closingShape, phase: .closingBlack,
             expandedHeight: 126, notificationVisible: true) { _ in Color.clear }
         XCTAssertEqual(closing.contentPhase, .closingBlack)
         closing.keepsNotificationContent = true
