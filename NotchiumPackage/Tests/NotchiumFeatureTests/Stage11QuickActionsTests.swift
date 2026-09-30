@@ -100,11 +100,13 @@ import NotchiumServices
         XCTAssertFalse(model.reminder.draft.includesTime)
         model.reminder.draft.title = "Call dentist"
         service.failure = .noWritableList
-        XCTAssertFalse(model.reminder.save())
+        let saved1 = await model.reminder.saveCurrent()
+        XCTAssertFalse(saved1)
         XCTAssertEqual(model.reminder.draft.title, "Call dentist")
         XCTAssertNil(presentation.notificationCoordinator.active)
         service.failure = nil
-        XCTAssertTrue(model.reminder.save())
+        let saved2 = await model.reminder.saveCurrent()
+        XCTAssertTrue(saved2)
         XCTAssertEqual(service.saved.count, 1)
         XCTAssertEqual(model.reminder.draft.title, "")
         XCTAssertEqual(presentation.notificationCoordinator.active?.duration, .seconds(2))
@@ -117,7 +119,8 @@ import NotchiumServices
         model.store.reminderListID = "deleted-list"
         await model.reminder.prepare()
         model.reminder.draft.title = "Keep this"
-        XCTAssertFalse(model.reminder.save())
+        let saved3 = await model.reminder.saveCurrent()
+        XCTAssertFalse(saved3)
         XCTAssertEqual(model.store.reminderListID, "deleted-list")
         XCTAssertEqual(service.saved.count, 0)
         service.authorization = .allowed
@@ -184,7 +187,8 @@ import NotchiumServices
         reminder.draft.title = "updated test friday 3:00pm"
         reminder.applySuggestion(now: date)
         XCTAssertEqual(reminder.draft.date, saturday)
-        XCTAssertTrue(reminder.save())
+        let saved4 = await reminder.saveCurrent()
+        XCTAssertTrue(saved4)
         XCTAssertEqual(service.saved.last?.title, "updated test")
         XCTAssertEqual(service.saved.last?.date, saturday)
         XCTAssertEqual(service.saved.count, 1)
@@ -220,10 +224,12 @@ import NotchiumServices
         await model.reminder.prepare()
         model.reminder.draft.title = "call tomorrow at 9am"
         service.failure = .noWritableList
-        XCTAssertFalse(model.reminder.save())
+        let saved5 = await model.reminder.saveCurrent()
+        XCTAssertFalse(saved5)
         XCTAssertEqual(model.reminder.draft.title, "call tomorrow at 9am")
         service.failure = nil
-        XCTAssertTrue(model.reminder.save())
+        let saved6 = await model.reminder.saveCurrent()
+        XCTAssertTrue(saved6)
         XCTAssertEqual(service.saved.last?.title, "call")
         XCTAssertEqual(Calendar.current.component(.hour, from: service.saved.last!.date), 9)
     }
@@ -409,7 +415,8 @@ import NotchiumServices
         service.notifyChanges()
         for _ in 0..<100 where model.reminder.access == .allowed { await Task.yield() }
         XCTAssertFalse(model.reminder.canSaveReminder)
-        XCTAssertFalse(model.reminder.save())
+        let saved7 = await model.reminder.saveCurrent()
+        XCTAssertFalse(saved7)
         XCTAssertTrue(service.saved.isEmpty)
     }
 
