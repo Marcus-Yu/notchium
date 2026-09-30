@@ -4,14 +4,24 @@
 ///    a volume change briefly takes the notch, then Music returns without being recreated.
 /// 2. Among transients, higher priority wins; at equal priority the latest update wins.
 ///    Interrupted transients stay live underneath until their own absolute deadline.
-/// 3. Among baselines, higher priority wins; at equal priority the earliest stays put.
-/// 4. The stable key breaks any remaining tie, so ordering is always deterministic.
+/// 3. Replaceable HUDs (volume/mute) exist only while presented: never queued, never resumed.
+/// 4. Among baselines, higher priority wins; at equal priority the earliest stays put.
+/// 5. The stable key breaks any remaining tie, so ordering is always deterministic.
+///
+/// Secondary: the highest-ranked persistent activity (with a visible minimal form) that is not
+/// already primary — so an active transfer outranks Music. Beside a persistent primary, or beside a
+/// Calendar alert (where Music is never the chip: it already lives in the banner's top row).
+/// Short system transients own the whole compact presentation; nothing sits beside them.
 public enum ActivityPriorityPolicy {
     public static func priority(for kind: NotchNotification.Kind) -> NotchActivityPriority {
         switch kind {
-        case .reminder5, .lowBattery: .high
-        case .reminder30, .reminder60, .outputDeviceChanged, .charging: .medium
-        case .volume, .mute, .actionSucceeded, .actionFailed, .reminderAdded: .low
+        case .criticalBattery: .critical
+        case .reminder5, .lowBattery, .screenshot: .high
+        case .reminder30, .reminder60, .outputDeviceChanged, .charging, .powerDisconnected,
+             .transferFinished, .transferFailed: .medium
+        // An active transfer is a baseline: it outranks Music and every transient interrupts it.
+        case .transferActive: .medium
+        case .volume, .mute, .actionSucceeded, .actionFailed, .reminderAdded, .shelfAdded: .low
         }
     }
 
@@ -34,12 +44,26 @@ public enum ActivityPriorityPolicy {
         return left.key.rawValue < right.key.rawValue
     }
 
-    /// A secondary chip sits beside compact side content only. Downward banners already keep
-    /// Music in the top row, and brief replaceable HUDs (volume) never spawn extra chrome.
-    static func allowsSecondary(beside primary: ActivityCoordinator.Entry) -> Bool {
-        // Media publishes a minimal form only while its collapsed flanks are really visible.
-        if primary.activity.presentationStyle == .mediaSides { return primary.activity.minimal != nil }
-        guard primary.notification?.presentationStyle == .compact else { return false }
-        return primary.activity.priority > .low
+    /// Volume-style feedback is momentary: once something else holds the notch it is stale.
+    static func isReplaceable(_ entry: ActivityCoordinator.Entry) -> Bool {
+        guard !entry.activity.lifetime.isBaseline else { return false }
+        if let kind = entry.notification?.kind { return kind == .volume || kind == .mute }
+        return entry.activity.kind == .systemHUD
+    }
+
+    /// `ranked` is best-first. Media publishes a minimal form only while its collapsed flanks are
+    /// really visible, so a hidden primary never strands a chip and hidden Music is never chosen.
+    static func secondary(beside primary: ActivityCoordinator.Entry,
+                          among ranked: [ActivityCoordinator.Entry]) -> ActivityCoordinator.Entry? {
+        let persistent = ranked.filter {
+            $0.activity.lifetime.isBaseline && $0.activity.minimal != nil && $0.activity.key != primary.activity.key
+        }
+        if primary.activity.lifetime.isBaseline {
+            return primary.activity.minimal != nil ? persistent.first : nil
+        }
+        guard primary.activity.presentationStyle == .downwardBanner, primary.activity.family == .calendar else {
+            return nil
+        }
+        return persistent.first { $0.activity.presentationStyle != .mediaSides }
     }
 }
