@@ -39,6 +39,7 @@ public final class MediaSessionController {
     public var isPreviousPending: Bool { isPending(.previous) || isPending(.seek(0)) }
     public private(set) var lastSeekTarget: Double?
     public private(set) var seekInFlight = false
+    @ObservationIgnored private var queuedSeek: (target: Double, track: MediaState)?
     @ObservationIgnored private var provider: any MediaProviding
     @ObservationIgnored private let coordinator: ActivityCoordinator
     @ObservationIgnored private var observation: Task<Void, Never>?
@@ -124,7 +125,7 @@ public final class MediaSessionController {
         coordinator.dismiss(id: activityID)
         authoritativeState = .init()
         state = .init(); isShowingCachedTrack = false; clearPendingSeek(); clearOptimisticIntents()
-        seekInFlight = false
+        seekInFlight = false; queuedSeek = nil
     }
     public func use(_ provider: any MediaProviding) {
         stop(); self.provider = provider; errorMessage = nil; start()
@@ -137,6 +138,11 @@ public final class MediaSessionController {
             } else {
                 guard value.timestamp >= action.date else { return }
             }
+        }
+        if queuedSeek != nil, value.isSameTrack(as: state) {
+            // A queued release owns progress until it is sent; no sample can describe it yet.
+            authoritativeState = value
+            return
         }
         lastSeekTarget = nil
         let previous = state
@@ -570,7 +576,6 @@ public final class MediaSessionController {
         let target: Double
         let generation: Int
         let refreshQueueAfterSuccess: Bool
-        let resumePlayback: Bool
         let revision: Int
     }
     private func prepareSeek(to position: Double, at now: Date,
@@ -581,26 +586,22 @@ public final class MediaSessionController {
         }
         let target = min(max(position, 0), duration)
         let origin = state
-        let resumePlayback = !refreshQueueAfterSuccess && !origin.isPlaying && origin.canPlayPause
-        guard !resumePlayback || !isPending(.play) else { throw MediaFailure.busy }
         intentRevision &+= 1
         markPlaybackAction(at: now, revision: intentRevision)
         lastSeekTarget = target
         seekInFlight = true
         pendingControls.insert(MediaCommand.seek(target).controlID)
-        if resumePlayback { pendingControls.insert(MediaCommand.play.controlID) }
 
         // Immediate feedback modifies one snapshot/clock. The next authoritative observation
         // replaces it wholesale; there is no presentation-side seek/track confirmation machine.
+        // A seek moves only the position: paused stays paused, playing stays playing.
         var next = origin
         next.elapsed = target
-        if resumePlayback { next.playbackState = .playing; next.playbackRate = 1 }
         next.timestamp = now
         next.sampledUptime = ProcessInfo.processInfo.systemUptime
         applyPresentation(next)
         return .init(target: target, generation: generation,
-                     refreshQueueAfterSuccess: refreshQueueAfterSuccess,
-                     resumePlayback: resumePlayback, revision: intentRevision)
+                     refreshQueueAfterSuccess: refreshQueueAfterSuccess, revision: intentRevision)
     }
     private func executeSeek(_ request: SeekRequest) async throws {
         let id = MediaCommand.seek(request.target).controlID
@@ -610,11 +611,11 @@ public final class MediaSessionController {
                 pendingControls.remove(id)
                 commandTasks[id] = nil
                 seekInFlight = false
-                if request.resumePlayback { pendingControls.remove(MediaCommand.play.controlID) }
+                startQueuedSeek(after: request)
             }
         }
         do {
-            try await provider.seek(to: request.target, resumePlayback: request.resumePlayback)
+            try await provider.seek(to: request.target)
             if request.refreshQueueAfterSuccess && isUpNextVisible {
                 try? await provider.refreshQueue()
             }
@@ -634,6 +635,10 @@ public final class MediaSessionController {
     }
     private func startSeek(to position: Double, at now: Date = Date(),
                            refreshQueueAfterSuccess: Bool = false) {
+        if seekInFlight && !refreshQueueAfterSuccess {
+            queueSeek(to: position, at: now)
+            return
+        }
         guard let request = try? prepareSeek(to: position, at: now,
                                              refreshQueueAfterSuccess: refreshQueueAfterSuccess) else { return }
         let id = MediaCommand.seek(request.target).controlID
@@ -645,6 +650,28 @@ public final class MediaSessionController {
                 #endif
             }
         }
+    }
+    /// A release during an in-flight seek wins: it is shown immediately (its barrier also rejects
+    /// the earlier seek's confirmation) and sent once Spotify has finished the earlier request.
+    private func queueSeek(to position: Double, at now: Date) {
+        guard state.canSeek, position.isFinite, let duration = state.validDuration else { return }
+        let target = min(max(position, 0), duration)
+        intentRevision &+= 1
+        markPlaybackAction(at: now, revision: intentRevision)
+        lastSeekTarget = target
+        var next = state
+        next.elapsed = target
+        next.timestamp = now
+        next.sampledUptime = ProcessInfo.processInfo.systemUptime
+        applyPresentation(next)
+        queuedSeek = (target, next)
+    }
+    private func startQueuedSeek(after request: SeekRequest) {
+        guard let queued = queuedSeek else { return }
+        queuedSeek = nil
+        // Track changes invalidate coordinates chosen on the previous track.
+        guard generation == request.generation, state.isSameTrack(as: queued.track) else { return }
+        startSeek(to: queued.target)
     }
     private func clearPendingSeek() {
         lastSeekTarget = nil
