@@ -28,9 +28,11 @@ public protocol AppAudioMixerService: Sendable {
     func stop() async
 }
 
-@MainActor
-public final class RealAppAudioMixerService: AppAudioMixerService {
+/// An actor, not MainActor: tap/aggregate creation and device start/stop can block for tens of
+/// milliseconds and must not stall the UI. Calls are serialized, so topology changes never overlap.
+public actor RealAppAudioMixerService: AppAudioMixerService {
     private var engine: ProcessTapMixEngine?
+    private var engineGeneration = 0
     public init() {}
 
     public func apply(targets: [AppAudioMixTarget], outputDeviceID: String?) async -> AppAudioMixerStatus {
@@ -57,19 +59,32 @@ public final class RealAppAudioMixerService: AppAudioMixerService {
             return .running
         }
 
-        // Stopping the IOProc first releases mutedWhenTapped before any tap is destroyed.
-        engine?.stop()
-        engine = nil
-        let replacement = ProcessTapMixEngine(targets: topology, outputDeviceID: outputID)
+        // Make before break: the replacement's taps mute their processes while it outputs
+        // silence, so no already-attenuated app plays at unity during the rebuild. Stopping the
+        // old IOProc then releases its mutedWhenTapped, and the new gains take over.
+        engineGeneration &+= 1
+        let uid = engineGeneration.isMultiple(of: 2)
+            ? NotchiumAudioInfrastructure.appMixerDeviceUID
+            : NotchiumAudioInfrastructure.legacyAppMixerDeviceUIDPrefix + "handoff"
+        let replacement = ProcessTapMixEngine(targets: topology, outputDeviceID: outputID, deviceUID: uid)
+        let silenced = adjusted.map {
+            AppAudioMixTarget(processID: $0.processID, bundleID: $0.bundleID, volume: 0, isMuted: true)
+        }
         do {
-            try replacement.start(gains: adjusted)
+            try replacement.start(gains: silenced)
+            engine?.stop()
+            replacement.updateGains(adjusted)
             engine = replacement
             return .running
         } catch ProcessTapMixError.permissionDenied {
             replacement.stop()
+            engine?.stop()
+            engine = nil
             return .permissionRequired
         } catch {
             replacement.stop()
+            engine?.stop()
+            engine = nil
             return .unavailable
         }
     }
@@ -101,7 +116,7 @@ private enum ProcessTapMixError: Error {
 }
 
 /// Immutable topology with preallocated atomic gain slots. Only gain atomics are touched in place.
-/// This object is reachable only through `RealAppAudioMixerService` on MainActor. The HAL block
+/// This object is reachable only through the `RealAppAudioMixerService` actor. The HAL block
 /// captures only immutable scalars and the stable C slot pointer, never this object.
 private final class ProcessTapMixEngine: @unchecked Sendable {
     struct Target: Equatable, Hashable {
@@ -111,15 +126,17 @@ private final class ProcessTapMixEngine: @unchecked Sendable {
 
     private let targets: [Target]
     private let outputDeviceID: AudioObjectID
+    private let deviceUID: String
     private var tapIDs: [AudioObjectID] = []
     private var aggregateDeviceID = AudioObjectID(kAudioObjectUnknown)
     private var ioProcID: AudioDeviceIOProcID?
     private var deviceStarted = false
     private var slots: UnsafeMutablePointer<NTAudioGainSlot>?
 
-    init(targets: [Target], outputDeviceID: AudioObjectID) {
+    init(targets: [Target], outputDeviceID: AudioObjectID, deviceUID: String) {
         self.targets = targets
         self.outputDeviceID = outputDeviceID
+        self.deviceUID = deviceUID
     }
 
     func matches(targets: [Target], outputDeviceID: AudioObjectID) -> Bool {
@@ -165,7 +182,7 @@ private final class ProcessTapMixEngine: @unchecked Sendable {
             }
             let aggregate: [String: Any] = [
                 kAudioAggregateDeviceNameKey: "Notchium App Mixer",
-                kAudioAggregateDeviceUIDKey: NotchiumAudioInfrastructure.appMixerDeviceUID,
+                kAudioAggregateDeviceUIDKey: deviceUID,
                 kAudioAggregateDeviceIsPrivateKey: true,
                 kAudioAggregateDeviceIsStackedKey: true,
                 kAudioAggregateDeviceMainSubDeviceKey: outputUID,
@@ -268,7 +285,7 @@ private final class ProcessTapMixEngine: @unchecked Sendable {
 
     private static func check(_ status: OSStatus) throws {
         guard status != noErr else { return }
-        if status == kAudioDevicePermissionsError || status == OSStatus(0x7065726D) {
+        if ProcessTapSupport.isPermissionError(status) {
             throw ProcessTapMixError.permissionDenied
         }
         throw ProcessTapMixError.coreAudio(status)
