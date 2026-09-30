@@ -542,7 +542,7 @@ public actor RealMediaProvider: MediaProviding {
         // Consume signals independently of network latency, invalidating old reads immediately.
         invalidatePlaybackReads()
         // Intermediate desktop signals must not replace an unfinished seek/resume expectation.
-        let preservesSeek = reconciliation?.preservesSeekResume(
+        let preservesSeek = reconciliation?.preservesSeek(
             through: event, uptime: ProcessInfo.processInfo.systemUptime) == true
         if !preservesSeek && (reconciliation == nil || pendingControls.isEmpty) {
             reconciliation = .init(origin: state, target: .event(event),
@@ -646,7 +646,9 @@ public actor RealMediaProvider: MediaProviding {
         defer {
             if !Task.isCancelled, self.generation == generation, inputRevision == action {
                 reconciliationRefreshTask = nil
-                reconciliation = nil // retry budget exhausted: ordinary observations always resume
+                // Retry budget exhausted: ordinary observations resume, except that a seek keeps
+                // rejecting stale progress until its bounded lifetime (or a track change) ends it.
+                if reconciliation?.holdsPosition != true { reconciliation = nil }
             }
         }
         for delay in Self.reconciliationRefreshDelays {
