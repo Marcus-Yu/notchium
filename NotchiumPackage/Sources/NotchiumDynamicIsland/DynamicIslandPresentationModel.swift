@@ -55,24 +55,32 @@ public final class DynamicIslandPresentationModel {
     public var notificationCoordinator: NotificationCoordinator { activityCoordinator.notifications }
     /// Full notch content takes precedence; model lifetime is independent of visibility.
     public var presentedNotification: NotchNotification? {
-        surfaceState == .collapsed ? notificationCoordinator.active : nil
+        // A file drag near the notch is direct interaction: its drop affordance wins.
+        surfaceState == .collapsed && fileDrag == .idle ? notificationCoordinator.active : nil
     }
-    /// The secondary chip exists only beside visible collapsed side content: a compact
-    /// activity, or Music's live flanks. Expanded pages never show it.
+    /// The coordinator pairs only baseline activities (a transient primary never has one), so the
+    /// chip sits beside a baseline compact activity (a transfer) or Music's live flanks. Never
+    /// beside a banner, and never while expanded.
     public var presentedSecondary: NotchActivity? {
         _ = activityRevision
-        guard surfaceState == .collapsed, let secondary = activityCoordinator.secondary else { return nil }
+        guard surfaceState == .collapsed, fileDrag == .idle,
+              let secondary = activityCoordinator.secondary else { return nil }
         if let notification = presentedNotification {
-            return notification.presentationStyle == .compact ? secondary : nil
+            return notification.presentationStyle == .feedback ? nil : secondary
         }
         return showsCollapsedMedia ? secondary : nil
     }
+
+    /// System file drags near the collapsed notch (set by the panel controller).
+    public private(set) var fileDrag: NotchFileDragState = .idle
+    public var showsFileDropTarget: Bool { fileDrag != .idle && visualState == .collapsed }
     public let pageModel: NotchPageModel
     public var mediaRenderer: (any NotchMediaRendering)?
     public var calendarRenderer: (any NotchCalendarRendering)?
     public var audioRenderer: (any NotchAudioRendering)?
     public var caffeineController: (any NotchCaffeineControlling)?
     public var quickActionsRenderer: (any NotchQuickActionsRendering)?
+    public var shelfRenderer: (any NotchShelfRendering)?
     public var audioHUD: NotchAudioHUD? {
         guard case let .audio(hud) = activityCoordinator.activeTransient?.payload else { return nil }
         return hud
@@ -251,6 +259,7 @@ public final class DynamicIslandPresentationModel {
 
     public func reset() {
         activityCoordinator.clearAll()
+        fileDrag = .idle
         pendingHoverTask?.cancel()
         pendingCollapseTask?.cancel()
         transitionTask?.cancel()
@@ -275,13 +284,44 @@ public final class DynamicIslandPresentationModel {
         notificationCoordinator.present(.audio(hud))
     }
 
+    /// An explicit click: opens the activity's destination. A transient is consumed; a
+    /// persistent activity (an active transfer) keeps running.
     public func activateCurrentActivity() {
-        guard let activity = activityCoordinator.activeTransient else { return }
-        activityCoordinator.dismiss(id: activity.id)
+        guard let activity = activityCoordinator.activeTransient
+                ?? activityCoordinator.primary.flatMap({ notificationCoordinator.active?.id == $0.id ? $0 : nil })
+        else { return }
+        if !activity.lifetime.isBaseline { activityCoordinator.dismiss(id: activity.id) }
         setExpanded(true)
         if let destination = activity.destination {
             selectPage(destination)
         }
+    }
+
+    // MARK: File drag and drop
+
+    /// Proximity of a system file drag, from the panel controller's pointer tracking.
+    public func setFileDragNearby(_ nearby: Bool) {
+        let next: NotchFileDragState = nearby ? (fileDrag == .targeted ? .targeted : .nearby) : .idle
+        guard fileDrag != next, visualState == .collapsed || next == .idle else { return }
+        fileDrag = next
+    }
+
+    /// The drop affordance's own hover state (SwiftUI drop targeting).
+    public func setFileDropTargeted(_ targeted: Bool) {
+        guard fileDrag != .idle else { return }
+        fileDrag = targeted ? .targeted : .nearby
+    }
+
+    /// Returns whether anything was accepted. Files are referenced, never copied.
+    @discardableResult
+    public func acceptDroppedFiles(_ urls: [URL]) -> Bool {
+        let accepted = shelfRenderer?.acceptDroppedFiles(urls.filter(\.isFileURL)) ?? 0
+        fileDrag = .idle
+        return accepted > 0
+    }
+
+    public func endFileDrag() {
+        fileDrag = .idle
     }
 
     /// Promotes the secondary chip in place. Presentation role only: no page or provider change.
@@ -294,6 +334,7 @@ public final class DynamicIslandPresentationModel {
         case .music: pageModel.selectedPage = .music
         case .calendar: pageModel.selectedPage = .calendar
         case .audio: pageModel.selectedPage = .audio
+        case .shelf: pageModel.selectedPage = .shelf
         }
     }
 
