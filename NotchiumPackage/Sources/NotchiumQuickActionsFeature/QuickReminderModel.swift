@@ -199,16 +199,6 @@ import Observation
         #endif
     }
 
-    public func save() -> Bool {
-        guard canSaveReminder else { logValidation(); return false }
-        isBusy = true
-        defer { isBusy = false; logValidation() }
-        applySuggestion(now: referenceDate)
-        refreshState()
-        guard validationFailure == nil else { return false }
-        return persist()
-    }
-
     private func persist() -> Bool {
         do {
             var savedDraft = draft
