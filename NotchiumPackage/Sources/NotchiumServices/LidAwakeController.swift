@@ -65,13 +65,16 @@ public final class LidAwakeController {
         connectIfNeeded()
         guard let connection else { return }
         let token = generation
-        guard let proxy = connection.remoteObjectProxyWithErrorHandler({ _ in }) as? LidAwakeProtocol else { return }
+        guard let proxy = connection.remoteObjectProxyWithErrorHandler({ @Sendable _ in }) as? LidAwakeProtocol else { return }
         proxy.releaseLease { [weak self] success, detail in
             Task { @MainActor in
                 guard let self, self.generation == token else { return }
                 guard success else { self.message = detail; return }
                 do {
                     try await self.service.unregister()
+                    // An intentional teardown is not a helper failure.
+                    self.connection?.invalidationHandler = nil
+                    self.connection?.interruptionHandler = nil
                     self.connection?.invalidate()
                     self.connection = nil
                     self.needsApproval = false
@@ -106,8 +109,15 @@ public final class LidAwakeController {
             let connection = NSXPCConnection(machServiceName: LidAwakeIdentity.service, options: .privileged)
             connection.remoteObjectInterface = NSXPCInterface(with: LidAwakeProtocol.self)
             connection.setCodeSigningRequirement(LidAwakeIdentity.requirement(identifier: LidAwakeIdentity.service))
-            connection.invalidationHandler = { [weak self] in
-                Task { @MainActor in self?.connectionFailed() }
+            // XPC calls these (and proxy error handlers) on its private queue: they must be
+            // nonisolated and hop explicitly, or Swift 6 traps on entry off the main thread.
+            let identity = ObjectIdentifier(connection)
+            connection.invalidationHandler = { @Sendable [weak self] in
+                Task { @MainActor in
+                    // A replaced or intentionally torn-down connection is not a helper failure.
+                    guard let self, self.connection.map(ObjectIdentifier.init) == identity else { return }
+                    self.connectionFailed()
+                }
             }
             connection.interruptionHandler = connection.invalidationHandler
             connection.resume()
@@ -117,7 +127,7 @@ public final class LidAwakeController {
 
     private func renew(token: Int) {
         guard let connection else { return }
-        let proxy = connection.remoteObjectProxyWithErrorHandler { [weak self] _ in
+        let proxy = connection.remoteObjectProxyWithErrorHandler { @Sendable [weak self] _ in
             Task { @MainActor in
                 guard let self, self.generation == token else { return }
                 self.connectionFailed()
@@ -155,7 +165,7 @@ public final class LidAwakeController {
         isActive = false
         message = isEnabled ? "Ready. Closed-lid mode starts when either Caffeine mode is active." : "Off. Restoring normal sleep if needed."
         let token = generation
-        let proxy = connection?.remoteObjectProxyWithErrorHandler { _ in } as? LidAwakeProtocol
+        let proxy = connection?.remoteObjectProxyWithErrorHandler { @Sendable _ in } as? LidAwakeProtocol
         proxy?.releaseLease { [weak self] success, detail in
             Task { @MainActor in
                 guard let self, self.generation == token else { return }
