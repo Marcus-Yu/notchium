@@ -150,7 +150,9 @@ public final class RealCalendarService: CalendarService {
         changeTask?.cancel(); changeTask = nil
         for (center, token) in observers { center.removeObserver(token) }
         observers.removeAll()
+        let finished = continuations.values
         continuations.removeAll()
+        finished.forEach { $0.finish() }
         started = false
     }
 
