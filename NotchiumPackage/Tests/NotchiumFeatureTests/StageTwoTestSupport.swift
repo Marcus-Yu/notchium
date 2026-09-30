@@ -83,10 +83,17 @@ func waitForPendingSleep(
     _ clock: ControlledAppClock,
     count: Int = 1
 ) async {
-    for _ in 0..<100 {
+    for _ in 0..<10_000 {
         if await clock.pendingCount() >= count { return }
         await Task.yield()
     }
+}
+
+/// Waits for an observable outcome rather than a fixed number of executor turns: under full-suite
+/// load, unrelated main-actor jobs consume turns and a resumed sleeper needs an actor hop.
+@MainActor
+func waitUntil(_ condition: @MainActor () -> Bool) async {
+    for _ in 0..<10_000 where !condition() { await Task.yield() }
 }
 
 @MainActor
