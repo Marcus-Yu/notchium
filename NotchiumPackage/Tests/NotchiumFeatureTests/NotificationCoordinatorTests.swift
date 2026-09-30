@@ -200,7 +200,7 @@ final class NotificationCoordinatorTests: XCTestCase {
 
     func testUnifiedGeometryIsTopAttachedRoundedAndMatchesPointerFrame() {
         let layout = NotchGeometryResolver.layout(for: .init(display: NotchShellDebugModel.builtInFixture, mode: .physicalNotch), state: .collapsed)
-        for style in [NotchNotification.PresentationStyle.calendar, .audio] {
+        for style in [NotchNotification.PresentationStyle.calendar, .feedback] {
             let size = NotchNotificationGeometry.size(for: style, layout: layout)
             let frame = NotchNotificationGeometry.frame(for: style, layout: layout)
             XCTAssertEqual(frame.size, size)
