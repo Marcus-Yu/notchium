@@ -9,6 +9,12 @@ import SwiftUI
 @Observable
 public final class AudioFeatureModel: NotchAudioRendering {
     public private(set) var devices = AudioDevicesSnapshot(availability: .available)
+    /// Normalized, battery-validated projection of `devices` for presentation.
+    public private(set) var outputStates: [OutputDeviceState] = []
+    public var currentOutputState: OutputDeviceState? { outputStates.first(where: \.isActiveOutput) }
+    public func state(for device: AudioDevice) -> OutputDeviceState? {
+        outputStates.first { $0.objectID == device.id }
+    }
     public private(set) var processes: [AudioProducingProcess] = []
     public private(set) var displayVolume: Double?
     public private(set) var errorMessage: String?
@@ -19,6 +25,7 @@ public final class AudioFeatureModel: NotchAudioRendering {
     @ObservationIgnored private let processService: any AudioProcessesService
     @ObservationIgnored private let mixerService: any AppAudioMixerService
     @ObservationIgnored private let preferences: UserDefaults
+    @ObservationIgnored private let now: @Sendable () -> Date
     @ObservationIgnored private var deviceTask: Task<Void, Never>?
     @ObservationIgnored private var processTask: Task<Void, Never>?
     @ObservationIgnored private var volumeTask: Task<Void, Never>?
@@ -32,7 +39,9 @@ public final class AudioFeatureModel: NotchAudioRendering {
     private var mutedBundles: Set<String>
 
     public init(devices: any AudioDevicesService, processes: any AudioProcessesService,
-                mixer: any AppAudioMixerService, preferences: UserDefaults = .standard) {
+                mixer: any AppAudioMixerService, preferences: UserDefaults = .standard,
+                now: @escaping @Sendable () -> Date = { Date() }) {
+        self.now = now
         deviceService = devices
         processService = processes
         mixerService = mixer
@@ -89,7 +98,10 @@ public final class AudioFeatureModel: NotchAudioRendering {
 
     func receive(_ next: AudioDevicesSnapshot) {
         let old = devices.currentOutput
+        let oldStates = outputStates
         devices = next
+        let states = next.outputs.map { OutputDeviceState($0, now: now()) }
+        if states != outputStates { outputStates = states }
         if old?.id != next.currentOutput?.id || next.currentOutput?.volume == nil {
             volumeTask?.cancel()
             volumeTask = nil
@@ -102,14 +114,14 @@ public final class AudioFeatureModel: NotchAudioRendering {
             displayVolume = nil
         }
         if old?.id != next.currentOutput?.id { reconcileMixer() }
+        // Devices already connected at launch are known state, not events.
         guard hasReceivedDevices else { hasReceivedDevices = true; return }
-        guard let current = next.currentOutput else { return }
-        if old?.id != current.id {
-            let transport = NotchAudioTransport(rawValue: current.transport.rawValue) ?? .other
-            onHUD?(NotchAudioHUD(kind: .outputChanged, deviceName: current.name,
-                                 volume: current.volume, isMuted: current.isMuted ?? false,
-                                 deviceStyle: .classify(name: current.name, transport: transport)))
-        } else if old?.volume != current.volume || old?.isMuted != current.isMuted {
+        if let transition = OutputDeviceTransition.between(oldStates, states) {
+            onHUD?(transition.hud)
+            return
+        }
+        guard let current = next.currentOutput, old?.id == current.id else { return }
+        if old?.volume != current.volume || old?.isMuted != current.isMuted {
             onHUD?(NotchAudioHUD(kind: .volume, deviceName: current.name,
                                  volume: current.volume, isMuted: current.isMuted ?? false))
         }
