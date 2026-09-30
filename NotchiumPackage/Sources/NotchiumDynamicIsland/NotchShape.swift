@@ -78,15 +78,21 @@ struct NotchShape: Shape {
             to: CGPoint(x: rightWall, y: surface.minY + topRadius),
             control: CGPoint(x: rightWall, y: surface.minY)
         )
-        path.addLine(to: CGPoint(x: rightWall, y: surface.maxY - bottomRadius))
-        path.addQuadCurve(
-            to: CGPoint(x: rightWall - bottomRadius, y: surface.maxY),
-            control: CGPoint(x: rightWall, y: surface.maxY)
+        // Continuous lower corners: the curve starts a little earlier along each edge and
+        // eases in, so the wall flows into the bottom without a visible tangent break.
+        let extent = min(bottomRadius * 1.18, (surface.width - 2 * topRadius) / 2, surface.height - topRadius)
+        let pull = extent * 0.6
+        path.addLine(to: CGPoint(x: rightWall, y: surface.maxY - extent))
+        path.addCurve(
+            to: CGPoint(x: rightWall - extent, y: surface.maxY),
+            control1: CGPoint(x: rightWall, y: surface.maxY - extent + pull),
+            control2: CGPoint(x: rightWall - extent + pull, y: surface.maxY)
         )
-        path.addLine(to: CGPoint(x: leftWall + bottomRadius, y: surface.maxY))
-        path.addQuadCurve(
-            to: CGPoint(x: leftWall, y: surface.maxY - bottomRadius),
-            control: CGPoint(x: leftWall, y: surface.maxY)
+        path.addLine(to: CGPoint(x: leftWall + extent, y: surface.maxY))
+        path.addCurve(
+            to: CGPoint(x: leftWall, y: surface.maxY - extent),
+            control1: CGPoint(x: leftWall + extent - pull, y: surface.maxY),
+            control2: CGPoint(x: leftWall, y: surface.maxY - extent + pull)
         )
         path.addLine(to: CGPoint(x: leftWall, y: surface.minY + topRadius))
         path.addQuadCurve(
