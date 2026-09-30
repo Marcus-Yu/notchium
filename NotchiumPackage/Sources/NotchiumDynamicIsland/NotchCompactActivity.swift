@@ -6,13 +6,18 @@ public struct NotchCompactActivity: Equatable, Sendable {
     public enum Glyph: Equatable, Sendable {
         case symbol(String, variableValue: Double? = nil)
         /// Output devices turn into place on entry; the same motion serves every device style.
-        case device(NotchDeviceStyle)
+        /// `connected: false` (a disconnect) settles without the turn.
+        case device(NotchDeviceStyle, connected: Bool = true)
+        /// A downsampled file preview (a screenshot) that slides out from beneath the notch.
+        case thumbnail(URL)
     }
 
     public enum Trailing: Equatable, Sendable {
         case level(Double)
         case text(String)
         case battery(level: Double, charging: Bool)
+        /// A thin bar plus a short label ("72%", "72% +2"); nil fraction shows the label alone.
+        case progress(Double?, label: String)
     }
 
     public enum Tint: Equatable, Sendable { case primary, muted, charging, warning }
@@ -33,15 +38,28 @@ public struct NotchCompactActivity: Equatable, Sendable {
     }
 
     /// Symmetric sides sized to the content, so the notch stays centred and an untitled
-    /// activity is not surrounded by empty black.
-    var sideWidth: CGFloat { showsTitle ? NotchCompactGeometry.sideWidth : 86 }
+    /// activity is not surrounded by empty black. Long status text ("Disconnected") gets full width.
+    var sideWidth: CGFloat {
+        if showsTitle { return NotchCompactGeometry.sideWidth }
+        switch trailing {
+        case let .text(text) where text.count > 9: return NotchCompactGeometry.sideWidth
+        case .progress: return NotchCompactGeometry.sideWidth
+        default: return 86
+        }
+    }
 
     public init(_ hud: NotchAudioHUD) {
         switch hud.kind {
         case .outputChanged:
-            // Every output change: device glyph beside the notch, "Connected" opposite, no name.
+            // Device glyph beside the notch, no name. Opposite: a trustworthy aggregate battery
+            // when the source reports one, otherwise "Connected".
             self.init(glyph: .device(hud.deviceStyle), title: Self.shortName(hud.deviceName),
-                      showsTitle: false, trailing: .text("Connected"))
+                      showsTitle: false,
+                      trailing: hud.battery.map { .battery(level: $0.level, charging: $0.isCharging) }
+                        ?? .text("Connected"))
+        case .deviceDisconnected:
+            self.init(glyph: .device(hud.deviceStyle, connected: false), title: Self.shortName(hud.deviceName),
+                      showsTitle: false, trailing: .text("Disconnected"), tint: .muted)
         case .volume where hud.isMuted:
             // The preserved level stays visible, dimmed, so unmuting animates back from it.
             self.init(glyph: .symbol("speaker.slash.fill"), title: "Muted",
@@ -71,6 +89,17 @@ public struct NotchCompactActivity: Equatable, Sendable {
     public static func lowBattery(level: Double) -> Self {
         .init(glyph: .symbol("exclamationmark.circle.fill"), title: "Low Battery",
               trailing: .battery(level: level, charging: false), tint: .warning)
+    }
+
+    /// The same language as Low Battery with a stronger glyph: restrained, not alarming.
+    public static func criticalBattery(level: Double) -> Self {
+        .init(glyph: .symbol("exclamationmark.triangle.fill"), title: "Critical",
+              trailing: .battery(level: level, charging: false), tint: .warning)
+    }
+
+    public static func powerDisconnected(level: Double) -> Self {
+        .init(glyph: .symbol("bolt.slash.fill"), title: "On Battery",
+              trailing: .battery(level: level, charging: false), tint: .muted)
     }
 }
 
