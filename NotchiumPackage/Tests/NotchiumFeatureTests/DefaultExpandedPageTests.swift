@@ -9,11 +9,14 @@ import NotchiumServices
 @MainActor final class DefaultExpandedPageTests: XCTestCase {
     func testPlaybackAndCachedPausedTrackChooseFreshDefault() {
         let model = presentation()
-        let media = MediaSessionController(provider: MockMediaProvider(), coordinator: model.activityCoordinator)
+        let media = MediaSessionController(provider: MockMediaProvider(), coordinator: model.activityCoordinator,
+                                           localDeviceNames: ["this mac"])
         defer { media.stop(); model.reset() }
         for playing in [false, true, false] {
+            // Playing on this Mac (the local Spotify Connect device); remote playback opens Home.
             media.receive(.init(connectionState: .authenticated, playbackState: playing ? .playing : .paused,
-                                title: "Track", trackID: "track", source: .spotify))
+                                title: "Track", trackID: "track", activeDeviceID: "mac",
+                                activeDeviceName: "This Mac", activeDeviceType: "Computer", source: .spotify))
             model.setExpanded(true)
             XCTAssertEqual(model.pageModel.selectedPage, playing ? .music : .home)
             model.present(.collapsed, animated: false) // Complete collapse before a fresh expansion.
