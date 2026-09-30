@@ -30,8 +30,10 @@ public final class CalendarReminderCoordinator {
     public init(activities: ActivityCoordinator, clock: any AppClock = ContinuousAppClock()) {
         self.activities = activities
         self.clock = clock
-        activityObservation = activities.$activeTransient.sink { [weak self] activity in
-            Task { @MainActor [weak self] in self?.activityChanged(to: activity) }
+        // Liveness, not foreground: a reminder interrupted by a higher priority activity stays
+        // current underneath and resumes if its own deadline has not passed.
+        activityObservation = activities.$liveActivities.sink { [weak self] _ in
+            Task { @MainActor [weak self] in self?.activityChanged() }
         }
     }
 
@@ -97,8 +99,9 @@ public final class CalendarReminderCoordinator {
             coalescingKey: "calendar.\(event.id)",
             action: event.meetingURL.map { .join($0) } ?? .calendar,
             presentationStyle: .calendar, content: .calendar(title: event.title, status: label))
-        if activities.notifications.present(notification) {
-            activeID = activities.notifications.active?.id
+        activities.notifications.present(notification)
+        if activities.contains(id: id) {
+            activeID = id
             current = Reminder(event: event, label: label,
                                isImminent: seconds <= 300, isNow: seconds <= 0)
         }
@@ -130,9 +133,9 @@ public final class CalendarReminderCoordinator {
         }
     }
 
-    private func activityChanged(to activity: NotchActivity?) {
+    private func activityChanged() {
         guard let activeID else { return }
-        if activity?.id != activeID, !activities.contains(id: activeID) {
+        if !activities.contains(id: activeID) {
             current = nil
             self.activeID = nil
         }
