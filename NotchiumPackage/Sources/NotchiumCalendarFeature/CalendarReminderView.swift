@@ -46,7 +46,8 @@ struct CalendarReminderView: View {
                 .accessibilityLabel("Dismiss Calendar reminder")
                 .accessibilityIdentifier("notchium.calendar.reminder.dismiss")
             }
-            .padding(.horizontal, 24)
+            .padding(.leading, NotchNotificationGeometry.contentLeadingInset)
+            .padding(.trailing, NotchNotificationGeometry.contentHorizontalInset)
             .padding(.vertical, 16)
             .frame(height: NotchReminderGeometry.minimumHeight)
             .foregroundStyle(.white)
