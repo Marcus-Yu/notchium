@@ -31,8 +31,18 @@ final class NotificationCoordinatorTests: XCTestCase {
         for level in [0.5, 0.54, 0.58, 0.62] { XCTAssertFalse(notifications.present(audio(level))) }
         XCTAssertFalse(notifications.present(audio(output: true)))
         XCTAssertEqual(notifications.active, reminder)
+        // Stage 12: both wait underneath (volume coalesced to one) with their own deadlines,
+        // and the reminder's deadline is not reset by them.
+        XCTAssertEqual(activities.queueCount, 2)
+        await drain()
+        await clock.waitForPendingSleeps()
+        XCTAssertEqual(notifications.expiresAt, base.addingTimeInterval(10))
+        await clock.advance(by: .milliseconds(2500))
+        await drain()
+        XCTAssertEqual(notifications.active, reminder)
         XCTAssertEqual(activities.queueCount, 0)
-        await clock.advance(by: .seconds(4))
+        await clock.waitForPendingSleeps()
+        await clock.advance(by: .milliseconds(1500))
         await drain()
         XCTAssertNil(notifications.active)
         XCTAssertNil(activities.activeTransient)
@@ -124,9 +134,16 @@ final class NotificationCoordinatorTests: XCTestCase {
         activities.present(.init(id: UUID(), kind: .notification, title: "Critical", subtitle: nil,
                                  priority: .critical, duration: nil))
         XCTAssertNil(activities.notifications.active)
+        // Stage 12: the interrupted reminder waits underneath on its original deadline.
+        XCTAssertEqual(activities.queueCount, 1)
+        await drain()
+        await clock.waitForPendingSleeps()
+        await clock.advance(by: .seconds(10))
+        await drain()
         XCTAssertEqual(activities.queueCount, 0)
         activities.dismissActive()
         XCTAssertNil(activities.activeTransient)
+        XCTAssertNil(activities.notifications.active)
         activities.notifications.present(audio())
         activities.clearAll()
         await drain()
@@ -145,7 +162,8 @@ final class NotificationCoordinatorTests: XCTestCase {
         activities.notifications.dismissByUser()
         activities.notifications.present(audio(output: true))
         XCTAssertEqual(activities.notifications.active?.kind, .outputDeviceChanged)
-        XCTAssertEqual(activities.queueCount, 0)
+        // The unexpired volume activity is still live underneath the output change.
+        XCTAssertEqual(activities.queueCount, 1)
         observation.cancel()
         activities.clearAll()
     }
