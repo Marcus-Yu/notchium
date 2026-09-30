@@ -13,7 +13,7 @@ public struct ServiceRegistry: Sendable {
     public let battery: any BatteryService
     public let caffeine: any CaffeineService
     public let systemStats: any SystemStatsService
-    public let downloads: any DownloadsService
+    public let transfers: any FileTransferService
     public let meetings: any MeetingsService
     public let focus: any FocusService
     public let audioMeter: any AudioMeterProvider
@@ -33,7 +33,7 @@ public struct ServiceRegistry: Sendable {
         battery: any BatteryService,
         caffeine: any CaffeineService,
         systemStats: any SystemStatsService,
-        downloads: any DownloadsService,
+        transfers: any FileTransferService,
         meetings: any MeetingsService,
         focus: any FocusService,
         audioMeter: any AudioMeterProvider,
@@ -52,7 +52,7 @@ public struct ServiceRegistry: Sendable {
         self.battery = battery
         self.caffeine = caffeine
         self.systemStats = systemStats
-        self.downloads = downloads
+        self.transfers = transfers
         self.meetings = meetings
         self.focus = focus
         self.audioMeter = audioMeter
@@ -74,7 +74,7 @@ public struct ServiceRegistry: Sendable {
             battery: RealBatteryService(),
             caffeine: RealCaffeineService(),
             systemStats: RealSystemStatsService(),
-            downloads: RealDownloadsService(),
+            transfers: RealFileTransferService(),
             meetings: RealMeetingsService(),
             focus: RealFocusService(),
             audioMeter: RealAudioMeterProvider(),
@@ -98,7 +98,7 @@ public struct ServiceRegistry: Sendable {
             battery: MockBatteryService(),
             caffeine: MockCaffeineService(),
             systemStats: MockSystemStatsService(),
-            downloads: MockDownloadsService(),
+            transfers: MockFileTransferService(),
             meetings: MockMeetingsService(),
             focus: MockFocusService(),
             audioMeter: MockAudioMeterProvider(),
@@ -114,7 +114,7 @@ public struct ServiceRegistry: Sendable {
         case .calendar:
             await calendar.availability()
         case .shelf:
-            await shelf.availability()
+            .available
         case .screenshot:
             await screenshot.availability()
         case .clipboard:
@@ -130,7 +130,7 @@ public struct ServiceRegistry: Sendable {
         case .systemStats:
             await systemStats.availability()
         case .downloads:
-            await downloads.availability()
+            await transfers.availability()
         case .meetings:
             await meetings.availability()
         case .focus:
