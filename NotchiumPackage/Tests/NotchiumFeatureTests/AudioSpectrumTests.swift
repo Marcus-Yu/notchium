@@ -1,3 +1,4 @@
+import CoreAudio
 import XCTest
 @testable import NotchiumMediaFeature
 
@@ -47,5 +48,17 @@ final class AudioSpectrumTests: XCTestCase {
         for _ in 0..<20 { await Task.yield() }
         XCTAssertEqual(meter.waveformLevels, SystemAudioMeter.staticLevels)
         meter.stop()
+    }
+
+    func testDigitalSilenceGateDetectsAnyNonZeroSample() {
+        var samples = [Float](repeating: 0, count: 512)
+        samples.withUnsafeMutableBytes { raw in
+            let list = AudioBufferList.allocate(maximumBuffers: 1)
+            defer { free(list.unsafeMutablePointer) }
+            list[0] = AudioBuffer(mNumberChannels: 2, mDataByteSize: UInt32(raw.count), mData: raw.baseAddress)
+            XCTAssertTrue(isDigitalSilence(list))
+            raw.storeBytes(of: Float(0.0001), toByteOffset: 400 * 4, as: Float.self)
+            XCTAssertFalse(isDigitalSilence(list))
+        }
     }
 }
