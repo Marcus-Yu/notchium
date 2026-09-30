@@ -11,9 +11,21 @@ import NotchiumCore
 
     func testLatePausedEventCannotReplaceSeekResumeExpectation() {
         let expectation = PlaybackReconciliation(origin: state(), target: .playingPosition(120), startedAt: 10)
-        XCTAssertTrue(expectation.preservesSeekResume(through: .init(trackID: "one", isPlaying: false), uptime: 11))
-        XCTAssertFalse(expectation.preservesSeekResume(through: .init(trackID: "two"), uptime: 11))
-        XCTAssertFalse(expectation.preservesSeekResume(through: .init(isPlaying: false), uptime: 21))
+        XCTAssertTrue(expectation.preservesSeek(through: .init(trackID: "one", isPlaying: false), uptime: 11))
+        XCTAssertFalse(expectation.preservesSeek(through: .init(trackID: "two"), uptime: 11))
+        XCTAssertFalse(expectation.preservesSeek(through: .init(isPlaying: false), uptime: 21))
+    }
+
+    func testDesktopHintCannotWeakenFinishedSeekExpectation() throws {
+        let seek = try XCTUnwrap(PlaybackReconciliation(command: .seek(120), origin: state(), uptime: 10))
+        XCTAssertTrue(seek.holdsPosition)
+        XCTAssertTrue(seek.preservesSeek(through: .init(trackID: "one", isPlaying: true), uptime: 11))
+        XCTAssertTrue(seek.preservesSeek(through: .init(trackID: "one", position: 121), uptime: 11))
+        XCTAssertFalse(seek.preservesSeek(through: .init(trackID: "one", position: 40), uptime: 11),
+                       "An external seek reported by Spotify Desktop replaces the command expectation")
+        XCTAssertFalse(seek.preservesSeek(through: .init(trackID: "two"), uptime: 11))
+        XCTAssertFalse(seek.preservesSeek(through: .init(trackID: "one"), uptime: 20))
+        XCTAssertFalse(try XCTUnwrap(PlaybackReconciliation(command: .next, origin: state(), uptime: 10)).holdsPosition)
     }
 
     func testCommandExpectationsAreBoundedAndShareTheSameTrackRule() throws {
