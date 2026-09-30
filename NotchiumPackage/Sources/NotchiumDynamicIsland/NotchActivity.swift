@@ -69,17 +69,21 @@ public enum NotchActivityMinimal: Equatable, Sendable {
     /// Current artwork, drawn by the media renderer.
     case artwork
     case glyph(NotchCompactActivity.Glyph, tint: NotchCompactActivity.Tint)
+    /// A small ring; nil fraction is indeterminate. Used by persistent transfers.
+    case progress(Double?)
 }
 
 public enum NotchActivityDestination: Equatable, Sendable {
     case music
     case calendar
     case audio
+    case shelf
 }
 
 public enum NotchActivityPayload: Equatable, Sendable {
     case none
-    case mediaPlayback(isPlaying: Bool)
+    /// `isLocal`: this Mac is the playing Spotify device (not a phone or other Connect device).
+    case mediaPlayback(isPlaying: Bool, isLocal: Bool = true)
     case audio(NotchAudioHUD)
 }
 
