@@ -285,6 +285,10 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
             // Notification actions, including Join and dismissal, own their clicks.
             return
         }
+        if secondaryFrame(for: currentLayout)?.contains(point) == true {
+            // The secondary chip's own button promotes it; it never toggles the shell.
+            return
+        }
         let region = model.surfaceState == .collapsed
             ? currentLayout.collapsedHoverFrame : currentLayout.visibleSurfaceFrame
         #if DEBUG
@@ -318,12 +322,20 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
                                                           expanded: model.surfaceState != .collapsed)
     }
 
+    private func secondaryFrame(for layout: NotchPanelLayout) -> CGRect? {
+        guard model.presentedSecondary != nil else { return nil }
+        return NotchSecondaryGeometry.frame(layout: layout,
+                                            beside: model.presentedNotification?.content.compactActivity)
+    }
+
     private func updateHitTesting(at point: CGPoint) {
         guard let currentLayout else { return }
         let inside = notificationFrame(for: currentLayout)
             .map { NotchHoverRegion.contains(point, in: $0) } == true
         model.notificationCoordinator.setHovered(inside)
-        panel.ignoresMouseEvents = model.surfaceState == .collapsed && !inside
+        let insideSecondary = secondaryFrame(for: currentLayout)
+            .map { NotchHoverRegion.contains(point, in: $0) } == true
+        panel.ignoresMouseEvents = model.surfaceState == .collapsed && !inside && !insideSecondary
     }
 
     private func removePointerMonitors() {
