@@ -24,7 +24,8 @@ provider/service → feature state → NotchActivity / NotchNotification
 1. Transients interrupt baselines (Music). Music is never recreated by an interruption.
 2. Among transients: higher priority wins; equal priority → latest meaningful update.
 3. Interrupted and lower-priority transients stay live underneath until their own absolute
-   deadline, then resume if time remains. Nothing expired is ever replayed.
+   deadline, then resume if time remains — except replaceable volume/mute, which is dropped.
+   Nothing expired is ever replayed.
 4. Stable key breaks remaining ties.
 
 Priorities are unchanged from Stage 9–11 (reminder5/lowBattery high; reminder30/60, output,
@@ -42,12 +43,14 @@ Durations are the previously tuned `NotchNotification.Kind.defaultDuration` valu
 
 ## Primary + secondary
 
-- Primary: the best-ranked live activity, or a user-promoted one.
-- Secondary: one chip (`NotchSecondaryActivityChip`) beside a compact primary or visible Music
-  flanks. Never beside downward banners (Music already stays in the top row) or replaceable
-  low-priority HUDs (volume), never while expanded.
-- Clicking the chip promotes it (role change only; no page change, no identity change). A promotion
-  holds until the promoted activity ends or a new transient arrives.
+- Primary: the best-ranked live activity. Transients always interrupt; among baselines a
+  user promotion wins.
+- Secondary: one chip (`NotchSecondaryActivityChip`) only when two **baseline** activities coexist
+  (Music + a future download/timer) and the primary's collapsed presentation is visible.
+- Short system transients (volume/mute, device/output change, charging, low battery, reminders,
+  utility results) own the compact presentation alone; Music stays alive, hidden underneath.
+- Replaceable HUDs (volume/mute) exist only while presented: never queued, resumed, or chipped.
+- Clicking the chip promotes it (role change only). Calendar + Music keeps its combined layout.
 
 ## Navigation
 
