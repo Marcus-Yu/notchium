@@ -51,9 +51,6 @@ final class Stage10CoordinationTests: XCTestCase {
         }
         XCTAssertFalse(activities.notifications.present(audio()))
         activities.notifications.dismissByUser()
-        // Stage 12: the interrupted, unexpired volume resumes before Music.
-        XCTAssertEqual(activities.foregroundActivity?.kind, .systemHUD)
-        activities.notifications.dismissByUser()
         XCTAssertEqual(activities.foregroundActivity, music)
         XCTAssertNil(activities.transientActivity)
         XCTAssertEqual(persistentChanges, 0)
@@ -202,8 +199,8 @@ final class Stage10CoordinationTests: XCTestCase {
             activities.present(urgent)
             activities.present(lower)
             XCTAssertEqual(activities.foregroundActivity, urgent)
-            // Stage 12: lower priority waits underneath instead of being discarded.
-            XCTAssertEqual(activities.queueCount, 1)
+            // Stage 12: a lower-priority reminder waits underneath; replaceable volume is dropped.
+            XCTAssertEqual(activities.queueCount, kinds.1 == .systemHUD ? 0 : 1)
             activities.clearAll()
         }
     }
