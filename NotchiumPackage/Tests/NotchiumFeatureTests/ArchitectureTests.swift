@@ -38,7 +38,8 @@ final class ArchitectureTests: XCTestCase {
 
         for service in ServiceKind.allCases {
             let availability = await services.availability(for: service)
-            if [.audioDevices, .caffeine].contains(service) {
+            // Stages 14–15: Spotlight screenshots, NSProgress transfers and bookmark Shelf are real.
+            if [.audioDevices, .caffeine, .screenshot, .downloads, .shelf].contains(service) {
                 XCTAssertEqual(availability, .available)
             } else if service == .battery {
                 // Real IOKit source: a laptop reports its battery; a desktop has none.
