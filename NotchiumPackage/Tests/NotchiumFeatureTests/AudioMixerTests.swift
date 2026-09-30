@@ -1,3 +1,4 @@
+import AppKit
 import CoreAudio
 @testable import NotchiumAudioFeature
 import NotchiumRealtimeAudio
@@ -63,6 +64,22 @@ final class AudioMixerTests: XCTestCase {
                                          mixer: MockAppAudioMixerService(), preferences: preferences)
         XCTAssertEqual(restored.appVolume(process), 0.42, accuracy: 0.001)
         XCTAssertTrue(restored.isAppMuted(process))
+    }
+
+    func testDeniedTapPermissionKeepsAppListedAndRecoveryReachable() throws {
+        let finder = try XCTUnwrap(NSRunningApplication.runningApplications(
+            withBundleIdentifier: "com.apple.finder").first)
+        let model = AudioFeatureModel(devices: MockAudioDevicesService(),
+            processes: MockAudioProcessesService(), mixer: MockAppAudioMixerService(status: .inactive))
+        model.receive(AudioDevicesSnapshot(availability: .available, outputs: [
+            AudioDevice(id: "7", name: "Speakers", isDefaultOutput: true)
+        ]))
+        XCTAssertFalse(model.audioPermissionRequired)
+        model.receiveProcesses([AudioProducingProcess(id: finder.processIdentifier, bundleID: "com.apple.finder",
+            controllableOutputDeviceIDs: ["7"], requiresAudioPermission: true)])
+        XCTAssertEqual(model.visibleProcesses.map(\.id), [finder.processIdentifier])
+        XCTAssertTrue(model.audioPermissionRequired)
+        model.stop()
     }
 
     func testResetRemovesTargetAndRestoresDirectAudio() async throws {
