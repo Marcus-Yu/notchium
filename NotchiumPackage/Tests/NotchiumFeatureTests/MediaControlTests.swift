@@ -202,8 +202,9 @@ private actor HeldControlProvider: MediaProviding {
         await provider.finish(.previous, failing: true)
         while model.isPending(.previous) { await Task.yield() }
         XCTAssertTrue(model.isPending(.seek(0)))
+        // A seek keeps the playback state; the older Previous failure must not undo its position.
         XCTAssertEqual(model.state.playbackState, original.playbackState)
-        XCTAssertEqual(model.displayedPosition(at: Date()), 120, accuracy: 0.1)
+        XCTAssertEqual(model.state.elapsed, 120)
         let refreshes = await provider.refreshCount
         XCTAssertEqual(refreshes, 1)
         await provider.finish(.seek(0), failing: true)
@@ -330,6 +331,46 @@ private actor HeldControlProvider: MediaProviding {
         XCTAssertEqual(commands, [.seek(0), .previous])
         await provider.finish(.previous)
         while model.isBusy { await Task.yield() }
+        model.stop()
+    }
+    func testReleaseDuringInFlightSeekWinsAndIsSentAfterTheFirst() async {
+        let provider = HeldControlProvider()
+        let model = model(provider, playing: true, elapsed: 30)
+        model.send(.seek(100))
+        await provider.waitFor(1)
+        model.send(.seek(150))
+        XCTAssertEqual(model.state.elapsed, 150)
+        var confirmation = model.state
+        confirmation.elapsed = 100
+        confirmation.observationStartedUptime = ProcessInfo.processInfo.systemUptime
+        model.receive(confirmation)
+        XCTAssertEqual(model.state.elapsed, 150, "The earlier seek's confirmation cannot roll back a newer release")
+        await provider.finish(.seek(100))
+        await provider.waitFor(2)
+        let commands = await provider.commands
+        XCTAssertEqual(commands, [.seek(100), .seek(150)])
+        await provider.finish(.seek(150))
+        while model.isBusy { await Task.yield() }
+        model.stop()
+    }
+
+    func testQueuedSeekIsDroppedWhenTrackChanges() async {
+        let provider = HeldControlProvider()
+        let model = model(provider, playing: true, elapsed: 30)
+        model.send(.seek(100))
+        await provider.waitFor(1)
+        model.send(.seek(150))
+        var replacement = model.state
+        replacement.trackID = "other"
+        replacement.title = "Other"
+        replacement.elapsed = 0
+        replacement.observationStartedUptime = ProcessInfo.processInfo.systemUptime
+        model.receive(replacement)
+        XCTAssertEqual(model.state.title, "Other")
+        await provider.finish(.seek(100))
+        while model.isBusy { await Task.yield() }
+        let commands = await provider.commands
+        XCTAssertEqual(commands, [.seek(100)], "Coordinates chosen on the old track must not seek the new one")
         model.stop()
     }
     func testRestartSupersedesUnconfirmedPreviousTrackAndAcceptsExternalUpdates() async {
