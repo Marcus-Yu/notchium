@@ -8,19 +8,20 @@ struct UnifiedNotchNotificationContent: View {
 
     var body: some View {
         ZStack {
+            // Compact activities render beside the notch (NotchCompactActivitySlot), not below it.
             if let notification = model.notificationCoordinator.active,
+               notification.presentationStyle != .compact,
                (model.surfaceState != .collapsed) == presentedExpanded {
                 Group {
                     switch notification.content {
                     case let .feedback(title, symbol):
                         Label(title, systemImage: symbol)
                             .font(.system(size: 13, weight: .medium))
-                            .lineLimit(2).padding(.horizontal, 24)
+                            .lineLimit(2).padding(.horizontal, NotchNotificationGeometry.contentLeadingInset)
                     case .calendar:
                         model.calendarRenderer?.reminderBanner(action: model.activateCurrentActivity)
-                    case let .audio(hud):
-                        NotchAudioHUDView(hud: hud, action: model.activateCurrentActivity)
-                            .padding(.horizontal, 24)
+                    case .audio, .compact:
+                        EmptyView()
                     }
                 }
                 .modifier(NotificationDismissModifier(notification: notification,
