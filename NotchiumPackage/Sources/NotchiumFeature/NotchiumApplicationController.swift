@@ -10,6 +10,7 @@ import NotchiumDynamicIsland
 import Observation
 import NotchiumMediaFeature
 import NotchiumQuickActionsFeature
+import NotchiumShelfFeature
 import Foundation
 import NotchiumPersistence
 import NotchiumServices
@@ -24,6 +25,7 @@ public final class NotchiumApplicationController {
     public let audioModel: AudioFeatureModel
     public let quickActions: QuickActionsModel
     public let caffeineModel: CaffeineControlModel
+    public let filesModel: FilesFeatureModel
     public var mediaModel: MediaSessionController { mediaSessionController }
 #if DEBUG
     public let mockMediaProvider = MockMediaProvider()
@@ -80,6 +82,12 @@ public final class NotchiumApplicationController {
         quickActions = QuickActionsModel(store: store, runner: runner, reminder: reminder)
         displayCoordinator.presentationModel.quickActionsRenderer = quickActions
         caffeineModel = CaffeineControlModel(service: environment.services.caffeine)
+        filesModel = FilesFeatureModel(transfers: environment.services.transfers,
+                                       screenshots: environment.services.screenshot,
+                                       shelf: environment.services.shelf,
+                                       actions: NativeFileActions(),
+                                       activities: displayCoordinator.presentationModel.activityCoordinator)
+        displayCoordinator.presentationModel.shelfRenderer = filesModel
         audioModel.onHUD = { [weak presentation = displayCoordinator.presentationModel] hud in
             presentation?.showAudioHUD(hud)
         }
@@ -98,7 +106,10 @@ public final class NotchiumApplicationController {
                 guard !Task.isCancelled else { return }
                 switch policy.receive(snapshot) {
                 case let .charging(level): presentation?.notificationCoordinator.present(.charging(level: level))
+                case let .powerDisconnected(level):
+                    presentation?.notificationCoordinator.present(.powerDisconnected(level: level))
                 case let .low(level): presentation?.notificationCoordinator.present(.lowBattery(level: level))
+                case let .critical(level): presentation?.notificationCoordinator.present(.criticalBattery(level: level))
                 case nil: break
                 }
             }
@@ -121,6 +132,7 @@ public final class NotchiumApplicationController {
         if environment.featureFlags[.audioDevices] { audioModel.start() }
         if environment.featureFlags[.caffeine] { caffeineModel.start() }
         if environment.featureFlags[.activities] { startBatteryActivities() }
+        if environment.featureFlags[.shelf] { filesModel.start() }
         if environment.featureFlags[.media] {
             mediaModel.start()
             if let real = environment.services.media as? RealMediaProvider {
@@ -140,6 +152,7 @@ public final class NotchiumApplicationController {
         calendarModel.stop()
         audioModel.stop()
         caffeineModel.stop()
+        filesModel.stop()
         quickActions.runner.stop()
         if let real = environment.services.media as? RealMediaProvider {
             Task { await real.shutdown() }
