@@ -1,4 +1,6 @@
+import AppKit
 import Foundation
+import SwiftUI
 import XCTest
 import NotchiumCore
 @testable import NotchiumServices
@@ -41,28 +43,50 @@ private actor HeldSeekProvider: MediaProviding {
               elapsed: elapsed, duration: 180, trackID: "1", source: .spotify,
               capabilities: .init(canSeek: true), timestamp: now, playbackRate: rate)
     }
-    func testPausedSeekResumesOnceAndKeepsManualHome() async throws {
+    func testSeekPreservesPlaybackStateAndKeepsManualHome() async throws {
+        for playing in [false, true] {
+            let provider = HeldSeekProvider()
+            let presentation = DynamicIslandPresentationModel()
+            let model = MediaFeatureModel(provider: provider, coordinator: presentation.activityCoordinator)
+            var origin = sample(playing: playing, rate: playing ? 1 : 0)
+            origin.capabilities.canPlayPause = true
+            model.receive(origin)
+            presentation.setExpanded(true)
+            presentation.pageModel.selectedPage = .home
+            let seek = Task { try await model.seek(to: 90, at: now) }
+            await provider.waitForSeek()
+            XCTAssertEqual(model.state.isPlaying, playing)
+            XCTAssertEqual(model.lastSeekTarget, 90)
+            XCTAssertFalse(model.isPending(.playPause))
+            await provider.finish()
+            try await seek.value
+            let commands = await provider.commands
+            XCTAssertEqual(commands, [.seek(90)], "a seek never sends Play (playing=\(playing))")
+            XCTAssertEqual(model.state.isPlaying, playing)
+            XCTAssertEqual(presentation.pageModel.selectedPage, .home)
+            XCTAssertFalse(model.seekInFlight)
+            model.stop()
+            presentation.reset()
+        }
+    }
+
+    func testPlayPressedDuringPausedSeekIsNotOverwritten() async throws {
         let provider = HeldSeekProvider()
-        let presentation = DynamicIslandPresentationModel()
-        let model = MediaFeatureModel(provider: provider, coordinator: presentation.activityCoordinator)
-        var paused = sample(playing: false)
+        let model = MediaFeatureModel(provider: provider, coordinator: ActivityCoordinator(clock: ContinuousAppClock()))
+        var paused = sample(playing: false, rate: 0)
         paused.capabilities.canPlayPause = true
         model.receive(paused)
-        presentation.setExpanded(true)
-        presentation.pageModel.selectedPage = .home
         let seek = Task { try await model.seek(to: 90, at: now) }
         await provider.waitForSeek()
+        model.send(.play)
+        for _ in 0..<50 where await provider.commands.count < 2 { await Task.yield() }
         XCTAssertTrue(model.state.isPlaying)
-        XCTAssertEqual(model.lastSeekTarget, 90)
-        XCTAssertTrue(model.isPending(.playPause))
         await provider.finish()
         try await seek.value
         let commands = await provider.commands
-        XCTAssertEqual(commands, [.seek(90), .play])
-        XCTAssertEqual(presentation.pageModel.selectedPage, .home)
-        XCTAssertFalse(model.seekInFlight)
+        XCTAssertEqual(commands.filter { $0 == .play }.count, 1, "only the user's Play")
+        XCTAssertTrue(model.state.isPlaying)
         model.stop()
-        presentation.reset()
     }
 
     func testFailedPausedSeekDoesNotResumeAndReleasesBothControls() async {
@@ -312,5 +336,52 @@ private actor HeldSeekProvider: MediaProviding {
         XCTAssertEqual(bounds.minY, 0)
         XCTAssertEqual(bounds.maxY, 32)
         XCTAssertEqual(bounds.width, 259)
+    }
+
+    /// Real AppKit event routing (hit testing, first mouse, drag, release) through the hosted slider.
+    func testPointerDragOnHostedSeekSliderSendsOneSeek() async throws {
+        for playing in [true, false] {
+            let snapshot = MediaState(playbackState: playing ? .playing : .paused, title: "Fixture",
+                                      elapsed: 10, duration: 200, trackID: "t", source: .spotify,
+                                      capabilities: .init(canPlayPause: true, canSeek: true),
+                                      playbackRate: playing ? 1 : 0)
+            let provider = MockMediaProvider(snapshot: snapshot)
+            let model = MediaFeatureModel(provider: provider, coordinator: ActivityCoordinator(
+                clock: TestAppClock(now: Date(), automaticallyAdvances: false)))
+            model.start()
+            while !model.state.hasMedia { await Task.yield() }
+            let panel = NSPanel(contentRect: CGRect(x: 200, y: 200, width: 300, height: 60),
+                                styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+            panel.contentView = NSHostingView(rootView: MediaProgressView(model: model).frame(width: 300, height: 60))
+            panel.orderFrontRegardless()
+            defer { panel.orderOut(nil) }
+            panel.contentView?.layoutSubtreeIfNeeded()
+            await drainMainActorTasks()
+            let pointer = try XCTUnwrap(Self.view(named: "PointerView", in: panel.contentView))
+            let frame = pointer.convert(pointer.bounds, to: nil)
+            func post(_ type: NSEvent.EventType, _ fraction: CGFloat) async {
+                let location = CGPoint(x: frame.minX + frame.width * fraction, y: frame.midY)
+                panel.sendEvent(NSEvent.mouseEvent(with: type, location: location, modifierFlags: [],
+                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: panel.windowNumber,
+                    context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!)
+                await drainMainActorTasks()
+            }
+            await post(.leftMouseDown, 0.2)
+            await post(.leftMouseDragged, 0.5)
+            await post(.leftMouseUp, 0.5)
+            for _ in 0..<200 where await provider.commands.isEmpty { await Task.yield() }
+            let commands = await provider.commands
+            let seeks = commands.compactMap { if case .seek(let value) = $0 { value } else { nil } }
+            XCTAssertEqual(seeks.count, 1, "playing=\(playing) commands=\(commands)")
+            XCTAssertEqual(seeks.first ?? 0, 100, accuracy: 3, "playing=\(playing)")
+            model.stop()
+        }
+    }
+
+    private static func view(named name: String, in root: NSView?) -> NSView? {
+        guard let root else { return nil }
+        if String(describing: type(of: root)).contains(name) { return root }
+        for child in root.subviews { if let found = view(named: name, in: child) { return found } }
+        return nil
     }
 }
