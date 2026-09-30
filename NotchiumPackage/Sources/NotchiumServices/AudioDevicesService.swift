@@ -18,8 +18,42 @@ public enum AudioOutputTransport: String, Equatable, Sendable {
     }
 }
 
+/// Battery information for an output device, classified by trustworthiness. Nothing here is
+/// ever estimated: a component the source does not report is nil, never inferred.
+public enum DeviceBatteryStatus: Equatable, Sendable {
+    /// No supported macOS API reports battery for this device (e.g. AirPods L/R/case).
+    case unsupported
+    /// The source can report battery, but has no current reading for this connection.
+    case unavailable
+    case available(DeviceBatteryLevels)
+}
+
+public struct DeviceBatteryLevels: Equatable, Sendable {
+    /// One aggregate level (single-battery headphones).
+    public let single: Double?
+    public let left: Double?
+    public let right: Double?
+    public let caseLevel: Double?
+    public let isCharging: Bool?
+    /// When the source measured these values; consumers reject old readings as stale.
+    public let measuredAt: Date
+
+    public init(single: Double? = nil, left: Double? = nil, right: Double? = nil,
+                caseLevel: Double? = nil, isCharging: Bool? = nil, measuredAt: Date) {
+        self.single = single
+        self.left = left
+        self.right = right
+        self.caseLevel = caseLevel
+        self.isCharging = isCharging
+        self.measuredAt = measuredAt
+    }
+}
+
 public struct AudioDevice: Identifiable, Equatable, Sendable {
+    /// Core Audio object ID: valid for selection during this connection only.
     public let id: String
+    /// Core Audio device UID: stable for the physical device across reconnects.
+    public let uid: String?
     public let name: String
     public let isDefaultOutput: Bool
     public let volume: Double?
@@ -27,12 +61,15 @@ public struct AudioDevice: Identifiable, Equatable, Sendable {
     public let canSetVolume: Bool
     public let canSetMute: Bool
     public let transport: AudioOutputTransport
+    public let battery: DeviceBatteryStatus
 
-    public init(id: String, name: String, isDefaultOutput: Bool,
+    public init(id: String, uid: String? = nil, name: String, isDefaultOutput: Bool,
                 volume: Double? = nil, isMuted: Bool? = nil,
                 canSetVolume: Bool = false, canSetMute: Bool = false,
-                transport: AudioOutputTransport = .other) {
+                transport: AudioOutputTransport = .other,
+                battery: DeviceBatteryStatus = .unsupported) {
         self.id = id
+        self.uid = uid
         self.name = name
         self.isDefaultOutput = isDefaultOutput
         self.volume = volume
@@ -40,6 +77,7 @@ public struct AudioDevice: Identifiable, Equatable, Sendable {
         self.canSetVolume = canSetVolume
         self.canSetMute = canSetMute
         self.transport = transport
+        self.battery = battery
     }
 }
 
@@ -71,6 +109,7 @@ public final class RealAudioDevicesService: AudioDevicesService {
         let block: AudioObjectPropertyListenerBlock
     }
     private struct OutputDetails {
+        let uid: String?
         let name: String
         let canSetVolume: Bool
         let canSetMute: Bool
@@ -168,7 +207,7 @@ public final class RealAudioDevicesService: AudioDevicesService {
                 && !cachedOutputIDs.contains(defaultID)) {
             cachedOutputIDs = outputIDs()
             outputDetails = Dictionary(uniqueKeysWithValues: cachedOutputIDs.map { id in
-                (id, OutputDetails(name: Self.name(id) ?? "Audio Output",
+                (id, OutputDetails(uid: Self.deviceUID(id), name: Self.name(id) ?? "Audio Output",
                                    canSetVolume: !Self.writableControlAddresses(id, kAudioDevicePropertyVolumeScalar).isEmpty,
                                    canSetMute: !Self.writableControlAddresses(id, kAudioDevicePropertyMute).isEmpty,
                                    transport: Self.transport(id)))
@@ -219,7 +258,9 @@ public final class RealAudioDevicesService: AudioDevicesService {
         let selected = defaultOutputID()
         let outputs = cachedOutputIDs.map { id in
             let details = outputDetails[id]
-            return AudioDevice(id: String(id), name: details?.name ?? "Audio Output",
+            // Core Audio exposes no battery property, and macOS has no supported public API for
+            // AirPods/headphone battery; private Bluetooth sources are deliberately not used.
+            return AudioDevice(id: String(id), uid: details?.uid, name: details?.name ?? "Audio Output",
                         isDefaultOutput: id == selected,
                         volume: Self.scalar(id), isMuted: Self.muted(id),
                         canSetVolume: details?.canSetVolume ?? false,
