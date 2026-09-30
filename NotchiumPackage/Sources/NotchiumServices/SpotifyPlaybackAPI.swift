@@ -168,9 +168,7 @@ actor SpotifyPlaybackAPI {
         guard !uri.isEmpty else { throw MediaFailure.unsupported }
         var query = [URLQueryItem(name: "uri", value: uri)]
         if let deviceID { query.append(.init(name: "device_id", value: deviceID)) }
-        let response = try await request(path: "/queue", method: "POST",
-                                         query: query, reason: "command")
-        guard response.status == 204 else { throw MediaFailure.invalidResponse }
+        _ = try await request(path: "/queue", method: "POST", query: query, reason: "command")
     }
     func devices() async throws -> [SpotifyDevice] {
         struct Payload: Decodable { let devices: [SpotifyPlayback.Device] }
@@ -188,8 +186,7 @@ actor SpotifyPlaybackAPI {
         guard !deviceID.isEmpty else { throw MediaFailure.unsupported }
         struct Transfer: Encodable { let device_ids: [String]; let play: Bool? }
         let body = try JSONEncoder().encode(Transfer(device_ids: [deviceID], play: play))
-        let response = try await request(method: "PUT", body: body, reason: "transfer")
-        guard response.status == 204 else { throw MediaFailure.invalidResponse }
+        _ = try await request(method: "PUT", body: body, reason: "transfer")
     }
     func perform(_ command: MediaCommand, state: MediaState) async throws {
         guard state.hasMedia, state.capabilities.supports(command) else { throw MediaFailure.unsupported }
@@ -228,9 +225,8 @@ actor SpotifyPlaybackAPI {
                 query.append(.init(name: "device_id", value: deviceID))
             }
         }
-        let response = try await request(path: path, method: method, query: query, reason: "command")
-        if case .seek = command {
-            guard response.status == 204 else { throw MediaFailure.invalidResponse }
-        }
+        // Any 2xx is success (request() rejects the rest). Spotify documents 204 for player
+        // commands but live seeks return 200 with an opaque body, and apply asynchronously.
+        _ = try await request(path: path, method: method, query: query, reason: "command")
     }
 }
