@@ -2,6 +2,22 @@ import CoreAudio
 import Foundation
 import NotchiumCore
 
+/// Core Audio's public transport type, reduced to what presentation distinguishes.
+public enum AudioOutputTransport: String, Equatable, Sendable {
+    case builtIn, bluetooth, usb, display, airPlay, other
+
+    init(coreAudio value: UInt32) {
+        switch value {
+        case kAudioDeviceTransportTypeBuiltIn: self = .builtIn
+        case kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE: self = .bluetooth
+        case kAudioDeviceTransportTypeUSB: self = .usb
+        case kAudioDeviceTransportTypeHDMI, kAudioDeviceTransportTypeDisplayPort: self = .display
+        case kAudioDeviceTransportTypeAirPlay: self = .airPlay
+        default: self = .other
+        }
+    }
+}
+
 public struct AudioDevice: Identifiable, Equatable, Sendable {
     public let id: String
     public let name: String
@@ -10,10 +26,12 @@ public struct AudioDevice: Identifiable, Equatable, Sendable {
     public let isMuted: Bool?
     public let canSetVolume: Bool
     public let canSetMute: Bool
+    public let transport: AudioOutputTransport
 
     public init(id: String, name: String, isDefaultOutput: Bool,
                 volume: Double? = nil, isMuted: Bool? = nil,
-                canSetVolume: Bool = false, canSetMute: Bool = false) {
+                canSetVolume: Bool = false, canSetMute: Bool = false,
+                transport: AudioOutputTransport = .other) {
         self.id = id
         self.name = name
         self.isDefaultOutput = isDefaultOutput
@@ -21,6 +39,7 @@ public struct AudioDevice: Identifiable, Equatable, Sendable {
         self.isMuted = isMuted
         self.canSetVolume = canSetVolume
         self.canSetMute = canSetMute
+        self.transport = transport
     }
 }
 
@@ -55,6 +74,7 @@ public final class RealAudioDevicesService: AudioDevicesService {
         let name: String
         let canSetVolume: Bool
         let canSetMute: Bool
+        let transport: AudioOutputTransport
     }
     private var systemListeners: [Listener] = []
     private var outputListeners: [Listener] = []
@@ -141,15 +161,20 @@ public final class RealAudioDevicesService: AudioDevicesService {
     }
 
     private func refresh(rebuildDevices: Bool = false) {
-        if rebuildDevices || cachedOutputIDs.isEmpty {
+        let defaultID = defaultOutputID()
+        // Hot-plug can report the new default output before the device-list change arrives.
+        if rebuildDevices || cachedOutputIDs.isEmpty
+            || (defaultID != selectedID && defaultID != kAudioObjectUnknown
+                && !cachedOutputIDs.contains(defaultID)) {
             cachedOutputIDs = outputIDs()
             outputDetails = Dictionary(uniqueKeysWithValues: cachedOutputIDs.map { id in
                 (id, OutputDetails(name: Self.name(id) ?? "Audio Output",
                                    canSetVolume: !Self.writableControlAddresses(id, kAudioDevicePropertyVolumeScalar).isEmpty,
-                                   canSetMute: !Self.writableControlAddresses(id, kAudioDevicePropertyMute).isEmpty))
+                                   canSetMute: !Self.writableControlAddresses(id, kAudioDevicePropertyMute).isEmpty,
+                                   transport: Self.transport(id)))
             })
         }
-        let id = defaultOutputID()
+        let id = defaultID
         if id != selectedID {
             outputListeners.forEach(Self.remove)
             outputListeners.removeAll()
@@ -198,7 +223,8 @@ public final class RealAudioDevicesService: AudioDevicesService {
                         isDefaultOutput: id == selected,
                         volume: Self.scalar(id), isMuted: Self.muted(id),
                         canSetVolume: details?.canSetVolume ?? false,
-                        canSetMute: details?.canSetMute ?? false)
+                        canSetMute: details?.canSetMute ?? false,
+                        transport: details?.transport ?? .other)
         }.sorted { a, b in
             a.isDefaultOutput == b.isDefaultOutput
                 ? a.name.localizedStandardCompare(b.name) == .orderedAscending
@@ -279,6 +305,14 @@ public final class RealAudioDevicesService: AudioDevicesService {
         var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
         guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, &value) == noErr else { return nil }
         return value?.takeRetainedValue() as String?
+    }
+
+    private static func transport(_ id: AudioObjectID) -> AudioOutputTransport {
+        var address = Self.address(kAudioDevicePropertyTransportType)
+        var value: UInt32 = 0
+        var size = UInt32(MemoryLayout.size(ofValue: value))
+        guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, &value) == noErr else { return .other }
+        return AudioOutputTransport(coreAudio: value)
     }
 
     private static func deviceUID(_ id: AudioObjectID) -> String? {
