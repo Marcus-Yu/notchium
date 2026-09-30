@@ -6,7 +6,9 @@ public struct NotchNotification: Identifiable, Equatable, Sendable {
         case reminder60, reminder30, reminder5
         case volume, mute, outputDeviceChanged
         case actionSucceeded, actionFailed, reminderAdded
-        case charging, lowBattery
+        case charging, lowBattery, criticalBattery, powerDisconnected
+        case transferActive, transferFinished, transferFailed
+        case screenshot, shelfAdded
 
         public var defaultDuration: Duration {
             switch self {
@@ -18,12 +20,20 @@ public struct NotchNotification: Identifiable, Equatable, Sendable {
             case .reminderAdded: .seconds(2)
             case .charging: .milliseconds(2500)
             case .lowBattery: .seconds(4)
+            case .criticalBattery: .seconds(6)
+            case .powerDisconnected: .milliseconds(1750)
+            // Persistent while any transfer runs; the coordinator ignores it for baselines.
+            case .transferActive: .seconds(0)
+            case .transferFinished: .milliseconds(2500)
+            case .transferFailed: .seconds(3)
+            case .screenshot: .seconds(4)
+            case .shelfAdded: .milliseconds(1750)
             }
         }
     }
     /// `.compact` occupies the notch's two sides at collapsed height; the others grow downward.
     public enum PresentationStyle: Equatable, Sendable { case calendar, feedback, compact }
-    public enum Action: Equatable, Sendable { case calendar, audio, join(URL), none }
+    public enum Action: Equatable, Sendable { case calendar, audio, shelf, join(URL), none }
     public enum Content: Equatable, Sendable {
         case calendar(title: String, status: String)
         case audio(NotchAudioHUD)
@@ -49,10 +59,17 @@ public struct NotchNotification: Identifiable, Equatable, Sendable {
     public let action: Action
     public let presentationStyle: PresentationStyle
     public let content: Content
+    /// `.persistent` notifications (active transfers) live until their source replaces them.
+    public let lifetime: NotchActivityLifetime
+    /// Secondary-chip form; only meaningful for persistent notifications.
+    public let minimal: NotchActivityMinimal?
 
     public init(id: UUID = UUID(), kind: Kind,
                 duration: Duration? = nil, dismissible: Bool = true, coalescingKey: String,
-                action: Action, presentationStyle: PresentationStyle, content: Content) {
+                action: Action, presentationStyle: PresentationStyle, content: Content,
+                lifetime: NotchActivityLifetime = .transient, minimal: NotchActivityMinimal? = nil) {
+        self.lifetime = lifetime
+        self.minimal = minimal
         self.id = id
         self.kind = kind
         self.duration = duration ?? kind.defaultDuration
@@ -64,7 +81,9 @@ public struct NotchNotification: Identifiable, Equatable, Sendable {
     }
 
     public static func audio(_ hud: NotchAudioHUD) -> Self {
-        let output = hud.kind == .outputChanged
+        // Connect, disconnect and output switch share one route identity: one physical
+        // transition updates one activity instead of stacking overlapping cards.
+        let output = hud.isDeviceTransition
         return Self(kind: output ? .outputDeviceChanged : (hud.isMuted ? .mute : .volume),
                     coalescingKey: output ? "audio.output" : "audio.level",
                     action: .audio, presentationStyle: .compact, content: .audio(hud))
@@ -78,6 +97,17 @@ public struct NotchNotification: Identifiable, Equatable, Sendable {
     public static func lowBattery(level: Double) -> Self {
         Self(kind: .lowBattery, coalescingKey: "battery", action: .none, presentationStyle: .compact,
              content: .compact(.lowBattery(level: level)))
+    }
+
+    /// Every Mac battery state shares the "battery" identity: severity changes update one activity.
+    public static func criticalBattery(level: Double) -> Self {
+        Self(kind: .criticalBattery, coalescingKey: "battery", action: .none, presentationStyle: .compact,
+             content: .compact(.criticalBattery(level: level)))
+    }
+
+    public static func powerDisconnected(level: Double) -> Self {
+        Self(kind: .powerDisconnected, coalescingKey: "battery", action: .none, presentationStyle: .compact,
+             content: .compact(.powerDisconnected(level: level)))
     }
 
     public static func feedback(_ title: String, kind: Kind, key: String) -> Self {
@@ -103,30 +133,24 @@ public struct NotchNotification: Identifiable, Equatable, Sendable {
         let activityKind: NotchActivityKind = switch kind {
         case .reminder60, .reminder30, .reminder5: .calendar
         case .outputDeviceChanged: .audioDevice
-        case .charging: .charging
-        case .lowBattery: .battery
+        case .charging, .powerDisconnected: .charging
+        case .lowBattery, .criticalBattery: .battery
+        case .transferActive, .transferFinished, .transferFailed: .download
+        case .screenshot: .screenshot
+        case .shelfAdded: .clipboard
         default: .systemHUD
         }
         let destination: NotchActivityDestination? = switch action {
         case .calendar, .join: .calendar
         case .audio: .audio
+        case .shelf: .shelf
         case .none: nil
         }
         return NotchActivity(id: id, key: NotchActivityKey(coalescingKey), kind: activityKind,
             title: title, subtitle: subtitle, priority: priority,
             presentationStyle: presentationStyle == .calendar ? .downwardBanner : .compactHUD,
-            lifetime: .transient, isDismissible: dismissible,
+            lifetime: lifetime, isDismissible: dismissible,
             destination: destination, usesDefaultDestination: false,
-            duration: duration, payload: payload, minimal: minimal)
-    }
-
-    /// Compact activities reuse their own glyph; utility text results have no minimal form.
-    private var minimal: NotchActivityMinimal? {
-        switch content {
-        case .calendar: .glyph(.symbol("calendar"), tint: .primary)
-        case .feedback: nil
-        case .audio, .compact:
-            content.compactActivity.map { .glyph($0.glyph, tint: $0.tint) }
-        }
+            duration: lifetime.isBaseline ? nil : duration, payload: payload, minimal: minimal)
     }
 }
