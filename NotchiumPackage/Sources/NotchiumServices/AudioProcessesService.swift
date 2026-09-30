@@ -5,11 +5,15 @@ public struct AudioProducingProcess: Identifiable, Equatable, Sendable {
     public let id: Int32
     public let bundleID: String?
     public let controllableOutputDeviceIDs: [String]
+    /// Tapping failed only because System Audio Recording access is missing.
+    public let requiresAudioPermission: Bool
 
-    public init(id: Int32, bundleID: String?, controllableOutputDeviceIDs: [String] = []) {
+    public init(id: Int32, bundleID: String?, controllableOutputDeviceIDs: [String] = [],
+                requiresAudioPermission: Bool = false) {
         self.id = id
         self.bundleID = bundleID
         self.controllableOutputDeviceIDs = controllableOutputDeviceIDs
+        self.requiresAudioPermission = requiresAudioPermission
     }
 
     public func isControllable(on outputDeviceID: String?) -> Bool {
@@ -38,6 +42,7 @@ public final class RealAudioProcessesService: AudioProcessesService {
     private var systemListener: Listener?
     private var processListeners: [AudioObjectID: [Listener]] = [:]
     private var verifiedTapRoutes: Set<TapRoute> = []
+    private var rejectedTapRoutes: Set<TapRoute> = []
     private var observer: AsyncStream<[AudioProducingProcess]>.Continuation?
     private var observerID: UUID?
     private var last: [AudioProducingProcess] = []
@@ -72,6 +77,7 @@ public final class RealAudioProcessesService: AudioProcessesService {
         systemListener = nil
         processListeners.removeAll()
         verifiedTapRoutes.removeAll()
+        rejectedTapRoutes.removeAll()
         observer = nil
         observerID = nil
         last = []
@@ -85,6 +91,7 @@ public final class RealAudioProcessesService: AudioProcessesService {
             processListeners[id]?.forEach(Self.remove)
             processListeners[id] = nil
             verifiedTapRoutes = verifiedTapRoutes.filter { $0.processObjectID != id }
+            rejectedTapRoutes = rejectedTapRoutes.filter { $0.processObjectID != id }
         }
         for id in objects where processListeners[id] == nil {
             processListeners[id] = [
@@ -98,14 +105,15 @@ public final class RealAudioProcessesService: AudioProcessesService {
                   let pid = Self.readInt(object, kAudioProcessPropertyPID), pid > 0,
                   pid != ProcessInfo.processInfo.processIdentifier,
                   let bundleID = Self.bundleID(object), !bundleID.isEmpty else { return nil }
-            let controllableOutputs = Self.readObjectIDs(object, kAudioProcessPropertyDevices,
-                                                         scope: kAudioObjectPropertyScopeOutput)
-                .filter { verifyTapRoute(processObjectID: object, outputDeviceID: $0) }
-                .map(String.init)
-                .sorted()
-            guard !controllableOutputs.isEmpty else { return nil }
+            let routes = Self.readObjectIDs(object, kAudioProcessPropertyDevices,
+                                            scope: kAudioObjectPropertyScopeOutput)
+                .map { ($0, verifyTapRoute(processObjectID: object, outputDeviceID: $0)) }
+                .filter { $0.1 != .unsupported }
+            guard !routes.isEmpty else { return nil }
+            // Permission-blocked routes stay listed so the mixer can report .permissionRequired.
             return AudioProducingProcess(id: pid, bundleID: bundleID,
-                                         controllableOutputDeviceIDs: controllableOutputs)
+                                         controllableOutputDeviceIDs: routes.map { String($0.0) }.sorted(),
+                                         requiresAudioPermission: routes.contains { $0.1 == .permissionDenied })
         }.sorted { $0.id < $1.id }
         guard active != last else { return }
         last = active
@@ -160,18 +168,26 @@ public final class RealAudioProcessesService: AudioProcessesService {
     }
 
     private func verifyTapRoute(processObjectID: AudioObjectID,
-                                outputDeviceID: AudioObjectID) -> Bool {
+                                outputDeviceID: AudioObjectID) -> ProcessTapSupport.TapEligibility {
         let route = TapRoute(processObjectID: processObjectID, outputDeviceID: outputDeviceID)
-        if verifiedTapRoutes.contains(route) { return true }
+        if verifiedTapRoutes.contains(route) { return .supported }
+        // Notchium's own devices never become tappable; skip them without another probe.
+        if rejectedTapRoutes.contains(route) { return .unsupported }
         guard AudioDeviceVisibility.isUserVisible(
             uid: ProcessTapSupport.stringProperty(outputDeviceID,
                                                    selector: kAudioDevicePropertyDeviceUID)
-        ), ProcessTapSupport.canCreateTap(processObjectID: processObjectID,
-                                          deviceID: outputDeviceID) else {
-            return false
+        ) else {
+            rejectedTapRoutes.insert(route)
+            return .unsupported
         }
-        verifiedTapRoutes.insert(route)
-        return true
+        let eligibility = ProcessTapSupport.tapEligibility(processObjectID: processObjectID,
+                                                           deviceID: outputDeviceID)
+        switch eligibility {
+        case .supported: verifiedTapRoutes.insert(route)
+        // A failed probe may be transient (route change) and a denial may later be granted.
+        case .unsupported, .permissionDenied: break
+        }
+        return eligibility
     }
 
     private static func readInt(_ object: AudioObjectID, _ selector: AudioObjectPropertySelector) -> Int32? {
