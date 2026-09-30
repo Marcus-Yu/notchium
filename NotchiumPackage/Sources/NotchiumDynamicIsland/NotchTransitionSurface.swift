@@ -34,6 +34,12 @@ struct NotchTransitionSurface<Content: View>: View {
     let reduceMotion: Bool
     let notificationVisible: Bool
     var retainsMedia = false
+    var compactVisible = false
+    var compactSpan = NotchCompactSpan(base: 0, full: 0)
+    @State private var wasCompactVisible: Bool
+    @State private var compactExiting = false
+    /// The span the visible activity entered with; its exit retracts from that same width.
+    @State private var enteredCompactSpan: NotchCompactSpan?
     @State private var wasNotificationVisible: Bool
     @State private var preservesNotificationContent = false
     @State private var wasExpanded: Bool
@@ -43,13 +49,17 @@ struct NotchTransitionSurface<Content: View>: View {
     @State private var transition: NotchVisualTransition
 
     init(expanded: Bool, shape: NotchShellSurface, reduceMotion: Bool, notificationVisible: Bool = false,
-         retainsMedia: Bool = false,
+         retainsMedia: Bool = false, compactVisible: Bool = false,
+         compactSpan: NotchCompactSpan = .init(base: 0, full: 0),
          @ViewBuilder content: @escaping @MainActor (NotchVisualTransition.Phase) -> Content) {
         self.expanded = expanded
         self.shape = shape
         self.reduceMotion = reduceMotion
         self.notificationVisible = notificationVisible
         self.retainsMedia = retainsMedia
+        self.compactVisible = compactVisible
+        self.compactSpan = compactSpan
+        _wasCompactVisible = State(initialValue: compactVisible)
         _wasNotificationVisible = State(initialValue: notificationVisible)
         _wasExpanded = State(initialValue: expanded)
         self.content = content
@@ -61,6 +71,9 @@ struct NotchTransitionSurface<Content: View>: View {
         // Hide in the very first target-state update, before onChange retargets the
         // geometry. This also prevents a stale completion flashing on reversal.
         let targetChanged = renderedShape.animatableData != shape.animatableData
+        // The dismissal update renders once before retarget(); compact content must not blink out.
+        let compactExitPending = targetChanged && wasCompactVisible && !compactVisible && !expanded && !wasExpanded
+        let compactRetracting = compactExiting || compactExitPending
         NotchSurfaceFrame(
             shape: renderedShape,
             phase: transition.phase,
@@ -70,6 +83,8 @@ struct NotchTransitionSurface<Content: View>: View {
             keepsNotificationContent: preservesNotificationContent,
             preservesCollapsedMedia: retainsMedia && !expanded
                 && (targetChanged ? !wasExpanded : (isNotificationTransition || !transition.isBlack)),
+            compactSpan: compactVisible ? compactSpan : (compactRetracting ? enteredCompactSpan ?? compactSpan : nil),
+            compactRetracting: compactRetracting,
             content: content
         )
         .onChange(of: shape.animatableData) { _, _ in retarget() }
@@ -78,13 +93,19 @@ struct NotchTransitionSurface<Content: View>: View {
     private func retarget() {
         preservesNotificationContent = notificationVisible && wasNotificationVisible && !expanded && !wasExpanded
         let notificationMotion = !expanded && !wasExpanded && (notificationVisible || wasNotificationVisible)
+        let compactMotion = notificationMotion && (compactVisible || wasCompactVisible)
         isNotificationTransition = notificationMotion
+        compactExiting = compactMotion && !compactVisible
         let generation = transition.begin(expanded: expanded || notificationVisible)
-        let animation = notificationMotion
+        let animation = compactMotion
+            ? (compactVisible ? NotchMotion.compactIn : NotchMotion.compactOut)
+            : notificationMotion
             ? (notificationVisible ? NotchMotion.notificationIn : NotchMotion.notificationOut)
             : NotchMotion.shell
         wasExpanded = expanded
         wasNotificationVisible = notificationVisible
+        wasCompactVisible = compactVisible
+        if compactVisible { enteredCompactSpan = compactSpan }
         // Only this shape receives the animation. A reversal retargets the same
         // SwiftUI spring from its live presentation position and velocity.
         withAnimation(reduceMotion ? NotchMotion.reduced : animation,
@@ -92,6 +113,8 @@ struct NotchTransitionSurface<Content: View>: View {
             renderedShape = shape
         } completion: {
             transition.complete(generation: generation)
+            // Retained compact content ends exactly when the retraction settles.
+            if transition.generation == generation { compactExiting = false }
         }
     }
 }
@@ -106,6 +129,8 @@ nonisolated struct NotchSurfaceFrame<Content: View>: View, Animatable {
     var notificationVisible = false
     var keepsNotificationContent = false
     var preservesCollapsedMedia = false
+    var compactSpan: NotchCompactSpan?
+    var compactRetracting = false
     @ViewBuilder var content: @MainActor (NotchVisualTransition.Phase) -> Content
 
     var animatableData: NotchShellSurface.AnimatableData {
@@ -125,16 +150,25 @@ nonisolated struct NotchSurfaceFrame<Content: View>: View, Animatable {
         return phase
     }
 
+    /// Read from the interpolated geometry every frame: compact content moves with the
+    /// shell's own spring (and reverses with it) instead of running a second animation.
+    var compactReveal: CGFloat {
+        guard let compactSpan, compactSpan.full > compactSpan.base else { return 0 }
+        return min(max((shape.width - compactSpan.base) / (compactSpan.full - compactSpan.base), 0), 1.06)
+    }
+
     @MainActor var body: some View {
         let visible = contentPhase == .expanded || contentPhase == .collapsed
         let transitioning = phase == .openingBlack || phase == .closingBlack || hidesPendingTarget
         ZStack(alignment: .top) {
             shape.fill(.black).allowsHitTesting(false)
             content(contentPhase)
-                .modifier(NotchPresentationClip(visible: visible || preservesCollapsedMedia))
+                .modifier(NotchPresentationClip(visible: visible || preservesCollapsedMedia || compactRetracting))
                 .mask(shape)
                 .environment(\.notchPreservesCollapsedMedia, preservesCollapsedMedia)
                 .environment(\.notchShellIsTransitioning, transitioning)
+                .environment(\.notchCompactReveal, compactReveal)
+                .environment(\.notchCompactRetracting, compactRetracting)
                 // Notification input can reverse entry before its content reveal
                 // finishes; main expand/collapse keeps the established black gate.
                 .allowsHitTesting(visible || notificationVisible || preservesCollapsedMedia)
@@ -154,6 +188,15 @@ nonisolated struct NotchSurfaceFrame<Content: View>: View, Animatable {
 extension EnvironmentValues {
     @Entry public var notchShellIsTransitioning = false
     @Entry var notchPreservesCollapsedMedia = false
+    /// 0 at the notch, 1 at the compact activity's full width; 0 when no compact activity is involved.
+    @Entry var notchCompactReveal: CGFloat = 0
+    @Entry var notchCompactRetracting = false
+}
+
+/// The widths a compact activity grows between: the shell without it, and with it.
+struct NotchCompactSpan: Equatable {
+    let base: CGFloat
+    let full: CGFloat
 }
 
 struct CollapsedMediaPresentation: ViewModifier {
