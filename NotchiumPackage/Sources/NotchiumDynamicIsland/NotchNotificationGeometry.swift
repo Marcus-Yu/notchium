@@ -1,17 +1,30 @@
 import SwiftUI
 
 /// Shared dimensions for drawing and pointer retention; neither depends on content updates.
-enum NotchNotificationGeometry {
+public enum NotchNotificationGeometry {
     static let calendarHeight: CGFloat = 88
     static let audioHeight: CGFloat = 56
     static let lowerRadius: CGFloat = 34
     static let shoulderRadius: CGFloat = 12
+    /// Horizontal safe margin for every downward notification's content. The banner's body
+    /// wall sits a shoulder's width inside its frame, and the lower corners curve in further.
+    public static let contentHorizontalInset: CGFloat = shoulderRadius + 20
+    /// Text starts further in than trailing controls: it sits beside the lower-left curve.
+    public static let contentLeadingInset: CGFloat = shoulderRadius + 36
 
     static func contentHeight(for style: NotchNotification.PresentationStyle) -> CGFloat {
-        style == .calendar ? calendarHeight : audioHeight
+        switch style {
+        case .calendar: calendarHeight
+        case .compact: 0
+        case .feedback: audioHeight
+        }
     }
 
     static func size(for style: NotchNotification.PresentationStyle, layout: NotchPanelLayout) -> CGSize {
+        if style == .compact {
+            // Interaction covers the body only; the shoulders are a visual flare.
+            return CGSize(width: NotchCompactGeometry(layout: layout).bodyWidth, height: layout.collapsedVisibleFrame.height)
+        }
         let mediaWidth = CollapsedMediaGeometry(hardwareWidth: layout.hardwareNotchGeometry?.frame.width ?? 0,
                                                hardwareHeight: layout.collapsedVisibleFrame.height).width
         return CGSize(width: style == .calendar ? NotchReminderGeometry.width(for: layout) : max(292, mediaWidth, layout.collapsedVisibleFrame.width),
