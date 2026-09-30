@@ -149,7 +149,7 @@ struct AudioPageView: View {
             HStack(spacing: 6) {
                 columnTitle("Local Audio Apps")
                 Spacer(minLength: 4)
-                if model.mixerStatus == .permissionRequired {
+                if model.audioPermissionRequired {
                     Menu {
                         Button("Request Access") { model.retryMixerPermission() }
                         Button("Open Privacy & Security") { model.openAudioPrivacySettings() }
