@@ -57,6 +57,16 @@ public final class DynamicIslandPresentationModel {
     public var presentedNotification: NotchNotification? {
         surfaceState == .collapsed ? notificationCoordinator.active : nil
     }
+    /// The secondary chip exists only beside visible collapsed side content: a compact
+    /// activity, or Music's live flanks. Expanded pages never show it.
+    public var presentedSecondary: NotchActivity? {
+        _ = activityRevision
+        guard surfaceState == .collapsed, let secondary = activityCoordinator.secondary else { return nil }
+        if let notification = presentedNotification {
+            return notification.presentationStyle == .compact ? secondary : nil
+        }
+        return showsCollapsedMedia ? secondary : nil
+    }
     public let pageModel: NotchPageModel
     public var mediaRenderer: (any NotchMediaRendering)?
     public var calendarRenderer: (any NotchCalendarRendering)?
@@ -134,8 +144,8 @@ public final class DynamicIslandPresentationModel {
         pageModel = NotchPageModel()
         if phase.visualState != .collapsed { pageModel.beginExpansion(default: .home) }
         activityObservation = activityCoordinator.$activeTransient
-            .combineLatest(activityCoordinator.$persistentActivity)
-            .sink { [weak self] _, _ in
+            .combineLatest(activityCoordinator.$persistentActivity, activityCoordinator.$secondary)
+            .sink { [weak self] _, _, _ in
                 self?.activityRevision &+= 1
             }
     }
@@ -272,6 +282,11 @@ public final class DynamicIslandPresentationModel {
         if let destination = activity.destination {
             selectPage(destination)
         }
+    }
+
+    /// Promotes the secondary chip in place. Presentation role only: no page or provider change.
+    public func activateSecondaryActivity() {
+        activityCoordinator.promoteSecondary()
     }
 
     private func selectPage(_ destination: NotchActivityDestination) {
