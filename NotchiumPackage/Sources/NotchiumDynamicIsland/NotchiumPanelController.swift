@@ -20,7 +20,7 @@ private final class NotchHostingView: NSHostingView<NotchiumShellView> {
 }
 
 @MainActor
-final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDelegate {
+final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDelegate, NotchFileDropHandling {
     private let panel: NotchPanel
     private let model: DynamicIslandPresentationModel
     private let allowsPointerDrivenHover: Bool
@@ -28,6 +28,10 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
     private var currentLayout: NotchPanelLayout?
     private var escapeMonitor: Any?
     private var globalPointerMonitor: Any?
+    /// File-drag tracking: the drag pasteboard changes when any drag session begins.
+    private var dragPasteboardChangeCount = 0
+    private var isFileDrag: Bool?
+    private var fileDragEndTask: Task<Void, Never>?
     private var localPointerMonitor: Any?
     private var positionedDisplayID: CGDirectDisplayID?
     private var positionedScreenFrame: NSRect?
@@ -51,6 +55,7 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
             defer: false
         )
         panel.applyNotchWindowBehavior()
+        panel.registerForDraggedTypes([.fileURL])
 
 #if DEBUG
         assert(panel.collectionBehavior.contains(.canJoinAllSpaces))
@@ -81,6 +86,7 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         super.init()
 
         panel.delegate = self
+        panel.fileDropHandler = self
         panel.ignoresMouseEvents = true
         panel.acceptsMouseMovedEvents = true
         panel.setAccessibilityLabel("Notchium shell")
@@ -181,6 +187,9 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
     }
 
     func hide() {
+        fileDragEndTask?.cancel()
+        fileDragEndTask = nil
+        panel.setAcceptsFileDrags(false)
         removeEscapeMonitor()
         removePointerMonitors()
         currentLayout = nil
@@ -242,7 +251,7 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
     }
 
     private func installPointerMonitorsIfNeeded() {
-        let eventMask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDown]
+        let eventMask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDown, .leftMouseDragged, .leftMouseUp]
 
         if globalPointerMonitor == nil {
             globalPointerMonitor = NSEvent.addGlobalMonitorForEvents(matching: eventMask) {
@@ -271,10 +280,93 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
             updateHitTesting(at: point)
             if allowsPointerDrivenHover { handleMouseMoved(at: point) }
         case .leftMouseDown:
+            beginPointerDrag()
             handleClick(at: point)
+        case .leftMouseDragged:
+            handleDrag(at: point)
+        case .leftMouseUp:
+            endPointerDrag()
         default:
             break
         }
+    }
+
+    // MARK: File drags toward the notch
+
+    /// Screen point for a drag location reported in panel coordinates.
+    func screenPoint(forWindowPoint point: CGPoint) -> CGPoint { panel.convertPoint(toScreen: point) }
+    func windowPoint(forScreenPoint point: CGPoint) -> CGPoint { panel.convertPoint(fromScreen: point) }
+
+    /// Accepts external file drags near the collapsed notch, or over the open Shelf page.
+    /// Drags that started inside Notchium (a Shelf item) are never re-ingested.
+    func fileDragOperation(for info: NSDraggingInfo) -> NSDragOperation {
+        guard info.draggingSource == nil, let currentLayout,
+              !NotchFileDrop.fileURLs(from: info.draggingPasteboard).isEmpty else { return [] }
+        let point = screenPoint(forWindowPoint: info.draggingLocation)
+        if model.visualState == .collapsed {
+            let inside = NotchHoverRegion.contains(point, in: Self.fileDropZone(for: currentLayout))
+            model.setFileDragNearby(inside)
+            model.setFileDropTargeted(inside)
+            return inside ? .copy : []
+        }
+        let overShelf = model.pageModel.selectedPage == .shelf
+            && NotchHoverRegion.contains(point, in: currentLayout.visibleSurfaceFrame)
+        return overShelf ? .copy : []
+    }
+
+    func fileDragExited() {
+        model.setFileDropTargeted(false)
+    }
+
+    func performFileDrop(_ info: NSDraggingInfo) -> Bool {
+        guard !fileDragOperation(for: info).isEmpty else { return false }
+        return model.acceptDroppedFiles(NotchFileDrop.fileURLs(from: info.draggingPasteboard))
+    }
+
+    private func beginPointerDrag() {
+        fileDragEndTask?.cancel()
+        // A new press ends any previous drag (our own outbound drags never report mouse-up here).
+        if isFileDrag == true { model.endFileDrag() }
+        panel.setAcceptsFileDrags(false)
+        dragPasteboardChangeCount = NSPasteboard(name: .drag).changeCount
+        isFileDrag = nil
+    }
+
+    /// Cheap per event: one change-count read until a drag session is identified, then a
+    /// rectangle test. Nothing runs while no mouse button is held.
+    func handleDrag(at point: CGPoint) {
+        guard let currentLayout else { return }
+        if isFileDrag == nil {
+            let pasteboard = NSPasteboard(name: .drag)
+            guard pasteboard.changeCount != dragPasteboardChangeCount else { return }
+            isFileDrag = pasteboard.canReadObject(forClasses: [NSURL.self],
+                                                  options: [.urlReadingFileURLsOnly: true])
+            // Identified at the very start of the drag, long before the pointer reaches the notch.
+            if isFileDrag == true { panel.setAcceptsFileDrags(true) }
+        }
+        guard isFileDrag == true, model.visualState == .collapsed else { return }
+        model.setFileDragNearby(NotchHoverRegion.contains(point, in: Self.fileDropZone(for: currentLayout)))
+        updateHitTesting(at: point)
+    }
+
+    private func endPointerDrag() {
+        guard isFileDrag == true else { isFileDrag = nil; return }
+        isFileDrag = nil
+        // Let the drop callback finish before the affordance retracts.
+        fileDragEndTask?.cancel()
+        fileDragEndTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled, let self else { return }
+            self.panel.setAcceptsFileDrags(false)
+            self.model.endFileDrag()
+            self.updateHitTesting(at: NSEvent.mouseLocation)
+        }
+    }
+
+    /// Generous but local: the notch plus room below and beside it. Not the whole menu bar.
+    static func fileDropZone(for layout: NotchPanelLayout) -> CGRect {
+        let frame = layout.collapsedVisibleFrame
+        return CGRect(x: frame.minX - 90, y: frame.minY - 90, width: frame.width + 180, height: frame.height + 90)
     }
 
     func handleClick(at point: CGPoint) {
@@ -324,8 +416,7 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
 
     private func secondaryFrame(for layout: NotchPanelLayout) -> CGRect? {
         guard model.presentedSecondary != nil else { return nil }
-        return NotchSecondaryGeometry.frame(layout: layout,
-                                            beside: model.presentedNotification?.content.compactActivity)
+        return NotchSecondaryGeometry.frame(layout: layout, beside: model.presentedNotification)
     }
 
     private func updateHitTesting(at point: CGPoint) {
@@ -336,6 +427,7 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         let insideSecondary = secondaryFrame(for: currentLayout)
             .map { NotchHoverRegion.contains(point, in: $0) } == true
         panel.ignoresMouseEvents = model.surfaceState == .collapsed && !inside && !insideSecondary
+            && !model.showsFileDropTarget
     }
 
     private func removePointerMonitors() {
