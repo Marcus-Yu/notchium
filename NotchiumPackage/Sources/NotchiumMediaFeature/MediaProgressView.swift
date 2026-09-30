@@ -37,7 +37,7 @@ struct MediaProgressView: View {
                     }
                 }
                 .frame(height: 20)
-                .disabled(!model.state.canSeek || (model.isPending(.seek(0)) && !isSeeking))
+                .disabled(!model.state.canSeek)
                 HStack {
                     Text(Self.time(position))
                     Spacer()
