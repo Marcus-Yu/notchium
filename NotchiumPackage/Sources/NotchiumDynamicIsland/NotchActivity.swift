@@ -40,9 +40,35 @@ public enum NotchPresentationMode: Equatable, Sendable {
     case combined
 }
 
+/// How long an activity lives. Only `.transient` carries a coordinator-owned deadline;
+/// persistent and condition activities live exactly as long as their provider reports them.
 public enum NotchActivityLifetime: Equatable, Sendable {
+    /// Ongoing provider state, e.g. active Spotify playback.
     case persistent
+    /// A system condition that holds until it clears, e.g. a future low-battery condition.
+    case condition
+    /// One event with an absolute lifetime, e.g. volume, output change, reminder, utility result.
     case transient
+
+    /// Persistent and condition activities form the baseline that transients interrupt.
+    public var isBaseline: Bool { self != .transient }
+}
+
+/// Stable identity. Repeated events with the same key update one activity instead of stacking.
+/// Keys are namespaced by source ("audio.level", "calendar.<event>", "media.spotify").
+public struct NotchActivityKey: Hashable, Sendable, CustomStringConvertible {
+    public let rawValue: String
+    public init(_ rawValue: String) { self.rawValue = rawValue }
+    public var description: String { rawValue }
+
+    public static let media = Self("media.spotify")
+}
+
+/// The small representation used when an activity is the secondary (not primary) activity.
+public enum NotchActivityMinimal: Equatable, Sendable {
+    /// Current artwork, drawn by the media renderer.
+    case artwork
+    case glyph(NotchCompactActivity.Glyph, tint: NotchCompactActivity.Tint)
 }
 
 public enum NotchActivityDestination: Equatable, Sendable {
@@ -59,6 +85,7 @@ public enum NotchActivityPayload: Equatable, Sendable {
 
 public struct NotchActivity: Identifiable, Equatable, Sendable {
     public let id: UUID
+    public let key: NotchActivityKey
     public let kind: NotchActivityKind
     public let title: String
     public let subtitle: String?
@@ -70,8 +97,9 @@ public struct NotchActivity: Identifiable, Equatable, Sendable {
     public let timestamp: Date
     public let duration: Duration?
     public let payload: NotchActivityPayload
+    public let minimal: NotchActivityMinimal?
 
-    public init(id: UUID, kind: NotchActivityKind, title: String,
+    public init(id: UUID, key: NotchActivityKey? = nil, kind: NotchActivityKind, title: String,
                 subtitle: String?, priority: NotchActivityPriority? = nil,
                 presentationStyle: NotchActivityPresentationStyle? = nil,
                 lifetime: NotchActivityLifetime? = nil,
@@ -80,8 +108,10 @@ public struct NotchActivity: Identifiable, Equatable, Sendable {
                 usesDefaultDestination: Bool = true,
                 timestamp: Date = .now,
                 duration: Duration?,
-                payload: NotchActivityPayload = .none) {
+                payload: NotchActivityPayload = .none,
+                minimal: NotchActivityMinimal? = nil) {
         self.id = id
+        self.key = key ?? NotchActivityKey(id.uuidString)
         self.kind = kind
         self.title = title
         self.subtitle = subtitle
@@ -93,6 +123,16 @@ public struct NotchActivity: Identifiable, Equatable, Sendable {
         self.timestamp = timestamp
         self.duration = duration
         self.payload = payload
+        self.minimal = minimal
+    }
+
+    /// Equal apart from the event time: a repeated provider snapshot, not a meaningful update.
+    func hasSamePresentation(as other: Self) -> Bool {
+        id == other.id && key == other.key && kind == other.kind && title == other.title
+            && subtitle == other.subtitle && priority == other.priority
+            && presentationStyle == other.presentationStyle && lifetime == other.lifetime
+            && isDismissible == other.isDismissible && destination == other.destination
+            && duration == other.duration && payload == other.payload && minimal == other.minimal
     }
 
     /// Keeps older fixtures source-compatible while production uses typed priorities.
