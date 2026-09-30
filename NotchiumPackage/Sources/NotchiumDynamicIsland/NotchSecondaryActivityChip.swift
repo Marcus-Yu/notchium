@@ -1,20 +1,25 @@
 import SwiftUI
 
 /// One small black tab hanging from the top edge just past the primary's trailing edge.
-/// It carries only a glyph or artwork: never text, never a second banner.
+/// It carries only a glyph or artwork: never text, never a second banner. Reserved for two
+/// coexisting baseline activities (see ActivityPriorityPolicy); transients never show it.
 enum NotchSecondaryGeometry {
     static let bodyWidth: CGFloat = 32
     static let shoulderRadius: CGFloat = 4
     static let gap: CGFloat = 8
     static let contentSize: CGFloat = 20
 
-    /// Screen-space interaction frame (the body, not the shoulder flare). `beside` is the
-    /// compact primary; nil means Music's collapsed flanks are the primary.
-    static func frame(layout: NotchPanelLayout, beside compact: NotchCompactActivity?) -> CGRect {
+    /// Screen-space interaction frame (the body, not the shoulder flare), beside the primary: a
+    /// compact activity (a transfer), a Calendar banner's top edge, otherwise Music's flanks.
+    static func frame(layout: NotchPanelLayout, beside notification: NotchNotification? = nil) -> CGRect {
         let height = layout.collapsedVisibleFrame.height
-        let primaryHalfWidth = compact.map { NotchCompactGeometry(layout: layout, activity: $0).width / 2 }
-            ?? CollapsedMediaGeometry(hardwareWidth: layout.hardwareNotchGeometry?.frame.width ?? 0,
-                                      hardwareHeight: height).width / 2
+        let primaryWidth: CGFloat = switch notification?.presentationStyle {
+        case .compact?: NotchCompactGeometry(layout: layout, activity: notification?.content.compactActivity).width
+        case .calendar?: NotchNotificationGeometry.size(for: .calendar, layout: layout).width
+        default: CollapsedMediaGeometry(hardwareWidth: layout.hardwareNotchGeometry?.frame.width ?? 0,
+                                        hardwareHeight: height).width
+        }
+        let primaryHalfWidth = primaryWidth / 2
         return CGRect(x: layout.collapsedVisibleFrame.midX + primaryHalfWidth + gap + shoulderRadius,
                       y: layout.collapsedVisibleFrame.maxY - height,
                       width: bodyWidth, height: height)
@@ -25,18 +30,17 @@ extension NotchMotion {
     /// The chip settles in once the primary has mostly grown, so the two never race.
     static let secondaryIn = Animation.interactiveSpring(response: 0.32, dampingFraction: 0.86, blendDuration: 0).delay(0.1)
     static let secondaryOut = Animation.easeOut(duration: 0.14)
-    /// Follows the primary's edge when it resizes (e.g. compact ↔ Music after promotion).
-    static let secondaryMove = Animation.interactiveSpring(response: 0.34, dampingFraction: 0.9, blendDuration: 0)
 }
 
 struct NotchSecondaryActivityChip: View {
     let model: DynamicIslandPresentationModel
     let layout: NotchPanelLayout
+    /// False while the shell's black open/close gate hides collapsed content.
+    var isRevealed = true
 
     var body: some View {
-        let secondary = model.presentedSecondary
-        let frame = NotchSecondaryGeometry.frame(layout: layout,
-                                                 beside: model.presentedNotification?.content.compactActivity)
+        let secondary = isRevealed ? model.presentedSecondary : nil
+        let frame = NotchSecondaryGeometry.frame(layout: layout, beside: model.presentedNotification)
         let shoulder = NotchSecondaryGeometry.shoulderRadius
         ZStack {
             if let secondary {
@@ -61,7 +65,6 @@ struct NotchSecondaryActivityChip: View {
         }
         .frame(width: frame.width + shoulder * 2, height: frame.height)
         .offset(x: frame.minX - shoulder - layout.panelFrame.minX)
-        .animation(model.reduceMotion ? nil : NotchMotion.secondaryMove, value: frame.minX)
         .animation(model.reduceMotion ? NotchMotion.reduced : NotchMotion.secondaryIn, value: secondary?.key)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
@@ -77,10 +80,15 @@ struct NotchSecondaryActivityChip: View {
             Image(systemName: name, variableValue: variableValue)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(tint.color)
-        case let .glyph(.device(style), tint):
+        case let .glyph(.device(style, _), tint):
             Image(systemName: style.symbol)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(tint.color)
+        case let .glyph(.thumbnail(url), _):
+            NotchThumbnailView(url: url, size: CGSize(width: size, height: size), cornerRadius: 4)
+        case let .progress(fraction):
+            NotchProgressRing(fraction: fraction, reduceMotion: model.reduceMotion)
+                .frame(width: 15, height: 15)
         case nil:
             EmptyView()
         }
@@ -110,5 +118,30 @@ struct NotchSecondaryChipShape: Shape {
                           control: CGPoint(x: rect.maxX - s, y: rect.minY))
         path.closeSubpath()
         return path
+    }
+}
+
+/// A thin determinate ring, or a quiet native spinner when progress is unknown. Only the
+/// arc moves; value changes glide rather than jump.
+struct NotchProgressRing: View {
+    let fraction: Double?
+    let reduceMotion: Bool
+
+    var body: some View {
+        if let fraction {
+            ZStack {
+                Circle().stroke(.white.opacity(0.22), lineWidth: 2)
+                Circle()
+                    .trim(from: 0, to: CGFloat(min(max(fraction, 0), 1)))
+                    .stroke(.white, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .animation(reduceMotion ? nil : NotchMotion.compactLevel, value: fraction)
+            }
+            .accessibilityElement()
+            .accessibilityLabel("Progress")
+            .accessibilityValue("\(Int((min(max(fraction, 0), 1) * 100).rounded())) percent")
+        } else {
+            ProgressView().controlSize(.mini).tint(.white)
+        }
     }
 }
