@@ -1,56 +1,38 @@
 import Foundation
-import NotchiumCore
 import Observation
 
-/// A subordinate, single-slot notification policy. ActivityCoordinator remains the
-/// global arbiter. Notification activities have no second activity expiry timer.
+/// The notification slot: the content of the primary activity when it is a notification.
+/// ActivityCoordinator owns arbitration and every lifetime; this type keeps the notification
+/// API for producers and the interaction state (hover, drag) for the shell.
 @MainActor
 @Observable
 public final class NotificationCoordinator {
     public private(set) var active: NotchNotification?
     public private(set) var isHovered = false
     public private(set) var interactingID: UUID?
-    @ObservationIgnored weak var activities: ActivityCoordinator?
-    @ObservationIgnored private let clock: any AppClock
-    @ObservationIgnored private var timeoutTask: Task<Void, Never>?
-    @ObservationIgnored private var generation = 0
     public private(set) var createdAt: Date?
     public private(set) var expiresAt: Date?
+    @ObservationIgnored weak var activities: ActivityCoordinator?
 
-    init(clock: any AppClock) { self.clock = clock }
-    deinit { timeoutTask?.cancel() }
+    init() {}
 
-    /// Equal priority replaces; lower priority is discarded, never replayed later.
+    /// Returns whether the notification is now presented. One that cannot present yet
+    /// (a higher priority activity holds the notch) stays live until its own deadline.
     @discardableResult
     public func present(_ notification: NotchNotification) -> Bool {
-        guard let activities else { return false }
-        if let current = activities.activeTransient, current.priority > notification.priority { return false }
-        var incoming = notification
-        if let active, incoming.presentationStyle != .calendar,
-           active.coalescingKey == incoming.coalescingKey {
-            // Repeated service snapshots are not meaningful changes.
-            if active.content == incoming.content { return true }
-            incoming.id = active.id
-        }
-        let previousID = active?.id
-        if incoming.id != previousID { interactingID = nil }
-        active = incoming
-        createdAt = nil
-        expiresAt = nil
-        activities.presentNotification(incoming.activity, replacing: previousID)
-        scheduleTimeout()
-        return true
+        activities?.presentNotification(notification) ?? false
     }
 
+    /// Removes the active notification, or the live notification with `id` even if it is
+    /// waiting underneath. Identity-checked so a retiring gesture never dismisses a replacement.
     public func dismiss(id: UUID? = nil) {
-        guard let active, id == nil || id == active.id else { return }
-        clear()
-        activities?.dismiss(id: active.id)
+        guard let target = id ?? active?.id else { return }
+        activities?.dismiss(id: target)
     }
 
     public func dismissByUser(id: UUID? = nil) {
-        guard active?.dismissible == true, id == nil || id == active?.id else { return }
-        dismiss()
+        guard let active, active.dismissible, id == nil || id == active.id else { return }
+        dismiss(id: active.id)
     }
 
     public func setInteracting(_ interacting: Bool, id: UUID) {
@@ -63,47 +45,12 @@ public final class NotificationCoordinator {
         isHovered = hovered
     }
 
-    /// Called synchronously by the global arbiter; preempted feedback is not queued.
-    func activityChanged(_ activity: NotchActivity?) {
-        guard let active, activity?.id != active.id else { return }
-        clear()
-    }
-
-    private func clear() {
-        active = nil
-        isHovered = false
-        interactingID = nil
-        createdAt = nil
-        expiresAt = nil
-        generation &+= 1
-        timeoutTask?.cancel()
-        timeoutTask = nil
-    }
-
-    private func scheduleTimeout() {
-        generation &+= 1
-        let token = generation
-        timeoutTask?.cancel()
-        timeoutTask = nil
-        guard let active else { return }
-        timeoutTask = Task { [weak self, clock] in
-            let now = await clock.now()
-            guard let self, self.generation == token else { return }
-            // One absolute lifetime per accepted update; presentation never reschedules it.
-            let deadline = now.addingTimeInterval(active.duration.timeInterval)
-            self.createdAt = now
-            self.expiresAt = deadline
-            let delay = max(0, deadline.timeIntervalSince(now))
-            do { try await clock.sleep(for: .seconds(delay)) } catch { return }
-            guard !Task.isCancelled, self.generation == token else { return }
-            self.dismiss()
-        }
-    }
-}
-
-private extension Duration {
-    var timeInterval: TimeInterval {
-        let parts = components
-        return Double(parts.seconds) + Double(parts.attoseconds) / 1e18
+    /// Called synchronously by ActivityCoordinator whenever the primary activity changes.
+    func show(_ notification: NotchNotification?, createdAt: Date?, expiresAt: Date?) {
+        if notification?.id != active?.id { interactingID = nil }
+        if notification == nil { isHovered = false }
+        if active != notification { active = notification }
+        if self.createdAt != createdAt { self.createdAt = createdAt }
+        if self.expiresAt != expiresAt { self.expiresAt = expiresAt }
     }
 }
