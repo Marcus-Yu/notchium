@@ -79,7 +79,7 @@ final class DisplayCoordinatorTests: XCTestCase {
             XCTAssertEqual(panel.orderFrontRegardlessCount, 1)
             await waitForPendingSleep(clock)
             await clock.releaseAll()
-            await drainMainActorTasks()
+            await waitUntil { model.phase == .collapsed }
             XCTAssertEqual(model.phase, .collapsed)
             XCTAssertEqual(panel.layout?.panelFrame, frame)
             XCTAssertEqual(panel.hideCount, hideCount)
