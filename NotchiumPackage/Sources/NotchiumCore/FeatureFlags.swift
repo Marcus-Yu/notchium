@@ -48,6 +48,17 @@ public struct FeatureFlags: Equatable, Sendable {
         .notchShell: true, .media: true, .calendar: true, .audioDevices: true
     ])
 
+    /// Adds the file Shelf, transfer activities and screenshot activities (Stages 14–15).
+    public static let stageFifteenFiles = FeatureFlags(values: [
+        .notchShell: true,
+        .media: true,
+        .calendar: true,
+        .audioDevices: true,
+        .caffeine: true,
+        .activities: true,
+        .shelf: true,
+    ])
+
     public static let stageSevenActivities = FeatureFlags(values: [
         .notchShell: true,
         .media: true,
