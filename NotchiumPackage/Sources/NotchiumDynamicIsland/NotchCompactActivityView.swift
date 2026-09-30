@@ -16,7 +16,12 @@ struct NotchCompactActivitySlot: View {
     }
 
     var body: some View {
-        let shown = current ?? (retracting ? retained : nil)
+        // Retained content exists only while geometry is still retracting it. Once the shell is
+        // back at rest (reveal 0) it is gone, whether or not the spring's removal callback has
+        // arrived yet, so nothing stale can linger beside the restored activity.
+        // A banner replacing the compact activity (Calendar over a transfer) takes the row at once:
+        // retained content only accompanies a retraction back to rest.
+        let shown = current ?? (retracting && reveal > 0.001 && model.presentedNotification == nil ? retained : nil)
         ZStack {
             if let shown, let activity = shown.content.compactActivity {
                 NotchCompactActivityView(activity: activity,
@@ -105,8 +110,17 @@ struct NotchCompactActivityView: View {
                 .contentTransition(.symbolEffect(.replace))
                 .scaleEffect(reduceMotion ? 1 : 0.62 + 0.38 * progress)
                 .rotationEffect(.degrees(reduceMotion ? 0 : -16 * (1 - progress)))
-        case let .device(style):
-            NotchDeviceTurnGlyph(style: style, trigger: entryID, reduceMotion: reduceMotion)
+        case let .thumbnail(url):
+            // The capture itself emerges from the notch: it rides the shell's reveal, no extra timer.
+            NotchThumbnailView(url: url, size: CGSize(width: 30, height: 20), cornerRadius: 4)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .strokeBorder(.white.opacity(0.18), lineWidth: 0.5)
+                }
+                .scaleEffect(reduceMotion ? 1 : 0.55 + 0.45 * progress, anchor: .trailing)
+        case let .device(style, connected):
+            NotchDeviceTurnGlyph(style: style, connected: connected, trigger: entryID, reduceMotion: reduceMotion)
+                .foregroundStyle(tint)
                 .scaleEffect(reduceMotion ? 1 : 0.7 + 0.3 * progress)
         }
     }
@@ -133,19 +147,47 @@ struct NotchCompactActivityView: View {
                         .opacity(textOpacity)
                     NotchBatteryGlyph(level: level * Double(progress), tint: tint, charging: charging)
                 }
+            case let .progress(fraction, label):
+                // Only the progress itself moves while active; updates glide, never re-enter.
+                HStack(spacing: 7) {
+                    if let fraction {
+                        NotchCompactLevelBar(level: fraction, reveal: progress, dimmed: false)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 4)
+                    }
+                    Text(label)
+                        .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                        .lineLimit(1)
+                        .fixedSize()
+                        .contentTransition(.numericText())
+                        .opacity(textOpacity)
+                }
+                .animation(reduceMotion ? nil : NotchMotion.compactLevel, value: label)
             }
         }
+        // A state morph (progress → Done) cross-fades in place inside the unchanged shell.
+        .animation(reduceMotion ? nil : NotchMotion.compactSwap, value: trailingKind)
         .padding(.trailing, activity.showsTitle ? 14 : 13)
         .padding(.leading, 6)
     }
 
     private var tint: Color { activity.tint.color }
 
+    private var trailingKind: Int {
+        switch activity.trailing {
+        case .level: 0
+        case .text: 1
+        case .battery: 2
+        case .progress: 3
+        }
+    }
+
     private var accessibilityValue: String {
         switch activity.trailing {
         case let .level(level): "\(Self.percent(level)) percent"
         case let .text(text): text
         case let .battery(level, charging): "\(Self.percent(level)) percent\(charging ? ", charging" : "")"
+        case let .progress(fraction, label): fraction.map { "\(Self.percent($0)) percent" } ?? label
         }
     }
 
@@ -210,16 +252,22 @@ private struct NotchBatteryGlyph: View {
 /// turn itself; no display link remains active while the activity is idle.
 private struct NotchDeviceTurnGlyph: View {
     let style: NotchDeviceStyle
+    let connected: Bool
     let trigger: UUID
     let reduceMotion: Bool
     @State private var turnStart: Date?
 
-    init(style: NotchDeviceStyle, trigger: UUID, reduceMotion: Bool) {
+    init(style: NotchDeviceStyle, connected: Bool, trigger: UUID, reduceMotion: Bool) {
         self.style = style
+        self.connected = connected
         self.trigger = trigger
         self.reduceMotion = reduceMotion
         // Start turned away on the very first frame; the turn never pops from rest.
-        _turnStart = State(initialValue: style.spinsOnConnect && !reduceMotion ? .now : nil)
+        _turnStart = State(initialValue: Self.turns(style, connected, reduceMotion) ? .now : nil)
+    }
+
+    private static func turns(_ style: NotchDeviceStyle, _ connected: Bool, _ reduceMotion: Bool) -> Bool {
+        connected && style.spinsOnConnect && !reduceMotion
     }
 
     var body: some View {
@@ -231,10 +279,19 @@ private struct NotchDeviceTurnGlyph: View {
                 .rotation3DEffect(.degrees(-180 * (1 - eased)), axis: (x: 0, y: 1, z: 0), perspective: 0.45)
                 .rotationEffect(.degrees(8 * (1 - eased)))
         }
-        .task(id: trigger) {
+        // A coalesced update keeps this view: a reconnect or a different wearable turns again,
+        // a disconnect settles immediately. One activity, never a pile-up of entries.
+        .onChange(of: TurnKey(style: style, connected: connected)) { _, _ in
+            turnStart = Self.turns(style, connected, reduceMotion) ? .now : nil
+        }
+        .task(id: TurnTask(trigger: trigger, start: turnStart)) {
             guard turnStart != nil else { return }
             try? await Task.sleep(for: .seconds(NotchMotion.deviceTurn))
+            guard !Task.isCancelled else { return }
             turnStart = nil
         }
     }
+
+    private struct TurnKey: Equatable { let style: NotchDeviceStyle; let connected: Bool }
+    private struct TurnTask: Equatable { let trigger: UUID; let start: Date? }
 }
