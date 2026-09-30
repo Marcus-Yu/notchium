@@ -29,7 +29,7 @@ public final class ActivityCoordinator: ObservableObject {
     public var transientActivity: NotchActivity? { activeTransient }
 
     /// Presentation compatibility is independent of which transient wins priority.
-    public var retainsMediaPresentation: Bool { persistentActivity?.presentationStyle == .mediaSides }
+    public var retainsMediaPresentation: Bool { mediaBaseline != nil }
 
     /// Fresh expansion policy is independent of transient presentation priority.
     /// A retained paused track is useful on Home, but does not make Music the default.
@@ -38,11 +38,18 @@ public final class ActivityCoordinator: ObservableObject {
            activeTransient.kind == .media || activeTransient.destination == .music {
             return .music
         }
-        if persistentActivity?.kind == .media,
-           case .mediaPlayback(isPlaying: true) = persistentActivity?.payload {
+        // Only playback on this Mac makes Music the fresh default; remote Connect playback
+        // (e.g. a phone) opens on Home.
+        if mediaBaseline?.kind == .media,
+           case .mediaPlayback(isPlaying: true, isLocal: true) = mediaBaseline?.payload {
             return .music
         }
         return .home
+    }
+
+    /// The live Music baseline, even when another baseline (a transfer) currently ranks higher.
+    private var mediaBaseline: NotchActivity? {
+        liveActivities.first { $0.lifetime.isBaseline && $0.presentationStyle == .mediaSides }
     }
 
     public func contains(id: UUID) -> Bool {
@@ -63,7 +70,7 @@ public final class ActivityCoordinator: ObservableObject {
 
     private var entries: [NotchActivityKey: Entry] = [:]
     private var primaryKey: NotchActivityKey?
-    /// A user-selected secondary holds the primary role until a new transient arrives.
+    /// A user-selected secondary holds the primary role until the next interruption.
     private var promotedKey: NotchActivityKey?
     private var nextSequence: UInt64 = 0
     private let clock: any AppClock
@@ -110,6 +117,7 @@ public final class ActivityCoordinator: ObservableObject {
         if var entry = entries[key] {
             if notification == nil, entry.notification == nil,
                entry.activity.hasSamePresentation(as: activity) { return }
+            let wasTransient = !entry.activity.lifetime.isBaseline
             entry.activity = activity
             entry.notification = notification
             if isTransient {
@@ -117,13 +125,19 @@ public final class ActivityCoordinator: ObservableObject {
                 entry.duration = duration
                 entry.createdAt = nil
                 entry.expiresAt = nil
+            } else {
+                // One identity may change role (transfer progress ↔ result): a baseline has no deadline.
+                entry.duration = nil
+                entry.createdAt = nil
+                entry.expiresAt = nil
             }
             entries[key] = entry
+            resolve()
+            if isTransient || wasTransient { scheduleLifetimes() }
+            return
         } else {
             entries[key] = Entry(activity: activity, notification: notification,
-                                 sequence: takeSequence(), duration: duration)
-            // A new event takes the stage back from a user promotion.
-            if isTransient { promotedKey = nil }
+                                 sequence: takeSequence(), duration: isTransient ? duration : nil)
         }
         resolve()
         if isTransient { scheduleLifetimes() }
@@ -140,11 +154,15 @@ public final class ActivityCoordinator: ObservableObject {
         remove { $0.activity.id == id }
     }
 
+    public func dismiss(key: NotchActivityKey) {
+        remove { $0.activity.key == key }
+    }
+
     public func dismiss(kind: NotchActivityKind) {
         remove { $0.activity.kind == kind }
     }
 
-    /// Makes the secondary activity primary. The previous primary stays live underneath.
+    /// Makes the secondary (baseline) activity primary. The previous primary stays live as the secondary.
     public func promoteSecondary() {
         guard let key = secondary?.key else { return }
         promotedKey = key
@@ -179,21 +197,32 @@ public final class ActivityCoordinator: ObservableObject {
 
     private func resolve() {
         if let key = promotedKey, entries[key] == nil { promotedKey = nil }
-        let ranked = entries.values.sorted(by: ActivityPriorityPolicy.outranks)
-        let primaryEntry = promotedKey.flatMap { entries[$0] } ?? ranked.first
-        let baseline = ranked.first { $0.activity.lifetime.isBaseline }
-        let secondaryEntry = primaryEntry.flatMap { primary in
-            ActivityPriorityPolicy.allowsSecondary(beside: primary)
-                ? ranked.first { $0.activity.key != primary.activity.key && $0.activity.minimal != nil }
-                : nil
+        var ranked = entries.values.sorted(by: ActivityPriorityPolicy.outranks)
+        let interruption = ranked.first.flatMap { $0.activity.lifetime.isBaseline ? nil : $0 }
+        // An interruption ends a user promotion: afterwards the primary is re-ranked from the
+        // activities that are live now, never restored from a stale choice.
+        if interruption != nil { promotedKey = nil }
+        let primaryEntry = interruption ?? promotedKey.flatMap { entries[$0] } ?? ranked.first
+        // Replaceable feedback that does not hold the notch is dropped, never resumed later.
+        let stale = ranked.filter {
+            $0.activity.key != primaryEntry?.activity.key && ActivityPriorityPolicy.isReplaceable($0)
         }
+        if !stale.isEmpty {
+            stale.forEach { entries.removeValue(forKey: $0.activity.key) }
+            ranked.removeAll { entry in stale.contains { $0.activity.key == entry.activity.key } }
+        }
+        let baseline = ranked.first { $0.activity.lifetime.isBaseline }
+        let secondaryEntry = primaryEntry.flatMap { ActivityPriorityPolicy.secondary(beside: $0, among: ranked) }
         let transient = primaryEntry.flatMap { $0.activity.lifetime.isBaseline ? nil : $0 }
+        // The primary's content when it has any: every transient, or a baseline notification
+        // (an active transfer). Music draws its own flanks and has none.
+        let presented = primaryEntry.flatMap { $0.notification != nil || transient != nil ? $0 : nil }
         primaryKey = primaryEntry?.activity.key
 
         // The notification slot is synchronised first so the shell never observes a
-        // transient without its content (no intermediate empty frame).
-        notifications.show(transient?.notification, createdAt: transient?.createdAt,
-                           expiresAt: transient?.expiresAt)
+        // primary without its content (no intermediate empty frame).
+        notifications.show(presented?.notification, createdAt: presented?.createdAt,
+                           expiresAt: presented?.expiresAt)
         let live = ranked.map(\.activity)
         if liveActivities != live { liveActivities = live }
         if primary != primaryEntry?.activity { primary = primaryEntry?.activity }
@@ -202,12 +231,17 @@ public final class ActivityCoordinator: ObservableObject {
         if secondary != secondaryEntry?.activity { secondary = secondaryEntry?.activity }
         let waiting = ranked.count { !$0.activity.lifetime.isBaseline && $0.activity.key != primaryKey }
         if queueCount != waiting { queueCount = waiting }
-        let mode = Self.presentationMode(persistent: baseline?.activity, transient: transient?.activity)
+        let media = ranked.first { $0.activity.lifetime.isBaseline && $0.activity.presentationStyle == .mediaSides }
+        let mode = Self.presentationMode(persistent: media?.activity, best: baseline?.activity,
+                                         transient: presented?.activity)
         if presentationMode != mode { presentationMode = mode }
     }
 
+    /// `persistent`: live Music (kept under compact content); `best`: the highest baseline, which
+    /// decides whether a Calendar banner shows Music in its top row or leaves room for a chip.
     private static func presentationMode(
         persistent: NotchActivity?,
+        best: NotchActivity?,
         transient: NotchActivity?
     ) -> NotchPresentationMode {
         guard let transient else {
@@ -217,7 +251,7 @@ public final class ActivityCoordinator: ObservableObject {
         case .none: return persistent?.presentationStyle == .mediaSides ? .mediaSides : .none
         case .mediaSides: return .mediaSides
         case .downwardBanner:
-            return transient.family == .calendar && persistent?.presentationStyle == .mediaSides
+            return transient.family == .calendar && best?.presentationStyle == .mediaSides
                 ? .combined
                 : .downwardBanner
         case .compactHUD: return persistent?.presentationStyle == .mediaSides ? .combined : .compactHUD
