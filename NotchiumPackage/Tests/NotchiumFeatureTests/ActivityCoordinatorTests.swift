@@ -72,7 +72,9 @@ final class ActivityCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.activeTransient, audio)
     }
 
-    func testEqualPriorityKeepsActiveAndPendingOutputIsNotReplacedByVolume() {
+    /// Stage 12: equal priority is deterministic (latest update presents); lower priority never
+    /// replaces it, and everything interrupted stays live underneath.
+    func testEqualPriorityLatestWinsAndLowerPriorityWaitsUnderneath() {
         let coordinator = ActivityCoordinator(clock: clock())
         let calendar = activity(.calendar, priority: .medium, duration: .seconds(10))
         let firstAudio = activity(.audioDevice, priority: .medium, duration: .seconds(2))
@@ -82,12 +84,13 @@ final class ActivityCoordinatorTests: XCTestCase {
         coordinator.present(firstAudio)
         coordinator.present(updatedAudio)
 
-        XCTAssertEqual(coordinator.activeTransient, calendar)
-        XCTAssertEqual(coordinator.queueCount, 1)
-        coordinator.dismissActive()
         XCTAssertEqual(coordinator.activeTransient?.id, firstAudio.id)
-        XCTAssertEqual(coordinator.activeTransient?.kind, .audioDevice)
-        XCTAssertEqual(coordinator.activeTransient?.priority, .medium)
+        XCTAssertEqual(coordinator.queueCount, 2)
+        coordinator.dismissActive()
+        XCTAssertEqual(coordinator.activeTransient?.id, calendar.id)
+        coordinator.dismissActive()
+        XCTAssertEqual(coordinator.activeTransient?.id, updatedAudio.id)
+        XCTAssertEqual(coordinator.activeTransient?.priority, .low)
     }
 
     func testPendingAudioExpiresAgainstItsOriginalDeadline() async {
@@ -126,29 +129,25 @@ final class ActivityCoordinatorTests: XCTestCase {
         }
     }
 
-    func testHoverPausesAndResumesTransientDeadline() async {
+    /// Stage 12: generic activities share the notification rule: one absolute lifetime,
+    /// never paused by hover or expansion.
+    func testHoverAndExpansionNeverExtendGenericTransientDeadline() async {
         let clock = clock()
-        let coordinator = ActivityCoordinator(clock: clock)
+        let model = DynamicIslandPresentationModel(clock: clock)
         let audio = activity(.systemHUD, duration: .seconds(2))
 
-        coordinator.present(audio)
+        model.activityCoordinator.present(audio)
         await clock.waitForPendingSleeps()
         await clock.advance(by: .milliseconds(500))
-        coordinator.setHovered(true)
+        model.notificationCoordinator.setHovered(true)
+        model.present(.expanded, animated: false)
+        await clock.advance(by: .milliseconds(1400))
         await drainMainActorTasks()
-        await clock.advance(by: .seconds(10))
-        await drainMainActorTasks()
-        XCTAssertEqual(coordinator.activeTransient, audio)
-
-        coordinator.setHovered(false)
-        await drainMainActorTasks()
-        await clock.waitForPendingSleeps()
-        await clock.advance(by: .seconds(1))
-        await drainMainActorTasks()
-        XCTAssertEqual(coordinator.activeTransient, audio)
-        await expectTransient(nil, on: coordinator) {
-            await clock.advance(by: .milliseconds(500))
+        XCTAssertEqual(model.activityCoordinator.activeTransient, audio)
+        await expectTransient(nil, on: model.activityCoordinator) {
+            await clock.advance(by: .milliseconds(100))
         }
+        model.reset()
     }
 
     func testExpandedSurfaceIsNeverTakenOverByActivity() {
