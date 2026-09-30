@@ -1,20 +1,40 @@
 import SwiftUI
 
 public struct NotchAudioHUD: Equatable, Sendable {
-    public enum Kind: Equatable, Sendable { case volume, outputChanged }
+    /// `outputChanged`: a device connected or became the active output (shown as "Connected").
+    /// `deviceDisconnected`: the active output or a wearable went away.
+    public enum Kind: Equatable, Sendable { case volume, outputChanged, deviceDisconnected }
     public let kind: Kind
     public let deviceName: String
     public let volume: Double?
     public let isMuted: Bool
     public let deviceStyle: NotchDeviceStyle
+    /// Stable device identity, so a different device is never treated as a repeat.
+    public let deviceID: String?
+    /// Only a fresh, source-reported aggregate level; nil means "do not show a battery".
+    public let battery: NotchDeviceBattery?
 
     public init(kind: Kind, deviceName: String, volume: Double?, isMuted: Bool,
-                deviceStyle: NotchDeviceStyle = .speaker) {
+                deviceStyle: NotchDeviceStyle = .speaker, deviceID: String? = nil,
+                battery: NotchDeviceBattery? = nil) {
         self.kind = kind
         self.deviceName = deviceName
         self.volume = volume
         self.isMuted = isMuted
         self.deviceStyle = deviceStyle
+        self.deviceID = deviceID
+        self.battery = battery
+    }
+
+    public var isDeviceTransition: Bool { kind != .volume }
+}
+
+public struct NotchDeviceBattery: Equatable, Sendable {
+    public let level: Double
+    public let isCharging: Bool
+    public init(level: Double, isCharging: Bool) {
+        self.level = level
+        self.isCharging = isCharging
     }
 }
 
