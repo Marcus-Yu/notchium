@@ -3,8 +3,8 @@
 public enum ActivityPriorityPolicy {
     public static func priority(for kind: NotchNotification.Kind) -> NotchActivityPriority {
         switch kind {
-        case .reminder5: .high
-        case .reminder30, .reminder60, .outputDeviceChanged: .medium
+        case .reminder5, .lowBattery: .high
+        case .reminder30, .reminder60, .outputDeviceChanged, .charging: .medium
         case .volume, .mute, .actionSucceeded, .actionFailed, .reminderAdded: .low
         }
     }
