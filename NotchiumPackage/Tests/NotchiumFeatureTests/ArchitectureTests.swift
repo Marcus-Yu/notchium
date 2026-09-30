@@ -8,12 +8,11 @@ import XCTest
 @MainActor
 final class ArchitectureTests: XCTestCase {
     func testProductionFlagsExposeOnlyTheShell() {
-        let flags = FeatureFlags.stageTwoShell
+        let flags = FeatureFlags.stageOne
 
         XCTAssertTrue(flags[.notchShell])
         XCTAssertFalse(flags[.media])
         XCTAssertFalse(flags[.calendar])
-        XCTAssertFalse(flags[.spotifyAudioWaveform])
     }
 
     func testStageSixEnablesAudioAlongsideMusicAndCalendar() {
@@ -22,7 +21,6 @@ final class ArchitectureTests: XCTestCase {
         XCTAssertTrue(flags[.media])
         XCTAssertTrue(flags[.calendar])
         XCTAssertTrue(flags[.audioDevices])
-        XCTAssertFalse(flags[.spotifyAudioWaveform])
     }
 
     func testStageSevenEnablesCoordinatorAndHeaderUtilities() {
@@ -42,6 +40,9 @@ final class ArchitectureTests: XCTestCase {
             let availability = await services.availability(for: service)
             if [.audioDevices, .caffeine].contains(service) {
                 XCTAssertEqual(availability, .available)
+            } else if service == .battery {
+                // Real IOKit source: a laptop reports its battery; a desktop has none.
+                XCTAssertTrue([.available, .unavailable(.unsupportedHardware)].contains(availability))
             } else if service == .calendar {
                 XCTAssertTrue([.available, .unavailable(.permissionNotDetermined),
                                .unavailable(.permissionDenied), .unavailable(.permissionRestricted)]
@@ -108,7 +109,7 @@ final class ArchitectureTests: XCTestCase {
                 temporaryURL: URL(fileURLWithPath: "/private/tmp/notchium-tests")
             ),
             logger: FixtureFactory.logger(),
-            featureFlags: .stageTwoShell,
+            featureFlags: .stageOne,
             distributionProfile: .developerID
         )
 
