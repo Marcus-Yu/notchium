@@ -139,14 +139,7 @@ struct NotchCompactActivityView: View {
         .padding(.leading, 6)
     }
 
-    private var tint: Color {
-        switch activity.tint {
-        case .primary: .white
-        case .muted: .white.opacity(0.62)
-        case .charging: Color(red: 0.19, green: 0.82, blue: 0.35)
-        case .warning: Color(red: 1, green: 0.27, blue: 0.23)
-        }
-    }
+    private var tint: Color { activity.tint.color }
 
     private var accessibilityValue: String {
         switch activity.trailing {
@@ -157,6 +150,17 @@ struct NotchCompactActivityView: View {
     }
 
     private static func percent(_ value: Double) -> Int { Int((min(max(value, 0), 1) * 100).rounded()) }
+}
+
+extension NotchCompactActivity.Tint {
+    var color: Color {
+        switch self {
+        case .primary: .white
+        case .muted: .white.opacity(0.62)
+        case .charging: Color(red: 0.19, green: 0.82, blue: 0.35)
+        case .warning: Color(red: 1, green: 0.27, blue: 0.23)
+        }
+    }
 }
 
 /// Entry fills from empty with the reveal; later values glide from wherever the bar is.
