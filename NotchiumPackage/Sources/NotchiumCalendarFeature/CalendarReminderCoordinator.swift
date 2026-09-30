@@ -116,12 +116,15 @@ public final class CalendarReminderCoordinator {
             Self.thresholds.map { event.startDate.addingTimeInterval(-Double($0)) }
             + (event.meetingURL == nil ? [] : [event.startDate])
         }
+        // Exactly one boundary timer: update(events:) may overlap a firing boundary at `clock.now()`.
+        boundaryTask?.cancel()
         guard let next = dates.filter({ $0 > now }).min() else { return }
         boundaryTask = Task { [weak self, clock] in
             do { try await clock.sleep(for: .seconds(next.timeIntervalSince(now))) }
             catch { return }
             guard !Task.isCancelled, let self else { return }
             let currentTime = await clock.now()
+            guard !Task.isCancelled else { return }
             self.evaluate(at: currentTime)
             self.scheduleNextBoundary(after: currentTime)
         }
