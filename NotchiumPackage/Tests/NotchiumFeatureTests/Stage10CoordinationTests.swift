@@ -207,7 +207,7 @@ final class Stage10CoordinationTests: XCTestCase {
     func testExpandedNotificationPointerFrameUsesFixedShellAndExistingContentHeight() {
         let layout = NotchGeometryResolver.layout(for: .init(display: NotchShellDebugModel.builtInFixture,
                                                             mode: .physicalNotch), state: .expanded)
-        for style in [NotchNotification.PresentationStyle.audio, .calendar] {
+        for style in [NotchNotification.PresentationStyle.feedback, .calendar] {
             let frame = NotchNotificationGeometry.interactionFrame(for: style, layout: layout, expanded: true)
             XCTAssertEqual(frame.minY, layout.visibleSurfaceFrame.minY)
             XCTAssertEqual(frame.width, ExpandedNotchLayout.size.width)
