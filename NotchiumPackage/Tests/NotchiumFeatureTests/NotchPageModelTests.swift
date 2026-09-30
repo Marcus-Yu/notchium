@@ -5,7 +5,7 @@ import XCTest
 final class NotchPageModelTests: XCTestCase {
     func testHomeMusicCalendarAndAudioAreOrderedTopLevelPages() {
         let model = NotchPageModel()
-        XCTAssertEqual(model.enabledPages, [.home, .music, .calendar, .audio])
+        XCTAssertEqual(model.enabledPages, [.home, .music, .calendar, .audio, .shelf])
         XCTAssertEqual(model.selectedPage, .home)
         model.moveSelection(forward: true)
         XCTAssertEqual(model.selectedPage, .music)
