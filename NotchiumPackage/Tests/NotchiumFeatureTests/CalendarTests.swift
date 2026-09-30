@@ -1,4 +1,7 @@
 import Foundation
+import NotchiumCore
+import NotchiumCalendarFeature
+@testable import NotchiumDynamicIsland
 import NotchiumServices
 import XCTest
 
@@ -41,5 +44,50 @@ final class CalendarTests: XCTestCase {
             location: nil, notes: nil))
         XCTAssertNil(MeetingLinkDetector.detect(url: URL(string: "https://meet.google.com"),
             location: nil, notes: nil))
+    }
+}
+
+/// Mirrors RealCalendarService: one observation session, and stop finishes every stream.
+@MainActor
+private final class SessionCalendarService: CalendarService {
+    private var continuations: [AsyncStream<CalendarSnapshot>.Continuation] = []
+    private var started = false
+    private(set) var sessions = 0
+    func availability() async -> FeatureAvailability { .available }
+    func updates() async -> AsyncStream<CalendarSnapshot> {
+        if !started { started = true; sessions += 1 }
+        let pair = AsyncStream<CalendarSnapshot>.makeStream()
+        continuations.append(pair.continuation)
+        return pair.stream
+    }
+    func emit(_ snapshot: CalendarSnapshot) { continuations.forEach { $0.yield(snapshot) } }
+    func refresh() async throws {}
+    func requestAccess() async {}
+    func setCalendarSelected(_ id: String, selected: Bool) async {}
+    func stop() async {
+        continuations.forEach { $0.finish() }
+        continuations.removeAll()
+        started = false
+    }
+}
+
+@MainActor
+final class CalendarRestartTests: XCTestCase {
+    func testImmediateRestartSubscribesAfterPreviousStopFinishes() async {
+        let service = SessionCalendarService()
+        let model = CalendarActivityModel(service: service, coordinator: ActivityCoordinator(
+            clock: TestAppClock(now: Date(), automaticallyAdvances: false)))
+        model.start()
+        for _ in 0..<20 { await Task.yield() }
+        model.stop()
+        model.start()
+        for _ in 0..<40 { await Task.yield() }
+        XCTAssertEqual(service.sessions, 2)
+        let event = CalendarEventSummary(id: UUID(), title: "Restarted",
+            startDate: Date().addingTimeInterval(7200), endDate: Date().addingTimeInterval(9000))
+        service.emit(CalendarSnapshot(availability: .available, upcomingEvents: [event]))
+        for _ in 0..<40 { await Task.yield() }
+        XCTAssertEqual(model.snapshot.upcomingEvents.map(\.title), ["Restarted"])
+        model.stop()
     }
 }
