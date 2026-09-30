@@ -11,7 +11,6 @@ public enum FeatureFlag: String, CaseIterable, Hashable, Sendable {
     case activities
     case pages
     case focus
-    case spotifyAudioWaveform
 }
 
 public struct FeatureFlags: Equatable, Sendable {
@@ -38,10 +37,7 @@ public struct FeatureFlags: Equatable, Sendable {
         .activities: false,
         .pages: false,
         .focus: false,
-        .spotifyAudioWaveform: false,
     ])
-
-    public static let stageTwoShell = stageOne
 
     public static let stageFourMedia = FeatureFlags(values: [.notchShell: true, .media: true])
     public static let stageFiveCalendar = FeatureFlags(values: [
