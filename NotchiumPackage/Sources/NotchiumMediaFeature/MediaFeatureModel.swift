@@ -257,21 +257,27 @@ public final class MediaSessionController {
         audioMeter.setPlaying(next.hasMedia && next.isPlaying)
         updateCollapsedVisibility(next)
         if errorMessage != next.issue { errorMessage = next.issue }
-        if next.hasMedia {
-            coordinator.present(.init(id: activityID, kind: .media, title: "Media",
-                                      subtitle: nil, priority: .low,
-                                      presentationStyle: .mediaSides,
-                                      lifetime: .persistent,
-                                      isDismissible: false,
-                                      destination: .music,
-                                      duration: nil,
-                                      payload: .mediaPlayback(isPlaying: next.isPlaying)))
-        } else { coordinator.dismiss(id: activityID) }
+        publishActivity()
+    }
+    /// A presentation projection of current state: one stable identity for the whole session,
+    /// so interruptions never recreate it. The coordinator ignores unchanged resubmissions.
+    private func publishActivity() {
+        guard state.hasMedia else { coordinator.dismiss(id: activityID); return }
+        coordinator.present(.init(id: activityID, key: .media, kind: .media, title: "Media",
+                                  subtitle: nil, priority: .low,
+                                  presentationStyle: .mediaSides,
+                                  lifetime: .persistent,
+                                  isDismissible: false,
+                                  destination: .music,
+                                  duration: nil,
+                                  payload: .mediaPlayback(isPlaying: state.isPlaying),
+                                  minimal: collapsedMediaVisible ? .artwork : nil))
     }
     private func updateCollapsedVisibility(_ value: MediaState) {
         let isVisible = value.hasMedia && value.isPlaying && audioMeter.isAudioActive
         guard collapsedMediaVisible != isVisible else { return }
         withAnimation(.easeInOut(duration: 0.12)) { collapsedMediaVisible = isVisible }
+        publishActivity()
     }
     public func displayedPosition(at now: Date, uptime: TimeInterval? = nil) -> Double {
         estimatedPlaybackPosition(at: now, state: state, uptime: uptime)
