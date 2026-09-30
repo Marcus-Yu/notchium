@@ -67,7 +67,8 @@ public final class AudioFeatureModel: NotchAudioRendering {
         deviceTask?.cancel(); deviceTask = nil
         processTask?.cancel(); processTask = nil
         volumeTask?.cancel(); volumeTask = nil
-        mixerTask?.cancel(); mixerTask = nil
+        let previousMixerTask = mixerTask
+        previousMixerTask?.cancel(); mixerTask = nil
         processes = []
         applicationCache = [:]
         hasReceivedDevices = false
@@ -76,6 +77,7 @@ public final class AudioFeatureModel: NotchAudioRendering {
         mixerGeneration &+= 1
         mixerStatus = .inactive
         mixerTask = Task { [mixerService] in
+            await previousMixerTask?.value
             guard !Task.isCancelled else { return }
             await mixerService.stop()
         }
@@ -94,15 +96,19 @@ public final class AudioFeatureModel: NotchAudioRendering {
             isEditingVolume = false
             displayVolume = nil
         } else if !isEditingVolume, let shown = displayVolume, let confirmed = next.currentOutput?.volume,
-                  abs(shown - confirmed) < 0.02 {
+                  abs(shown - confirmed) < 0.02 || old?.volume != confirmed {
+            // Outside a drag, a changed device report is authoritative: quantized devices may never
+            // land within tolerance, and hardware keys must not be masked by a stale local value.
             displayVolume = nil
         }
         if old?.id != next.currentOutput?.id { reconcileMixer() }
         guard hasReceivedDevices else { hasReceivedDevices = true; return }
         guard let current = next.currentOutput else { return }
         if old?.id != current.id {
+            let transport = NotchAudioTransport(rawValue: current.transport.rawValue) ?? .other
             onHUD?(NotchAudioHUD(kind: .outputChanged, deviceName: current.name,
-                                 volume: current.volume, isMuted: current.isMuted ?? false))
+                                 volume: current.volume, isMuted: current.isMuted ?? false,
+                                 deviceStyle: .classify(name: current.name, transport: transport)))
         } else if old?.volume != current.volume || old?.isMuted != current.isMuted {
             onHUD?(NotchAudioHUD(kind: .volume, deviceName: current.name,
                                  volume: current.volume, isMuted: current.isMuted ?? false))
@@ -213,6 +219,12 @@ public final class AudioFeatureModel: NotchAudioRendering {
 
     public func retryMixerPermission() { reconcileMixer() }
 
+    /// The mixer reports denial only once it starts; a denied eligibility probe reports it before.
+    public var audioPermissionRequired: Bool {
+        mixerStatus == .permissionRequired
+            || processes.contains { $0.requiresAudioPermission && isControllable($0) }
+    }
+
     func receiveProcesses(_ processes: [AudioProducingProcess]) {
         self.processes = processes
         applicationCache = Dictionary(uniqueKeysWithValues: processes.compactMap { process in
@@ -227,7 +239,8 @@ public final class AudioFeatureModel: NotchAudioRendering {
     }
 
     private func reconcileMixer(debounce: Bool = false) {
-        mixerTask?.cancel()
+        let previous = mixerTask
+        previous?.cancel()
         mixerGeneration &+= 1
         let generation = mixerGeneration
         let targets = processes.filter(hasControllableRoute).compactMap { process -> AppAudioMixTarget? in
@@ -239,6 +252,8 @@ public final class AudioFeatureModel: NotchAudioRendering {
         }
         let outputID = devices.currentOutput?.id
         mixerTask = Task { [weak self, mixerService] in
+            // The mixer runs off the main actor: applies must still land in submission order.
+            await previous?.value
             if debounce {
                 do { try await Task.sleep(for: .milliseconds(16)) } catch { return }
             }
