@@ -50,6 +50,9 @@ public struct NotchiumShellView: View {
                 layout: layout
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+
+            // Above the shell: the shell's full-panel content shape would otherwise take its clicks.
+            NotchSecondaryActivityChip(model: model, layout: layout)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .ignoresSafeArea(.all, edges: .top)
