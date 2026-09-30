@@ -64,6 +64,7 @@ public final class MediaSessionController {
     private var lastCachedTrack: CachedMediaTrack?
     private var isUpNextVisible = false
     private let activityID = UUID()
+    @ObservationIgnored private let localDeviceNames: Set<String>
 
     public init(
         provider: any MediaProviding,
@@ -71,8 +72,10 @@ public final class MediaSessionController {
         visibilityClock: any AppClock = ContinuousAppClock(),
         controlClock: any AppClock = ContinuousAppClock(),
         snapshotStore: any MediaSnapshotStoring = NoopMediaSnapshotStore(),
-        audioMeter: SystemAudioMeter = SystemAudioMeter(captureEnabled: false)
+        audioMeter: SystemAudioMeter = SystemAudioMeter(captureEnabled: false),
+        localDeviceNames: Set<String> = SystemSpotifyApplicationLauncher().localDeviceNames()
     ) {
+        self.localDeviceNames = localDeviceNames
         self.audioMeter = audioMeter
         self.provider = provider
         self.coordinator = coordinator
@@ -270,8 +273,18 @@ public final class MediaSessionController {
                                   isDismissible: false,
                                   destination: .music,
                                   duration: nil,
-                                  payload: .mediaPlayback(isPlaying: state.isPlaying),
+                                  payload: .mediaPlayback(isPlaying: state.isPlaying, isLocal: isPlaybackLocal),
                                   minimal: collapsedMediaVisible ? .artwork : nil))
+    }
+    /// Playback is on this Mac: Spotify's active Connect device is this computer, or Spotify audio
+    /// is really playing here. Metadata alone (a phone playing remotely) never counts.
+    var isPlaybackLocal: Bool {
+        guard state.hasMedia else { return false }
+        if audioMeter.isAudioActive { return true }
+        guard state.activeDeviceType?.caseInsensitiveCompare("computer") == .orderedSame,
+              let name = state.activeDeviceName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        else { return false }
+        return localDeviceNames.contains(name)
     }
     private func updateCollapsedVisibility(_ value: MediaState) {
         let isVisible = value.hasMedia && value.isPlaying && audioMeter.isAudioActive
