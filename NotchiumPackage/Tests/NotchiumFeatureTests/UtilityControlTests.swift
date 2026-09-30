@@ -72,6 +72,16 @@ final class UtilityControlTests: XCTestCase {
         XCTAssertFalse(press.end())
     }
 
+    /// XPC delivers proxy errors and connection invalidation on its own queue. Those callbacks
+    /// must not inherit the controller's main-actor isolation (Swift 6 traps on entry).
+    func testLidHelperRemovalCallbacksToleratePrivateXPCQueue() async throws {
+        let controller = LidAwakeController()
+        await controller.removeHelper()
+        try await Task.sleep(for: .seconds(1))
+        await drainMainActorTasks()
+        XCTAssertFalse(controller.isEnabled)
+    }
+
 }
 
 @MainActor
