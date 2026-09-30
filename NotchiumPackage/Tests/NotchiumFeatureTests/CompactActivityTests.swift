@@ -99,11 +99,12 @@ final class CompactActivityTests: XCTestCase {
         var policy = BatteryActivityPolicy()
         XCTAssertNil(policy.receive(snapshot(0.15)), "the state at launch is not announced")
         XCTAssertNil(policy.receive(snapshot(0.14)))
-        XCTAssertEqual(policy.receive(snapshot(0.10)), .low(level: 0.10))
+        // Stage 13: 10% is the critical threshold; unplugging is one short event.
+        XCTAssertEqual(policy.receive(snapshot(0.10)), .critical(level: 0.10))
         XCTAssertNil(policy.receive(snapshot(0.09)))
         XCTAssertEqual(policy.receive(snapshot(0.09, power: true)), .charging(level: 0.09))
         XCTAssertNil(policy.receive(snapshot(0.12, power: true)))
-        XCTAssertNil(policy.receive(snapshot(0.30)), "unplugging is not an activity")
+        XCTAssertEqual(policy.receive(snapshot(0.30)), .powerDisconnected(level: 0.30))
         XCTAssertEqual(policy.receive(snapshot(0.20)), .low(level: 0.20))
         XCTAssertNil(policy.receive(snapshot(0.19)))
 
