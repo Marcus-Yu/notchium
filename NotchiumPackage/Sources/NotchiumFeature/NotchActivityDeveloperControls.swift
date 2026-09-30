@@ -25,9 +25,13 @@ struct NotchActivityDeveloperControls: View {
     var body: some View {
         Form {
             Section("Live state") {
-                LabeledContent("Active Activity", value: coordinator.activeActivity?.title ?? "None")
+                LabeledContent("Primary", value: coordinator.primary.map { "\($0.key)" } ?? "None")
+                LabeledContent("Secondary", value: coordinator.secondary.map { "\($0.key)" } ?? "None")
                 LabeledContent("Priority", value: coordinator.activeActivity.map { String(describing: $0.priority) } ?? "—")
                 LabeledContent("Queue Count", value: String(coordinator.queueCount))
+                Text(coordinator.debugSummary)
+                    .font(.caption.monospaced())
+                    .textSelection(.enabled)
                 LabeledContent("Current Page", value: pages.selectedPage.rawValue)
                 LabeledContent("Pinned", value: presentation.visualState == .expanded ? "Yes" : "No")
                 LabeledContent("Expanded", value: presentation.surfaceState != .collapsed ? "Yes" : "No")
