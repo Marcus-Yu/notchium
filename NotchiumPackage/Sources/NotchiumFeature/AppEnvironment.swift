@@ -46,7 +46,7 @@ public struct AppEnvironment: Sendable {
             uuids: SystemUUIDGenerator(),
             fileSystem: SystemFileSystem(),
             logger: UnifiedAppLogger(),
-            featureFlags: .stageSevenActivities,
+            featureFlags: .stageFifteenFiles,
             distributionProfile: .current
         )
     }
@@ -68,7 +68,7 @@ public struct AppEnvironment: Sendable {
                 temporaryURL: URL(fileURLWithPath: "/private/tmp/notchium-tests")
             ),
             logger: logger,
-            featureFlags: .stageSevenActivities,
+            featureFlags: .stageFifteenFiles,
             distributionProfile: .developerID
         )
     }
