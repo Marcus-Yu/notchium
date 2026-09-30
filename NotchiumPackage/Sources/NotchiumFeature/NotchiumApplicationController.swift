@@ -29,6 +29,7 @@ public final class NotchiumApplicationController {
     public let mockMediaProvider = MockMediaProvider()
 #endif
     @ObservationIgnored private var mediaConnectionTask: Task<Void, Never>?
+    @ObservationIgnored private var batteryTask: Task<Void, Never>?
     public private(set) var isRunning = false
 
 #if DEBUG
@@ -88,6 +89,22 @@ public final class NotchiumApplicationController {
         displayCoordinator.presentationModel.caffeineController = caffeineModel
     }
 
+    /// Event-driven battery activities; the stream ends when the task is cancelled.
+    private func startBatteryActivities() {
+        let battery = environment.services.battery
+        batteryTask = Task { [weak presentation = displayCoordinator.presentationModel] in
+            var policy = BatteryActivityPolicy()
+            for await snapshot in await battery.updates() {
+                guard !Task.isCancelled else { return }
+                switch policy.receive(snapshot) {
+                case let .charging(level): presentation?.notificationCoordinator.present(.charging(level: level))
+                case let .low(level): presentation?.notificationCoordinator.present(.lowBattery(level: level))
+                case nil: break
+                }
+            }
+        }
+    }
+
     public static func production() -> NotchiumApplicationController {
 #if DEBUG
         if CommandLine.arguments.contains("--notchium-stage11-fixture") { return stage11Fixture() }
@@ -103,6 +120,7 @@ public final class NotchiumApplicationController {
         if environment.featureFlags[.calendar] { calendarModel.start() }
         if environment.featureFlags[.audioDevices] { audioModel.start() }
         if environment.featureFlags[.caffeine] { caffeineModel.start() }
+        if environment.featureFlags[.activities] { startBatteryActivities() }
         if environment.featureFlags[.media] {
             mediaModel.start()
             if let real = environment.services.media as? RealMediaProvider {
@@ -117,6 +135,7 @@ public final class NotchiumApplicationController {
     public func stop() {
         guard isRunning else { return }
         mediaConnectionTask?.cancel(); mediaConnectionTask = nil
+        batteryTask?.cancel(); batteryTask = nil
         mediaModel.stop()
         calendarModel.stop()
         audioModel.stop()
