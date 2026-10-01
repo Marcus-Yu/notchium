@@ -1,72 +1,63 @@
 import SwiftUI
 
-/// One small black tab hanging from the top edge just past the primary's trailing edge.
-/// It carries only a glyph or artwork: never text, never a second banner. Reserved for two
-/// coexisting baseline activities (see ActivityPriorityPolicy); transients never show it.
+/// Content slots in the single shell. All frames are shared with AppKit hit testing.
 enum NotchSecondaryGeometry {
     static let bodyWidth: CGFloat = 32
-    static let shoulderRadius: CGFloat = 4
-    static let gap: CGFloat = 8
     static let contentSize: CGFloat = 20
 
-    /// Screen-space interaction frame (the body, not the shoulder flare), beside the primary: a
-    /// compact activity (a transfer), a Calendar banner's top edge, otherwise Music's flanks.
-    static func frame(layout: NotchPanelLayout, beside notification: NotchNotification? = nil) -> CGRect {
-        let height = layout.collapsedVisibleFrame.height
-        let primaryWidth: CGFloat = switch notification?.presentationStyle {
+    static func primaryWidth(layout: NotchPanelLayout, notification: NotchNotification?) -> CGFloat {
+        switch notification?.presentationStyle {
         case .compact?: NotchCompactGeometry(layout: layout, activity: notification?.content.compactActivity).width
         case .calendar?: NotchNotificationGeometry.size(for: .calendar, layout: layout).width
         default: CollapsedMediaGeometry(hardwareWidth: layout.hardwareNotchGeometry?.frame.width ?? 0,
-                                        hardwareHeight: height).width
+                                        hardwareHeight: layout.collapsedVisibleFrame.height).width
         }
-        let primaryHalfWidth = primaryWidth / 2
-        return CGRect(x: layout.collapsedVisibleFrame.midX + primaryHalfWidth + gap + shoulderRadius,
-                      y: layout.collapsedVisibleFrame.maxY - height,
-                      width: bodyWidth, height: height)
+    }
+
+    static func shellWidth(layout: NotchPanelLayout, notification: NotchNotification?, hasIndicators: Bool) -> CGFloat {
+        let primary = primaryWidth(layout: layout, notification: notification)
+        // Calendar's existing banner contains the flanks. Compact primaries grow the actual
+        // silhouette symmetrically so the hardware and primary content remain centered.
+        return hasIndicators && notification?.presentationStyle != .calendar ? primary + bodyWidth * 2 : primary
+    }
+
+    static func frame(layout: NotchPanelLayout, beside notification: NotchNotification? = nil,
+                      kind: NotchActivityKind = .download) -> CGRect {
+        let height = layout.collapsedVisibleFrame.height
+        let center = layout.collapsedVisibleFrame.midX
+        let hardware = layout.hardwareNotchGeometry?.frame.width ?? layout.collapsedVisibleFrame.width
+        let x: CGFloat
+        if notification?.presentationStyle == .calendar {
+            x = kind == .media ? center + hardware / 2 : center - hardware / 2 - bodyWidth
+        } else {
+            x = center + primaryWidth(layout: layout, notification: notification) / 2 - 6
+        }
+        return CGRect(x: x, y: layout.collapsedVisibleFrame.maxY - height, width: bodyWidth, height: height)
     }
 }
 
-extension NotchMotion {
-    /// The chip settles in once the primary has mostly grown, so the two never race.
-    static let secondaryIn = Animation.interactiveSpring(response: 0.32, dampingFraction: 0.86, blendDuration: 0).delay(0.1)
-    static let secondaryOut = Animation.easeOut(duration: 0.14)
-}
-
+/// Only glyphs and hit targets. Fill, clipping and animation belong to the outer shell.
 struct NotchSecondaryActivityChip: View {
     let model: DynamicIslandPresentationModel
     let layout: NotchPanelLayout
-    /// False while the shell's black open/close gate hides collapsed content.
-    var isRevealed = true
 
     var body: some View {
-        let secondary = isRevealed ? model.presentedSecondary : nil
-        let frame = NotchSecondaryGeometry.frame(layout: layout, beside: model.presentedNotification)
-        let shoulder = NotchSecondaryGeometry.shoulderRadius
-        ZStack {
-            if let secondary {
-                Button(action: model.activateSecondaryActivity) {
-                    content(for: secondary)
-                        .frame(width: frame.width + shoulder * 2, height: frame.height)
-                        .background(NotchSecondaryChipShape(shoulderRadius: shoulder,
-                                                            bottomRadius: min(12, frame.height * 0.4)).fill(.black))
+        ZStack(alignment: .topLeading) {
+            ForEach(model.presentedIndicators) { activity in
+                let frame = NotchSecondaryGeometry.frame(layout: layout, beside: model.presentedNotification,
+                                                          kind: activity.kind)
+                Button { model.activateIndicator(activity) } label: {
+                    content(for: activity)
+                        .frame(width: frame.width, height: frame.height)
                         .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Show \(secondary.kind == .media ? "Music" : secondary.title)")
-                .accessibilityIdentifier("notchium.secondary.activity")
-                // A promotion changes role, not identity: the same key keeps the same view.
-                .id(secondary.key)
-                .transition(model.reduceMotion ? .opacity : .asymmetric(
-                    insertion: .opacity.combined(with: .scale(scale: 0.4, anchor: .leading))
-                        .animation(NotchMotion.secondaryIn),
-                    removal: .opacity.combined(with: .scale(scale: 0.7, anchor: .leading))
-                        .animation(NotchMotion.secondaryOut)))
+                .accessibilityLabel("Show \(activity.kind == .media ? "Music" : activity.title)")
+                .accessibilityIdentifier("notchium.secondary.\(activity.kind.rawValue)")
+                .offset(x: frame.minX - layout.panelFrame.minX)
             }
         }
-        .frame(width: frame.width + shoulder * 2, height: frame.height)
-        .offset(x: frame.minX - shoulder - layout.panelFrame.minX)
-        .animation(model.reduceMotion ? NotchMotion.reduced : NotchMotion.secondaryIn, value: secondary?.key)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(width: layout.panelFrame.width, height: layout.collapsedVisibleFrame.height, alignment: .topLeading)
     }
 
     @ViewBuilder private func content(for activity: NotchActivity) -> some View {
@@ -92,32 +83,6 @@ struct NotchSecondaryActivityChip: View {
         case nil:
             EmptyView()
         }
-    }
-}
-
-/// A top-attached tab: concave shoulders into the screen edge, rounded lower corners.
-struct NotchSecondaryChipShape: Shape {
-    let shoulderRadius: CGFloat
-    let bottomRadius: CGFloat
-
-    func path(in rect: CGRect) -> Path {
-        let s = shoulderRadius
-        let r = min(bottomRadius, (rect.width - s * 2) / 2, rect.height - s)
-        var path = Path()
-        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
-        path.addQuadCurve(to: CGPoint(x: rect.minX + s, y: rect.minY + s),
-                          control: CGPoint(x: rect.minX + s, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.minX + s, y: rect.maxY - r))
-        path.addQuadCurve(to: CGPoint(x: rect.minX + s + r, y: rect.maxY),
-                          control: CGPoint(x: rect.minX + s, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.maxX - s - r, y: rect.maxY))
-        path.addQuadCurve(to: CGPoint(x: rect.maxX - s, y: rect.maxY - r),
-                          control: CGPoint(x: rect.maxX - s, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.maxX - s, y: rect.minY + s))
-        path.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.minY),
-                          control: CGPoint(x: rect.maxX - s, y: rect.minY))
-        path.closeSubpath()
-        return path
     }
 }
 
