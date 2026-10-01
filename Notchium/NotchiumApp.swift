@@ -59,7 +59,10 @@ struct NotchiumApp: App {
                                  calendarModel: appDelegate.controller.calendarModel,
                                  menuBarInsertion: menuBarInsertion,
                                  caffeineModel: appDelegate.controller.caffeineModel,
-                                 quickActions: appDelegate.controller.quickActions)
+                                 quickActions: appDelegate.controller.quickActions,
+                                 clipboardModel: appDelegate.controller.clipboardModel,
+                                 focusModeModel: appDelegate.controller.focusModeModel,
+                                 pomodoroModel: appDelegate.controller.pomodoroModel)
         }
 
 #if DEBUG
