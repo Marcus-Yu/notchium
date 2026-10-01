@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 public struct NotchAudioHUD: Equatable, Sendable {
@@ -59,17 +60,37 @@ public struct NotchAuxiliaryInteractionHandler: Equatable {
     }
 
     @MainActor
-    public func begin() {
-        storage.model?.setAuxiliaryInteractionPresented(true)
+    public func begin() { begin(source: "feature") }
+
+    @MainActor
+    public func begin(source: String) {
+        storage.model?.setAuxiliaryInteractionPresented(true, source: source)
     }
 
     @MainActor
-    public func end(actionSelected: Bool) {
-        storage.model?.endAuxiliaryInteraction(actionSelected: actionSelected)
+    public func end(actionSelected: Bool) { end(actionSelected: actionSelected, source: "feature") }
+
+    @MainActor
+    public func end(actionSelected: Bool, source: String) {
+        storage.model?.endAuxiliaryInteraction(actionSelected: actionSelected, source: source)
     }
 
     @MainActor
     public func handleEscape() { storage.model?.handleEscape() }
+
+    @MainActor
+    public func beginNativeSharing(in window: NSWindow?, source: String) {
+        begin(source: source)
+        (window as? NotchPanel)?.setNativeSharingPresented(true, source: source)
+    }
+
+    @MainActor
+    public func endNativeSharing(in window: NSWindow?, source: String,
+                                 returnsToOpenSession: Bool = false) {
+        (window as? NotchPanel)?.setNativeSharingPresented(false, source: source)
+        storage.model?.endAuxiliaryInteraction(actionSelected: false, source: source,
+                                              returnsToOpenSession: returnsToOpenSession)
+    }
 
     public static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.storage === rhs.storage
