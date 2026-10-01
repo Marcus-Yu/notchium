@@ -1,4 +1,6 @@
 import Foundation
+import ImageIO
+import CoreGraphics
 import NotchiumCore
 
 /// A file-backed capture. Identity is path + creation time, so a new capture reusing a
@@ -51,7 +53,10 @@ public final class RealScreenshotService: ScreenshotService {
     private var folderSource: DispatchSourceFileSystemObject?
     private var knownNames: Set<String> = []
     private var scanTask: Task<Void, Never>?
-    private var pendingRecheck: [String: Int] = [:]
+    private var scanRequested = false
+    private var candidateSources: [URL: DispatchSourceFileSystemObject] = [:]
+    private var readinessTasks: [URL: Task<Void, Never>] = [:]
+    private var validationRequested: Set<URL> = []
     private var access: FeatureAvailability = .available
     private let locate: @Sendable () -> URL
 
@@ -59,6 +64,8 @@ public final class RealScreenshotService: ScreenshotService {
     public init(location: (@Sendable () -> URL)? = nil) {
         locate = location ?? { RealScreenshotService.configuredLocation() }
     }
+
+    isolated deinit { stopObservation() }
 
     /// Re-attempts the folder watch when previously denied, so a later grant is picked up.
     public func availability() async -> FeatureAvailability {
@@ -124,44 +131,113 @@ public final class RealScreenshotService: ScreenshotService {
         folderSource = source
     }
 
-    /// Directory writes arrive in bursts (temp file, rename, xattrs); one short coalescing delay.
-    private func scheduleScan(after delay: Duration = .milliseconds(120)) {
+    /// Coalesce events already queued in this actor turn; never wait for a timer.
+    private func scheduleScan() {
+        scanRequested = true
         guard scanTask == nil else { return }
-        scanTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: delay)
-            guard let self, !Task.isCancelled else { return }
-            self.scanTask = nil
-            self.scan()
+        scanTask = Task { [weak self] in
+            guard let self else { return }
+            defer { self.scanTask = nil }
+            while self.scanRequested, !Task.isCancelled {
+                self.scanRequested = false
+                let location = self.locate()
+                guard location.standardizedFileURL == self.folder?.standardizedFileURL else {
+                    self.watch(location)
+                    return
+                }
+                guard let names = try? await Self.directoryNames(in: location), !Task.isCancelled else { return }
+                self.scan(names: names, in: location)
+            }
         }
     }
 
-    private func scan() {
-        // The user may have changed the save location in the Screenshot app meanwhile.
-        let location = locate()
-        if location.standardizedFileURL != folder?.standardizedFileURL { watch(location); return }
-        guard let folder, let names = try? Self.names(in: folder) else { return }
-        let added = names.subtracting(knownNames).union(pendingRecheck.keys)
+    private func scan(names: Set<String>, in folder: URL) {
+        guard self.folder == folder else { return }
+        let added = names.subtracting(knownNames)
         let removed = knownNames.subtracting(names)
         knownNames = names
         for name in added.sorted() {
             let url = folder.appendingPathComponent(name)
-            guard let created = try? url.resourceValues(forKeys: [.creationDateKey]).creationDate,
-                  created >= startedAt.addingTimeInterval(-2) else { pendingRecheck[name] = nil; continue }
-            if Self.isScreenCapture(url) {
-                pendingRecheck[name] = nil
-                emit(url: url, created: created)
-            } else if Self.isImage(url), pendingRecheck[name, default: 0] < 3 {
-                // Attributes can land just after the rename: re-check a few times, then give up.
-                pendingRecheck[name, default: 0] += 1
-                scheduleScan(after: .milliseconds(400))
-            } else {
-                pendingRecheck[name] = nil
-            }
+            guard Self.isImage(url),
+                  let created = try? url.resourceValues(forKeys: [.creationDateKey]).creationDate,
+                  created >= startedAt.addingTimeInterval(-2) else { continue }
+            observeCandidate(url)
+            validate(url: url, created: created)
         }
         for name in removed {
             let url = folder.appendingPathComponent(name)
+            stopCandidate(url)
             if captured.contains(url) { remove(url) }
         }
+    }
+
+    /// Directory events do not include subsequent file writes/xattrs. Keep a bounded set
+    /// of candidate descriptors until screencapture tags and finishes the image.
+    private func observeCandidate(_ url: URL) {
+        guard candidateSources[url] == nil, !captured.contains(url) else { return }
+        if candidateSources.count >= 64, let evicted = candidateSources.keys.min(by: { $0.path < $1.path }) {
+            stopCandidate(evicted)
+        }
+        let descriptor = open(url.path, O_EVTONLY)
+        guard descriptor >= 0 else { return }
+        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor,
+            eventMask: [.write, .extend, .attrib, .rename, .delete], queue: .main)
+        source.setEventHandler { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                guard let created = try? url.resourceValues(forKeys: [.creationDateKey]).creationDate else {
+                    self.stopCandidate(url)
+                    return
+                }
+                self.validate(url: url, created: created)
+            }
+        }
+        source.setCancelHandler { close(descriptor) }
+        candidateSources[url] = source
+        source.resume()
+    }
+
+    private func stopCandidate(_ url: URL) {
+        validationRequested.remove(url)
+        candidateSources.removeValue(forKey: url)?.cancel()
+        readinessTasks.removeValue(forKey: url)?.cancel()
+    }
+
+    private func validate(url: URL, created: Date) {
+        guard !seen.contains(ScreenshotCapture(fileURL: url, createdAt: created).id) else { return }
+        // Metadata can arrive repeatedly while ImageIO is reading. Coalesce it without
+        // cancelling the in-flight result; otherwise a readable capture can starve forever.
+        guard readinessTasks[url] == nil else { validationRequested.insert(url); return }
+        readinessTasks[url] = Task { [weak self] in
+            let ready = await Self.isReadyCapture(url)
+            guard let self, !Task.isCancelled else { return }
+            self.readinessTasks[url] = nil
+            guard ready else {
+                if self.validationRequested.remove(url) != nil { self.validate(url: url, created: created) }
+                return
+            }
+            self.stopCandidate(url)
+            self.emit(url: url, created: created)
+        }
+    }
+
+    @concurrent private static func directoryNames(in folder: URL) async throws -> Set<String> {
+        try names(in: folder)
+    }
+
+    /// Decode just a tiny thumbnail off the UI executor. A tag alone does not prove that
+    /// an image's bytes are complete. File change events re-attempt incomplete candidates.
+    @concurrent static func isReadyCapture(_ url: URL) async -> Bool {
+        guard isScreenCapture(url) else { return false }
+        if url.pathExtension.lowercased() == "pdf" {
+            return CGPDFDocument(url as CFURL).map { $0.numberOfPages > 0 } ?? false
+        }
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              CGImageSourceGetStatus(source) == .statusComplete else { return false }
+        let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                                       kCGImageSourceThumbnailMaxPixelSize: 1,
+                                       kCGImageSourceShouldCache: false]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) != nil
     }
 
     private nonisolated static func names(in folder: URL) throws -> Set<String> {
@@ -194,7 +270,7 @@ public final class RealScreenshotService: ScreenshotService {
             let removed = Self.items(note.userInfo?[NSMetadataQueryUpdateRemovedItemsKey])
             MainActor.assumeIsolated {
                 guard let self else { return }
-                added.forEach { self.emit(url: $0.0, created: $0.1) }
+                added.forEach { self.observeCandidate($0.0); self.validate(url: $0.0, created: $0.1) }
                 removed.forEach { self.remove($0.0) }
                 if !added.isEmpty { self.watch(self.locate()) }
             }
@@ -224,6 +300,7 @@ public final class RealScreenshotService: ScreenshotService {
     }
 
     private func remove(_ url: URL) {
+        guard captured.contains(url) else { return }
         captured.removeAll { $0 == url }
         continuations.values.forEach { $0.yield(.removed(url)) }
     }
@@ -231,6 +308,10 @@ public final class RealScreenshotService: ScreenshotService {
     private func removeObserver(_ token: UUID) {
         continuations[token] = nil
         guard continuations.isEmpty else { return }
+        stopObservation()
+    }
+
+    private func stopObservation() {
         query?.stop()
         query = nil
         observers.forEach(NotificationCenter.default.removeObserver)
@@ -240,10 +321,15 @@ public final class RealScreenshotService: ScreenshotService {
         folder = nil
         scanTask?.cancel()
         scanTask = nil
+        scanRequested = false
         seen.removeAll()
         captured.removeAll()
         knownNames.removeAll()
-        pendingRecheck.removeAll()
+        candidateSources.values.forEach { $0.cancel() }
+        candidateSources.removeAll()
+        readinessTasks.values.forEach { $0.cancel() }
+        readinessTasks.removeAll()
+        validationRequested.removeAll()
     }
 }
 
