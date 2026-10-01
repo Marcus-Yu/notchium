@@ -58,6 +58,16 @@ public final class DynamicIslandPresentationModel {
         // A file drag near the notch is direct interaction: its drop affordance wins.
         surfaceState == .collapsed && fileDrag == .idle ? notificationCoordinator.active : nil
     }
+    /// A projection of the existing coordinator, never a second activity or deadline.
+    var expandedMinorActivity: NotchActivity? {
+        _ = activityRevision
+        guard surfaceState != .collapsed,
+              let activity = activityCoordinator.activeTransient,
+              activity.kind == .systemHUD || activity.kind == .audioDevice else { return nil }
+        if let notification = notificationCoordinator.active,
+           notification.content.compactActivity == nil { return nil }
+        return activity
+    }
     /// The coordinator pairs only baseline activities (a transient primary never has one), so the
     /// chip sits beside a baseline compact activity (a transfer) or Music's live flanks. Never
     /// beside a banner, and never while expanded.
@@ -69,6 +79,19 @@ public final class DynamicIslandPresentationModel {
             return notification.presentationStyle == .feedback ? nil : secondary
         }
         return showsCollapsedMedia ? secondary : nil
+    }
+
+    /// Presentation only: Calendar borrows the two flanks from the existing live baselines.
+    /// Coordinator ranking and the transfer's identity remain untouched.
+    var presentedIndicators: [NotchActivity] {
+        guard let secondary = presentedSecondary else { return [] }
+        if presentedNotification?.presentationStyle == .calendar, secondary.kind == .download,
+           let music = activityCoordinator.liveActivities.first(where: {
+               $0.kind == .media && $0.lifetime.isBaseline && $0.minimal != nil
+           }) {
+            return [secondary, music]
+        }
+        return [secondary]
     }
 
     /// System file drags near the collapsed notch (set by the panel controller).
@@ -137,6 +160,7 @@ public final class DynamicIslandPresentationModel {
     @ObservationIgnored lazy var auxiliaryInteractionHandler = NotchAuxiliaryInteractionHandler(model: self)
     @ObservationIgnored private var auxiliaryInteractionObservedClick = false
     @ObservationIgnored private var suppressNextAuxiliaryActionClick = false
+    @ObservationIgnored private var auxiliaryReturnsToOpenSession = false
 
     private let hoverEntryDelay: Duration = .milliseconds(120)
     private let hoverExitDelay: Duration = .milliseconds(200)
@@ -179,6 +203,7 @@ public final class DynamicIslandPresentationModel {
             isAuxiliaryInteractionPresented = true
             auxiliaryInteractionObservedClick = false
             suppressNextAuxiliaryActionClick = false
+            auxiliaryReturnsToOpenSession = false
             pendingCollapseTask?.cancel()
             pendingHoverTask?.cancel()
             hoverGeneration &+= 1
@@ -187,16 +212,21 @@ public final class DynamicIslandPresentationModel {
         }
     }
 
-    func endAuxiliaryInteraction(actionSelected: Bool, source: String = "feature") {
-        auxiliarySources.remove(source)
+    func endAuxiliaryInteraction(actionSelected: Bool, source: String = "feature",
+                                 returnsToOpenSession: Bool = false) {
+        guard auxiliarySources.remove(source) != nil else { return }
+        auxiliaryReturnsToOpenSession = auxiliaryReturnsToOpenSession || returnsToOpenSession
         guard auxiliarySources.isEmpty else { return }
         guard isAuxiliaryInteractionPresented else { return }
         isAuxiliaryInteractionPresented = false
         suppressNextAuxiliaryActionClick = actionSelected && !auxiliaryInteractionObservedClick
         auxiliaryInteractionObservedClick = false
-        if !pointerIsInside {
+        // AirDrop returns to the existing hover/pinned session. The next actual pointer
+        // boundary or outside click resumes its normal rules; lease removal is not hover exit.
+        if !pointerIsInside, !auxiliaryReturnsToOpenSession {
             scheduleCollapse()
         }
+        auxiliaryReturnsToOpenSession = false
     }
 
     func consumePointerClickForAuxiliaryInteraction() -> Bool {
@@ -270,6 +300,7 @@ public final class DynamicIslandPresentationModel {
         auxiliarySources.removeAll()
         auxiliaryInteractionObservedClick = false
         suppressNextAuxiliaryActionClick = false
+        auxiliaryReturnsToOpenSession = false
         pageModel.endExpansion()
         phase = .collapsed
     }
@@ -327,6 +358,13 @@ public final class DynamicIslandPresentationModel {
     /// Promotes the secondary chip in place. Presentation role only: no page or provider change.
     public func activateSecondaryActivity() {
         activityCoordinator.promoteSecondary()
+    }
+
+    func activateIndicator(_ activity: NotchActivity) {
+        if presentedNotification?.presentationStyle == .calendar, let destination = activity.destination {
+            setExpanded(true)
+            selectPage(destination)
+        } else { activateSecondaryActivity() }
     }
 
     private func selectPage(_ destination: NotchActivityDestination) {
