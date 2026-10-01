@@ -7,6 +7,8 @@ import SwiftUI
     func homeMedia(openMusic: @escaping @MainActor () -> Void) -> AnyView
     func expandedMedia() -> AnyView
     func mediaArtwork(size: CGFloat) -> AnyView
+    /// Music's live waveform, for activities that keep Music visible beside their own content.
+    func mediaWaveform() -> AnyView
 }
 
 extension EnvironmentValues {
@@ -41,5 +43,6 @@ public struct CollapsedMediaGeometry: Equatable {
 }
 
 public extension NotchMediaRendering {
+    func mediaWaveform() -> AnyView { AnyView(EmptyView()) }
     func homeMedia(openMusic: @escaping @MainActor () -> Void) -> AnyView { AnyView(Button("Open Music", action: openMusic).buttonStyle(.plain)) }
 }
