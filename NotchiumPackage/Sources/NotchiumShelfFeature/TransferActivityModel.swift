@@ -21,7 +21,8 @@ public final class TransferActivityModel {
     static let recentLimit = 5
 
     @ObservationIgnored private let notifications: NotificationCoordinator
-    @ObservationIgnored private var finishedIDs: [String] = []
+    @ObservationIgnored private var finishedIDs: Set<String> = []
+    @ObservationIgnored private var latestUpdates: [String: Date] = [:]
     @ObservationIgnored private var batchResults: [TransferPhase] = []
 
     public init(notifications: NotificationCoordinator) {
@@ -31,9 +32,11 @@ public final class TransferActivityModel {
     public func receive(_ snapshot: TransferSnapshot) {
         // A late progress sample after completion must not resurrect the transfer.
         guard !finishedIDs.contains(snapshot.id) else { return }
+        guard latestUpdates[snapshot.id].map({ $0 <= snapshot.updatedAt }) ?? true else { return }
+        latestUpdates[snapshot.id] = snapshot.updatedAt
         if snapshot.phase.isTerminal {
-            finishedIDs.append(snapshot.id)
-            if finishedIDs.count > 64 { finishedIDs.removeFirst() }
+            finishedIDs.insert(snapshot.id)
+            latestUpdates[snapshot.id] = nil
             active.removeAll { $0.id == snapshot.id }
             recent.insert(snapshot, at: 0)
             if recent.count > Self.recentLimit {
@@ -59,10 +62,26 @@ public final class TransferActivityModel {
         finishedFiles.removeAll()
     }
 
+    /// Completed transfers can hand off their UI representation without touching the file
+    /// or interrupting another running transfer's stable activity identity.
+    func consumeReference(to url: URL) {
+        let ids = Set(finishedFiles.compactMap { id, file in
+            file.standardizedFileURL == url.standardizedFileURL ? id : nil
+        })
+        let consumesLatestResult = recent.first.map { ids.contains($0.id) } ?? false
+        recent.removeAll { ids.contains($0.id) }
+        finishedFiles = finishedFiles.filter { !ids.contains($0.key) }
+        if active.isEmpty, consumesLatestResult {
+            notifications.dismiss(coalescingKey: Self.key)
+        }
+    }
+
     /// Stopping the feature removes its activity; nothing about transfers is persisted.
     func reset() {
         active.removeAll()
         batchResults.removeAll()
+        finishedIDs.removeAll()
+        latestUpdates.removeAll()
         notifications.dismiss(coalescingKey: Self.key)
     }
 
@@ -121,15 +140,5 @@ extension TransferOperation {
         case .decompressing: "Expanding"
         case .other: "Transferring"
         }
-    }
-}
-
-extension TransferSnapshot {
-    /// Browsers publish progress for an in-progress bundle ("X.dmg.download"); the finished
-    /// file drops that suffix.
-    var finishedFileURL: URL? {
-        guard let fileURL else { return nil }
-        return ["download", "crdownload", "part"].contains(fileURL.pathExtension.lowercased())
-            ? fileURL.deletingPathExtension() : fileURL
     }
 }
