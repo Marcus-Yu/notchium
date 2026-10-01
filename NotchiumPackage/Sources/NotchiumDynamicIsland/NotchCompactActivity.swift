@@ -18,9 +18,11 @@ public struct NotchCompactActivity: Equatable, Sendable {
         case battery(level: Double, charging: Bool)
         /// A thin bar plus a short label ("72%", "72% +2"); nil fraction shows the label alone.
         case progress(Double?, label: String)
+        /// Remaining time toward a deadline, drawn from the deadline itself.
+        case countdown(NotchCountdown)
     }
 
-    public enum Tint: Equatable, Sendable { case primary, muted, charging, warning }
+    public enum Tint: Equatable, Sendable { case primary, muted, charging, warning, focus }
 
     public let glyph: Glyph
     /// Always spoken; shown beside the glyph only when `showsTitle`.
@@ -28,13 +30,18 @@ public struct NotchCompactActivity: Equatable, Sendable {
     public let showsTitle: Bool
     public let trailing: Trailing
     public let tint: Tint
+    /// While Music is visibly playing, the leading side shows its artwork beside the countdown and
+    /// the trailing side keeps its waveform: one activity that still reads as Music.
+    public let blendsWithMedia: Bool
 
-    public init(glyph: Glyph, title: String, showsTitle: Bool = true, trailing: Trailing, tint: Tint = .primary) {
+    public init(glyph: Glyph, title: String, showsTitle: Bool = true, trailing: Trailing, tint: Tint = .primary,
+                blendsWithMedia: Bool = false) {
         self.glyph = glyph
         self.title = title
         self.showsTitle = showsTitle
         self.trailing = trailing
         self.tint = tint
+        self.blendsWithMedia = blendsWithMedia
     }
 
     /// Symmetric sides sized to the content, so the notch stays centred and an untitled
@@ -43,7 +50,7 @@ public struct NotchCompactActivity: Equatable, Sendable {
         if showsTitle { return NotchCompactGeometry.sideWidth }
         switch trailing {
         case let .text(text) where text.count > 9: return NotchCompactGeometry.sideWidth
-        case .progress: return NotchCompactGeometry.sideWidth
+        case .progress, .countdown: return NotchCompactGeometry.sideWidth
         default: return 86
         }
     }
@@ -100,6 +107,52 @@ public struct NotchCompactActivity: Equatable, Sendable {
     public static func powerDisconnected(level: Double) -> Self {
         .init(glyph: .symbol("bolt.slash.fill"), title: "On Battery",
               trailing: .battery(level: level, charging: false), tint: .muted)
+    }
+}
+
+/// A deadline-based countdown. The visible time is derived from the deadline at render time,
+/// so the activity is submitted only when its phase or pause state changes.
+public struct NotchCountdown: Equatable, Sendable {
+    public let total: TimeInterval
+    /// The absolute end while running; nil while paused.
+    public let endsAt: Date?
+    /// The frozen remaining time while paused.
+    public let pausedRemaining: TimeInterval
+
+    public static func running(total: TimeInterval, endsAt: Date) -> Self {
+        Self(total: total, endsAt: endsAt, pausedRemaining: 0)
+    }
+
+    public static func paused(total: TimeInterval, remaining: TimeInterval) -> Self {
+        Self(total: total, endsAt: nil, pausedRemaining: remaining)
+    }
+
+    public var isRunning: Bool { endsAt != nil }
+
+    public func remaining(at now: Date) -> TimeInterval {
+        max(0, endsAt.map { $0.timeIntervalSince(now) } ?? pausedRemaining)
+    }
+
+    /// Elapsed share of the phase, 0…1.
+    public func elapsedFraction(at now: Date) -> Double {
+        guard total > 0 else { return 0 }
+        return min(max(1 - remaining(at: now) / total, 0), 1)
+    }
+
+    /// "24:18", or "1:02:03" past an hour. Rounds up so 00:00 appears only at the end.
+    public static func label(_ seconds: TimeInterval) -> String {
+        let whole = Int(seconds.rounded(.up))
+        let (hours, minutes, secs) = (whole / 3600, whole % 3600 / 60, whole % 60)
+        return hours > 0 ? String(format: "%d:%02d:%02d", hours, minutes, secs) : String(format: "%02d:%02d", minutes, secs)
+    }
+
+    /// "24 minutes, 18 seconds remaining" for VoiceOver.
+    public static func spokenLabel(_ seconds: TimeInterval) -> String {
+        let whole = Int(seconds.rounded(.up))
+        let formatter = DateComponentsFormatter()
+        formatter.allowedUnits = whole >= 3600 ? [.hour, .minute] : [.minute, .second]
+        formatter.unitsStyle = .full
+        return (formatter.string(from: TimeInterval(whole)) ?? "") + " remaining"
     }
 }
 
