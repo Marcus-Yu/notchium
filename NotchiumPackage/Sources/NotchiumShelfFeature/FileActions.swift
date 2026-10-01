@@ -1,5 +1,6 @@
 import AppKit
 import UniformTypeIdentifiers
+import NotchiumDynamicIsland
 
 public enum ShareOutcome: Equatable, Sendable {
     /// Apple's native sharing UI is showing; the user completes or cancels it there.
@@ -9,21 +10,33 @@ public enum ShareOutcome: Equatable, Sendable {
 }
 
 /// Native file actions. Sharing only ever presents Apple's own UI: AirDrop is the public
-/// `NSSharingService.sendViaAirDrop`; general sharing is SwiftUI `ShareLink` in the page.
+/// `NSSharingService.sendViaAirDrop`; general sharing uses an owned `NSSharingServicePicker`.
 @MainActor public protocol FileActionPerforming: AnyObject {
     func open(_ urls: [URL])
     func reveal(_ urls: [URL])
     func copyFiles(_ urls: [URL])
     func copyPaths(_ urls: [URL])
     func airDrop(_ urls: [URL]) -> ShareOutcome
+    func airDrop(_ urls: [URL], from view: NSView?, interaction: NotchAuxiliaryInteractionHandler) -> ShareOutcome
+    func share(_ urls: [URL], from view: NSView, interaction: NotchAuxiliaryInteractionHandler) -> ShareOutcome
     func chooseFiles() async -> [URL]
     /// Files & Folders privacy settings, for recovering denied folder access.
     func openPrivacySettings()
 }
 
+extension FileActionPerforming {
+    public func airDrop(_ urls: [URL], from view: NSView?, interaction: NotchAuxiliaryInteractionHandler) -> ShareOutcome {
+        airDrop(urls)
+    }
+    public func share(_ urls: [URL], from view: NSView, interaction: NotchAuxiliaryInteractionHandler) -> ShareOutcome {
+        .unavailable
+    }
+}
+
 @MainActor public final class NativeFileActions: FileActionPerforming {
     private let workspace: NSWorkspace
     private let pasteboard: NSPasteboard
+    private let sharing = NativeFileSharing()
 
     public init(workspace: NSWorkspace = .shared, pasteboard: NSPasteboard = .general) {
         self.workspace = workspace
@@ -52,11 +65,15 @@ public enum ShareOutcome: Equatable, Sendable {
     }
 
     public func airDrop(_ urls: [URL]) -> ShareOutcome {
-        guard let service = NSSharingService(named: .sendViaAirDrop), service.canPerform(withItems: urls) else {
-            return .unavailable
-        }
-        service.perform(withItems: urls)
-        return .presented
+        sharing.airDrop(urls, from: nil, interaction: .init())
+    }
+
+    public func airDrop(_ urls: [URL], from view: NSView?, interaction: NotchAuxiliaryInteractionHandler) -> ShareOutcome {
+        sharing.airDrop(urls, from: view, interaction: interaction)
+    }
+
+    public func share(_ urls: [URL], from view: NSView, interaction: NotchAuxiliaryInteractionHandler) -> ShareOutcome {
+        sharing.share(urls, from: view, interaction: interaction)
     }
 
     public func chooseFiles() async -> [URL] {
