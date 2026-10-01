@@ -256,7 +256,7 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         if globalPointerMonitor == nil {
             globalPointerMonitor = NSEvent.addGlobalMonitorForEvents(matching: eventMask) {
                 [weak self] event in
-                Task { @MainActor [weak self] in
+                MainActor.assumeIsolated {
                     self?.handlePointerEvent(event.type, at: NSEvent.mouseLocation)
                 }
             }
@@ -266,7 +266,9 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
             localPointerMonitor = NSEvent.addLocalMonitorForEvents(matching: eventMask) {
                 [weak self] event in
                 let location = event.window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation
-                Task { @MainActor [weak self] in
+                // AppKit calls event monitors on the main thread. Process before the native
+                // Cancel button releases its lease, rather than queueing that click afterward.
+                MainActor.assumeIsolated {
                     self?.handlePointerEvent(event.type, at: location)
                 }
                 return event
@@ -377,7 +379,7 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
             // Notification actions, including Join and dismissal, own their clicks.
             return
         }
-        if secondaryFrame(for: currentLayout)?.contains(point) == true {
+        if indicatorFrames(for: currentLayout).contains(where: { $0.contains(point) }) {
             // The secondary chip's own button promotes it; it never toggles the shell.
             return
         }
@@ -405,18 +407,20 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         let zone = model.surfaceState == .collapsed
             ? currentLayout.collapsedHoverFrame
             : currentLayout.visibleSurfaceFrame
-        model.setHovered(NotchHoverRegion.contains(point, in: zone))
+        model.setHovered(NotchHoverRegion.contains(point, in: zone) || insideNotification)
     }
 
     private func notificationFrame(for layout: NotchPanelLayout) -> CGRect? {
+        if model.expandedMinorActivity != nil { return NotchExpandedMinorGeometry.frame(layout: layout) }
         guard let notification = model.presentedNotification else { return nil }
         return NotchNotificationGeometry.interactionFrame(for: notification.presentationStyle, layout: layout,
                                                           expanded: model.surfaceState != .collapsed)
     }
 
-    private func secondaryFrame(for layout: NotchPanelLayout) -> CGRect? {
-        guard model.presentedSecondary != nil else { return nil }
-        return NotchSecondaryGeometry.frame(layout: layout, beside: model.presentedNotification)
+    private func indicatorFrames(for layout: NotchPanelLayout) -> [CGRect] {
+        model.presentedIndicators.map {
+            NotchSecondaryGeometry.frame(layout: layout, beside: model.presentedNotification, kind: $0.kind)
+        }
     }
 
     private func updateHitTesting(at point: CGPoint) {
@@ -424,8 +428,7 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         let inside = notificationFrame(for: currentLayout)
             .map { NotchHoverRegion.contains(point, in: $0) } == true
         model.notificationCoordinator.setHovered(inside)
-        let insideSecondary = secondaryFrame(for: currentLayout)
-            .map { NotchHoverRegion.contains(point, in: $0) } == true
+        let insideSecondary = indicatorFrames(for: currentLayout).contains { NotchHoverRegion.contains(point, in: $0) }
         panel.ignoresMouseEvents = model.surfaceState == .collapsed && !inside && !insideSecondary
             && !model.showsFileDropTarget
     }
