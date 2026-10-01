@@ -67,14 +67,26 @@ running silent stream may appear.
 ## Notch HUD
 
 The long-lived device stream still detects keyboard volume/mute and default-output
-changes through HAL property notifications. `showAudioHUD` now submits typed notifications
+changes through HAL property notifications. For Volume Down at 0 and Volume Up at 1,
+`RealAudioDevicesService.volumeCommands()` separately observes key-down/repeat intent
+through one passive session event tap restricted to system-defined events. It reads only
+the current output's HAL controls and emits an event without mutating audio or device state.
+`AudioFeatureModel` presents boundary feedback through the same `onHUD` callback used by
+ordinary changes; interior commands continue to rely on HAL change notifications. The tap
+stops with its last command subscriber, never consumes input or changes native HUD handling,
+and does not request permissions. If macOS refuses tap creation, ordinary HAL-driven feedback
+continues; boundary key delivery requires live qualification with the signed app's permissions.
+`showAudioHUD` submits typed notifications
 to the shared `NotificationCoordinator`. Volume and mute share one coalescing key and a
 1.75-second timeout; output changes use medium priority and a 2.5-second timeout. Repeats
 retain identity, update content immediately, and extend expiry without restarting geometry.
+Explicit HUD events refresh expiry even at an unchanged value; repeated state snapshots
+still do not. The same activity projects into the expanded minor-system shell extension,
+leaving the selected page mounted and selected.
 Lower-priority feedback is discarded while Calendar is visible. The 56 pt Audio content
 area uses the same black shell and rounded shoulders as Calendar. Stage 10 keeps the
-Music flanks visible throughout Audio entry and exit. Expanded pages hide the compact
-HUD while its absolute expiry continues; collapse only reveals unexpired feedback. No Music notification kinds
+Music flanks visible throughout Audio entry and exit. Absolute expiry continues while
+expanded; collapse only reveals unexpired feedback. No Music notification kinds
 or producers exist. See [Unified notifications](STAGE9_NOTIFICATIONS.md) and
 [Stage 10 coordination](STAGE10_COORDINATION.md).
 
