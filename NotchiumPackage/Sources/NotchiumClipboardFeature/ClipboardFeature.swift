@@ -5,7 +5,7 @@ public enum ClipboardFeature: FeatureModule {
     public static let descriptor = FeatureDescriptor(
         id: .clipboard,
         name: "Clipboard History",
-        summary: "Fail-closed local clipboard metadata and payload management.",
-        requiredPermissions: [.keychain]
+        summary: "Lean, local clipboard history: recent text, links, images and files.",
+        requiredPermissions: []
     )
 }
