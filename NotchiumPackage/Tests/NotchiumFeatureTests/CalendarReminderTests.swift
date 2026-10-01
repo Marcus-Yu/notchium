@@ -240,7 +240,7 @@ final class CalendarReminderTests: XCTestCase {
                 reverse.reminderProgress = 1
                 // Exercise native interpolation's progress channel on dismissal.
                 var data = reverse.animatableData
-                data.second.second = progress
+                data.second.second.first = progress
                 reverse.animatableData = data
                 XCTAssertEqual(reverse.path(in: bounds), path)
             }
