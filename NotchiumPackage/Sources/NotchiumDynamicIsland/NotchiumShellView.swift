@@ -20,8 +20,6 @@ public struct NotchiumShellView: View {
     private let layout: NotchPanelLayout
     private let renderConfiguration: NotchShellRenderConfiguration
 
-    /// Mirrors the shell's content gate so the secondary chip never appears before its primary.
-    @State private var collapsedContentRevealed = true
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.accessibilityReduceTransparency) private var systemReduceTransparency
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
@@ -52,12 +50,6 @@ public struct NotchiumShellView: View {
                 layout: layout
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .onPreferenceChange(NotchCollapsedContentRevealedKey.self) { revealed in
-                collapsedContentRevealed = revealed
-            }
-
-            // Above the shell: the shell's full-panel content shape would otherwise take its clicks.
-            NotchSecondaryActivityChip(model: model, layout: layout, isRevealed: collapsedContentRevealed)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .ignoresSafeArea(.all, edges: .top)
@@ -138,9 +130,12 @@ private struct NotchShellOuterSurface: View {
         // The shell's width without any notification: the span a compact activity grows from.
         let baseWidth = expanded ? layout.expandedSize.width
             : (showMedia ? mediaGeometry.width : layout.collapsedVisibleFrame.width)
+        let integratedWidth = NotchSecondaryGeometry.shellWidth(layout: layout, notification: notification,
+                                                                hasIndicators: !model.presentedIndicators.isEmpty)
+        let collapsedWidth = model.presentedIndicators.isEmpty
+            ? (compact ? compactGeometry.width : (surfaced ? notificationWidth : baseWidth)) : integratedWidth
         let shape = NotchShellSurface(
-            width: compact ? compactGeometry.width : (surfaced ? notificationWidth
-                : (expanded ? layout.expandedSize.width + ExpandedShellSilhouette.shoulderRadius * 2 : baseWidth)),
+            width: expanded ? layout.expandedSize.width + ExpandedShellSilhouette.shoulderRadius * 2 : collapsedWidth,
             height: surfaced ? layout.collapsedVisibleFrame.height + notificationHeight
                 : (model.surfaceState == .collapsed ? layout.collapsedVisibleFrame.height : layout.expandedSize.height),
             centerX: model.surfaceState == .collapsed ? passiveShape.centerX : layout.panelFrame.width / 2,
@@ -150,7 +145,8 @@ private struct NotchShellOuterSurface: View {
             passiveShape: passiveShape,
             shoulderRadius: compact ? NotchCompactGeometry.shoulderRadius
                 : (surfaced ? NotchNotificationGeometry.shoulderRadius
-                   : (expanded ? ExpandedShellSilhouette.shoulderRadius : 0))
+                   : (expanded ? ExpandedShellSilhouette.shoulderRadius : 0)),
+            extensionHeight: model.expandedMinorActivity == nil ? 0 : NotchExpandedMinorGeometry.height
         )
 
         NotchTransitionSurface(
@@ -162,7 +158,7 @@ private struct NotchShellOuterSurface: View {
             // notch shows (media sides / combined); a higher persistent activity (a transfer) wins.
             retainsMedia: model.activityCoordinator.retainsMediaPresentation && collapsedMediaEligible,
             compactVisible: compact,
-            compactSpan: NotchCompactSpan(base: baseWidth, full: compactGeometry.width)
+            compactSpan: NotchCompactSpan(base: baseWidth, full: collapsedWidth)
         ) { phase in
             ZStack(alignment: .top) {
                 // Both rows share the shell's fill and mask. The top row owns the
@@ -201,12 +197,21 @@ private struct NotchShellOuterSurface: View {
                        alignment: .top)
                 .zIndex(3)
 
+                NotchSecondaryActivityChip(model: model, layout: layout)
+                    .modifier(NotchPresentationClip(visible: phase == .collapsed))
+                    .zIndex(4)
+
                 shellContent
                 .frame(width: layout.expandedSize.width, height: layout.expandedSize.height, alignment: .top)
                 .modifier(NotchPresentationClip(visible: phase == .expanded))
                 .allowsHitTesting(model.surfaceState != .collapsed)
                 .accessibilityHidden(model.surfaceState == .collapsed)
                 .zIndex(10)
+
+                NotchExpandedMinorActivitySlot(model: model, layout: layout)
+                    .modifier(NotchPresentationClip(visible: phase == .expanded))
+                    .offset(y: layout.expandedSize.height)
+                    .zIndex(11)
 
                 NotchShellStateMarker(state: model.surfaceState).allowsHitTesting(false)
             }
