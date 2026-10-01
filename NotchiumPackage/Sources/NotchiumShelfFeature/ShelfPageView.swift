@@ -72,8 +72,8 @@ struct ShelfPageView: View {
             ShelfToolButton(symbol: "dot.radiowaves.left.and.right", label: "AirDrop",
                             image: NativeFileActions.airDropImage) { model.airDrop(targets) }
                 .disabled(targets.isEmpty)
-            ShareLink(items: targets) { ShelfToolLabel(symbol: "square.and.arrow.up") }
-                .buttonStyle(ShelfToolButtonStyle())
+            ShelfToolButton(symbol: "square.and.arrow.up", label: "Share") { model.share(targets) }
+                .background { FileSharingAnchor(model: model) }
                 .disabled(targets.isEmpty)
                 .help("Share")
                 .accessibilityLabel("Share")
@@ -93,10 +93,14 @@ struct ShelfPageView: View {
         ScrollView(.horizontal) {
             HStack(alignment: .top, spacing: ShelfStyle.tileGap) {
                 ForEach(model.shelf.items) { item in
+                    let dragged = dragItems(for: item)
                     FileTile(url: item.url, name: item.displayName, thumbnail: ShelfStyle.shelfThumbnail,
                              isAvailable: item.isAvailable, isSelected: selection.contains(item.id),
                              select: { toggle(item.id) }, open: { model.actions.open([item.url]) },
-                             delivered: { model.shelf.remove(item.id) }) {
+                             selectedURLs: dragged.map(\.url),
+                             delivered: { urls in
+                                 dragged.filter { urls.contains($0.url) }.forEach { model.shelf.remove($0.id) }
+                             }) {
                         if item.isAvailable { fileActions([item.url]) }
                         Divider()
                         Button("Remove from Shelf") { model.shelf.remove(item.id) }
@@ -106,6 +110,11 @@ struct ShelfPageView: View {
             .padding(.vertical, 2)
         }
         .scrollIndicators(.never)
+    }
+
+    private func dragItems(for item: ShelfModel.Item) -> [ShelfModel.Item] {
+        selection.contains(item.id)
+            ? model.shelf.items.filter { selection.contains($0.id) && $0.isAvailable } : [item]
     }
 
     private var emptyShelf: some View {
@@ -172,7 +181,7 @@ struct ShelfPageView: View {
         Button("Show in Finder") { model.actions.reveal(urls) }
         Button("Copy") { model.actions.copyFiles(urls) }
         Button("Copy Path") { model.actions.copyPaths(urls) }
-        ShareLink("Share…", items: urls)
+        Button("Share…") { model.share(urls) }
         Button("AirDrop") { model.airDrop(urls) }
     }
 
@@ -207,8 +216,9 @@ private struct FileTile<Menu: View>: View {
     let isSelected: Bool
     let select: () -> Void
     let open: () -> Void
+    var selectedURLs: [URL] = []
     /// A successful external drop; nil for tiles that are only dragged, never consumed.
-    var delivered: (() -> Void)?
+    var delivered: (([URL]) -> Void)?
     @ViewBuilder let menu: () -> Menu
     @State private var isHovered = false
 
@@ -251,7 +261,7 @@ private struct FileTile<Menu: View>: View {
         .onHover { isHovered = $0 }
         .animation(.easeOut(duration: 0.12), value: isHovered)
         .animation(.easeOut(duration: 0.12), value: isSelected)
-        .overlay { ShelfDragSource(url: url, isEnabled: isAvailable, onDelivered: delivered) }
+        .overlay { ShelfDragSource(url: url, isEnabled: isAvailable, selectedURLs: selectedURLs, onDelivered: delivered) }
         .contextMenu { menu() }
         .help(name)
         .accessibilityLabel(isAvailable ? name : "\(name), missing")
