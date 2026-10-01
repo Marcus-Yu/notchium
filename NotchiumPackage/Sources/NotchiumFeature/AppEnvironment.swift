@@ -46,7 +46,7 @@ public struct AppEnvironment: Sendable {
             uuids: SystemUUIDGenerator(),
             fileSystem: SystemFileSystem(),
             logger: UnifiedAppLogger(),
-            featureFlags: .stageFifteenFiles,
+            featureFlags: .stageNineteenUtilities,
             distributionProfile: .current
         )
     }
