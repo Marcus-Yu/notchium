@@ -1,6 +1,6 @@
 public enum NotchActivityKind: String, CaseIterable, Hashable, Sendable {
     case media, charging, battery, audioDevice, systemHUD, calendar
-    case meeting, download, screenshot, clipboard, focus, notification
+    case meeting, download, screenshot, clipboard, focus, notification, pomodoro
 
     public var priority: NotchActivityPriority {
         ActivityPriorityPolicy.priority(for: self)
