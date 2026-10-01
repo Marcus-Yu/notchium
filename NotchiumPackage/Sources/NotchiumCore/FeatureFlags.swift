@@ -59,6 +59,20 @@ public struct FeatureFlags: Equatable, Sendable {
         .shelf: true,
     ])
 
+    /// Adds Clipboard history, the Camera mirror, macOS Focus awareness and the Focus Timer (Stages 16–19).
+    public static let stageNineteenUtilities = FeatureFlags(values: [
+        .notchShell: true,
+        .media: true,
+        .calendar: true,
+        .audioDevices: true,
+        .caffeine: true,
+        .activities: true,
+        .shelf: true,
+        .clipboard: true,
+        .camera: true,
+        .focus: true,
+    ])
+
     public static let stageSevenActivities = FeatureFlags(values: [
         .notchShell: true,
         .media: true,
