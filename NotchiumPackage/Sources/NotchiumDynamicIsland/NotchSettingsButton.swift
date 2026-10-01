@@ -4,6 +4,7 @@ import SwiftUI
 
 struct NotchUtilityControls: View {
     let caffeine: (any NotchCaffeineControlling)?
+    var camera: (any NotchCameraControlling)? = nil
     let quickReminder: (any NotchQuickActionsRendering)?
     let close: () -> Void
 
@@ -12,6 +13,7 @@ struct NotchUtilityControls: View {
             HStack(spacing: 0) {
                 HStack(spacing: 8) {
                     if let caffeine { NotchCaffeineButton(controller: caffeine) }
+                    if let camera { NotchCameraButton(camera: camera) }
                     if let quickReminder { quickReminder.reminderButton() }
                     NotchSettingsButton()
                 }
@@ -89,6 +91,31 @@ private struct NotchCaffeineButton: View {
         case .system: "Keeping Mac awake"
         case .systemAndDisplay: "Keeping Mac and display awake"
         }
+    }
+}
+
+/// Opens a small mirror inside the expanded notch; selected while the camera is live.
+private struct NotchCameraButton: View {
+    let camera: any NotchCameraControlling
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovered = false
+
+    var body: some View {
+        let live = camera.isPreviewPresented
+        Button(action: camera.togglePreview) {
+            NotchUtilityLabel(symbol: live ? "web.camera.fill" : "web.camera", isHovered: isHovered, isSelected: live)
+        }
+        .buttonStyle(NotchUtilityButtonStyle())
+        .onHover { isHovered = $0 }
+        .animation(reduceMotion ? .easeOut(duration: 0.1) : .smooth(duration: 0.18), value: isHovered)
+        .animation(reduceMotion ? .easeOut(duration: 0.1) : .smooth(duration: 0.18), value: live)
+        .help(live ? "Close Mirror" : "Mirror")
+        .accessibilityLabel("Mirror")
+        .accessibilityValue(live ? "Camera on" : "Off")
+        .accessibilityHint("Shows a live camera preview in the notch. Nothing is recorded.")
+        .accessibilityAddTraits(live ? .isSelected : [])
+        .accessibilityIdentifier("notchium.shell.camera")
     }
 }
 
