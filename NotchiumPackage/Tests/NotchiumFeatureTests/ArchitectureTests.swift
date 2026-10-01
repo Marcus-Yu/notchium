@@ -39,8 +39,14 @@ final class ArchitectureTests: XCTestCase {
         for service in ServiceKind.allCases {
             let availability = await services.availability(for: service)
             // Stages 14–15: Spotlight screenshots, NSProgress transfers and bookmark Shelf are real.
-            if [.audioDevices, .caffeine, .screenshot, .downloads, .shelf].contains(service) {
+            if [.audioDevices, .caffeine, .screenshot, .downloads, .shelf, .clipboard].contains(service) {
                 XCTAssertEqual(availability, .available)
+            } else if service == .camera || service == .focus {
+                // Stages 17–18: AVFoundation and INFocusStatusCenter; availability follows the user's permission.
+                // Focus status also needs the Communication Notifications entitlement (absent in the test runner).
+                XCTAssertTrue([.available, .unavailable(.permissionNotDetermined), .unavailable(.permissionDenied),
+                               .unavailable(.permissionRestricted), .unavailable(.unsupportedDistribution)]
+                    .contains(availability), "\(service): \(availability)")
             } else if service == .battery {
                 // Real IOKit source: a laptop reports its battery; a desktop has none.
                 XCTAssertTrue([.available, .unavailable(.unsupportedHardware)].contains(availability))
