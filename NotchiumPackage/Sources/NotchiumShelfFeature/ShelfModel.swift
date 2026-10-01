@@ -52,23 +52,31 @@ public final class ShelfModel {
     /// Returns how many dropped files the Shelf now holds.
     @discardableResult
     public func add(_ urls: [URL]) -> Int {
-        var accepted = 0
+        insert(urls).count
+    }
+
+    /// Exact accepted references let the composition model clean up only their source UI.
+    @discardableResult
+    func insert(_ urls: [URL]) -> [URL] {
+        var accepted: [URL] = []
         // The URL is kept exactly as dropped; standardization is only used to spot duplicates.
         for url in urls.reversed() where url.isFileURL {
+            guard service.fileExists(url) else { continue }
             if let index = items.firstIndex(where: { Self.sameFile($0.url, url) }) {
                 items.insert(items.remove(at: index), at: 0)
-                accepted += 1
+                accepted.append(url)
                 continue
             }
             guard service.fileExists(url), let reference = service.reference(for: url) else { continue }
             let item = Item(id: UUID(), url: url, addedAt: now(), isAvailable: true)
             references[item.id] = reference
+            if service.startAccessing(url) { accessing.insert(item.id) }
             items.insert(item, at: 0)
-            accepted += 1
+            accepted.append(url)
         }
         while items.count > Self.capacity { release(items.removeLast()) }
-        if accepted > 0 { persist() }
-        return accepted
+        if !accepted.isEmpty { persist() }
+        return accepted.filter { url in items.contains { Self.sameFile($0.url, url) } }
     }
 
     public func remove(_ id: Item.ID) {
