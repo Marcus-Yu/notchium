@@ -33,6 +33,9 @@ public final class MediaSessionController {
     public private(set) var devices: [SpotifyDevice] = []
     public private(set) var devicesLoading = false
     public private(set) var deviceIssue: String?
+    public private(set) var transferringDeviceID: String?
+    public private(set) var previousRemoteDevice: SpotifyDevice?
+    @ObservationIgnored private var devicesFetchedAt: Date?
     public private(set) var pendingControls: Set<String> = []
     public var isBusy: Bool { !pendingControls.isEmpty }
     public func isPending(_ command: MediaCommand) -> Bool { pendingControls.contains(command.controlID) }
@@ -122,6 +125,7 @@ public final class MediaSessionController {
         audioMeter.setWaveformPresentationEnabled(true)
         playbackActivityRefreshTask?.cancel(); playbackActivityRefreshTask = nil
         devicesTask?.cancel(); devicesTask = nil; devices = []; devicesLoading = false; deviceIssue = nil
+        transferringDeviceID = nil; previousRemoteDevice = nil; devicesFetchedAt = nil
         volumeThrottleTask?.cancel(); volumeThrottleTask = nil
         volumeCommandTask?.cancel(); volumeCommandTask = nil; queuedVolumeRequest = nil
         cacheLoadTask?.cancel(); cacheLoadTask = nil
@@ -151,6 +155,15 @@ public final class MediaSessionController {
         let previous = state
         let previousConnectionState = authoritativeState.connectionState
         authoritativeState = value
+        rememberConnectDevice(value)
+        if transferringDeviceID == value.activeDeviceID, transferringDeviceID != nil {
+            transferringDeviceID = nil
+            devicesLoading = devicesTask != nil
+        } else if transferringDeviceID != nil, value.connectionState != .authenticated || value.issue != nil {
+            transferringDeviceID = nil
+            devicesLoading = false
+            deviceIssue = value.issue ?? "Spotify disconnected"
+        }
         let reconciled = applyingControlFeedback(to: value)
         let (next, showingCachedTrack) = presentationState(for: reconciled)
         if previousConnectionState == value.connectionState,
@@ -281,10 +294,7 @@ public final class MediaSessionController {
     var isPlaybackLocal: Bool {
         guard state.hasMedia else { return false }
         if audioMeter.isAudioActive { return true }
-        guard state.activeDeviceType?.caseInsensitiveCompare("computer") == .orderedSame,
-              let name = state.activeDeviceName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        else { return false }
-        return localDeviceNames.contains(name)
+        return isLocalDevice(name: state.activeDeviceName, type: state.activeDeviceType)
     }
     private func updateCollapsedVisibility(_ value: MediaState) {
         let isVisible = value.hasMedia && value.isPlaying && audioMeter.isAudioActive
@@ -539,7 +549,46 @@ public final class MediaSessionController {
         await provider.setExpandedVisible(visible)
     }
 
+    private func isLocalDevice(name: String?, type: String?) -> Bool {
+        guard type?.caseInsensitiveCompare("computer") == .orderedSame, let name else { return false }
+        return localDeviceNames.contains(name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+    }
+
+    private func rememberConnectDevice(_ value: MediaState) {
+        guard value.connectionState == .authenticated, let id = value.activeDeviceID,
+              let name = value.activeDeviceName,
+              !isLocalDevice(name: name, type: value.activeDeviceType) else { return }
+        previousRemoteDevice = .init(id: id, name: name, type: value.activeDeviceType ?? "unknown",
+                                     isActive: true, isRestricted: false,
+                                     volumePercent: value.volumePercent, supportsVolume: value.capabilities.canSetVolume)
+    }
+
+    public var connectPlaybackIsLocal: Bool {
+        isLocalDevice(name: authoritativeState.activeDeviceName, type: authoritativeState.activeDeviceType)
+    }
+
+    public var connectActiveDeviceName: String { authoritativeState.activeDeviceName ?? "No active device" }
+
+    public var connectTarget: SpotifyDevice? {
+        if connectPlaybackIsLocal {
+            guard let previousRemoteDevice else { return nil }
+            return devices.first { $0.id == previousRemoteDevice.id && !$0.isRestricted }
+        }
+        return devices.first { isLocalDevice(name: $0.name, type: $0.type) && !$0.isRestricted }
+    }
+
+    public var connectTargetName: String {
+        connectTarget?.name ?? (connectPlaybackIsLocal ? previousRemoteDevice?.name ?? "Previous device" : "This Mac")
+    }
+
+    public func refreshDevicesIfStale() {
+        guard homeMediaConnected, !devicesLoading,
+              devicesFetchedAt.map({ Date().timeIntervalSince($0) >= 30 }) ?? true else { return }
+        refreshDevices()
+    }
+
     public func refreshDevices() {
+        guard transferringDeviceID == nil else { return }
         devicesTask?.cancel()
         devicesLoading = true
         deviceIssue = nil
@@ -550,6 +599,7 @@ public final class MediaSessionController {
                 let devices = try await provider.devices()
                 guard let self, self.generation == generation, !Task.isCancelled else { return }
                 self.devices = devices
+                self.devicesFetchedAt = Date()
                 self.devicesLoading = false
                 self.devicesTask = nil
             } catch {
@@ -563,22 +613,38 @@ public final class MediaSessionController {
     }
 
     public func transferPlayback(to device: SpotifyDevice) {
-        guard !device.isRestricted, device.id != state.activeDeviceID else { return }
+        guard !devicesLoading, transferringDeviceID == nil,
+              !device.isRestricted, device.id != authoritativeState.activeDeviceID else { return }
         let provider = provider
         let generation = generation
         devicesLoading = true
+        transferringDeviceID = device.id
         deviceIssue = nil
         devicesTask?.cancel()
         devicesTask = Task { [weak self] in
             do {
                 try await provider.transferPlayback(to: device.id)
+                await provider.refresh()
+                let devices = try? await provider.devices()
                 guard let self, self.generation == generation, !Task.isCancelled else { return }
                 // Device identity arrives in the same authoritative snapshot as playback.
-                self.devicesLoading = false
+                if let devices {
+                    self.devices = devices
+                    self.devicesFetchedAt = Date()
+                    if self.transferringDeviceID != nil, !devices.contains(where: { $0.id == device.id && !$0.isRestricted }) {
+                        self.transferringDeviceID = nil
+                        self.deviceIssue = "Device unavailable"
+                    }
+                } else {
+                    self.devices = []
+                    self.deviceIssue = "Devices unavailable"
+                }
+                self.devicesLoading = self.transferringDeviceID != nil
                 self.devicesTask = nil
             } catch {
                 guard let self, self.generation == generation, !Task.isCancelled else { return }
                 self.devicesLoading = false
+                self.transferringDeviceID = nil
                 self.deviceIssue = "Couldn’t connect to that device"
                 self.devicesTask = nil
             }
