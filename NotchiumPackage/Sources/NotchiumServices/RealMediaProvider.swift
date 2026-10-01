@@ -660,6 +660,11 @@ public actor RealMediaProvider: MediaProviding {
             await refresh()
             if await api.cooldownUntil() != nil { return }
         }
+        if case .device = reconciliation?.target {
+            var unconfirmed = state
+            unconfirmed.issue = "Spotify hasn’t confirmed the device transfer"
+            await publish(unconfirmed)
+        }
     }
     public func addToQueue(uri: String) async throws {
         guard connected else { throw MediaFailure.disconnected }
@@ -694,7 +699,8 @@ public actor RealMediaProvider: MediaProviding {
             pendingControls.remove("transfer")
             drainRequestedRefresh()
         }
-        try await api.transferPlayback(to: deviceID)
+        // Spotify's transfer endpoint preserves the current play state when play is omitted.
+        try await api.transferPlayback(to: deviceID, play: nil)
         guard self.generation == generation, connected else { return }
         invalidatePlaybackReads()
         reconciliation = .init(origin: state, target: .device(deviceID), startedAt: ProcessInfo.processInfo.systemUptime)
