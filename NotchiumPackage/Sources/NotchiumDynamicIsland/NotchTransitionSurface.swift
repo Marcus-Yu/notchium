@@ -78,7 +78,9 @@ struct NotchTransitionSurface<Content: View>: View {
             shape: renderedShape,
             phase: transition.phase,
             expandedHeight: shape.height,
-            hidesPendingTarget: targetChanged && !(notificationVisible && wasNotificationVisible && !expanded && !wasExpanded),
+            targetExtensionHeight: shape.extensionHeight,
+            hidesPendingTarget: targetChanged && !Self.preservesExpandedPage(expanded: expanded, wasExpanded: wasExpanded)
+                && !(notificationVisible && wasNotificationVisible && !expanded && !wasExpanded),
             notificationVisible: notificationVisible,
             keepsNotificationContent: preservesNotificationContent,
             preservesCollapsedMedia: retainsMedia && !expanded
@@ -102,15 +104,21 @@ struct NotchTransitionSurface<Content: View>: View {
         expanded || (notificationVisible && !wasExpanded)
     }
 
+    static func preservesExpandedPage(expanded: Bool, wasExpanded: Bool) -> Bool { expanded && wasExpanded }
+
     private func retarget() {
         preservesNotificationContent = notificationVisible && wasNotificationVisible && !expanded && !wasExpanded
         let notificationMotion = !expanded && !wasExpanded && (notificationVisible || wasNotificationVisible)
         let compactMotion = notificationMotion && (compactVisible || wasCompactVisible)
         isNotificationTransition = notificationMotion
         compactExiting = compactMotion && !compactVisible
-        let generation = transition.begin(expanded: Self.revealsContent(expanded: expanded,
-            notificationVisible: notificationVisible, wasExpanded: wasExpanded))
-        let animation = compactMotion
+        let updatesOpenPage = Self.preservesExpandedPage(expanded: expanded, wasExpanded: wasExpanded)
+        let generation = updatesOpenPage ? transition.generation
+            : transition.begin(expanded: Self.revealsContent(expanded: expanded,
+                notificationVisible: notificationVisible, wasExpanded: wasExpanded))
+        let animation = updatesOpenPage
+            ? (shape.extensionHeight > renderedShape.extensionHeight ? NotchMotion.compactIn : NotchMotion.compactOut)
+            : compactMotion
             ? (compactVisible ? NotchMotion.compactIn : NotchMotion.compactOut)
             : notificationMotion
             ? (notificationVisible ? NotchMotion.notificationIn : NotchMotion.notificationOut)
@@ -138,6 +146,7 @@ nonisolated struct NotchSurfaceFrame<Content: View>: View, Animatable {
     var shape: NotchShellSurface
     let phase: NotchVisualTransition.Phase
     let expandedHeight: CGFloat
+    var targetExtensionHeight: CGFloat = 0
     var hidesPendingTarget = false
     var notificationVisible = false
     var keepsNotificationContent = false
@@ -177,6 +186,7 @@ nonisolated struct NotchSurfaceFrame<Content: View>: View, Animatable {
     @MainActor var body: some View {
         let visible = contentPhase == .expanded || contentPhase == .collapsed
         let transitioning = phase == .openingBlack || phase == .closingBlack || hidesPendingTarget
+            || abs(shape.extensionHeight - targetExtensionHeight) > 0.001
         ZStack(alignment: .top) {
             shape.fill(.black).allowsHitTesting(false)
             content(contentPhase)
@@ -186,6 +196,7 @@ nonisolated struct NotchSurfaceFrame<Content: View>: View, Animatable {
                 .environment(\.notchShellIsTransitioning, transitioning)
                 .environment(\.notchCompactReveal, compactReveal)
                 .environment(\.notchCompactRetracting, compactRetracting)
+                .environment(\.notchExpandedMinorReveal, min(max(shape.extensionHeight / NotchExpandedMinorGeometry.height, 0), 1))
                 // Notification input can reverse entry before its content reveal
                 // finishes; main expand/collapse keeps the established black gate.
                 .allowsHitTesting(visible || notificationVisible || preservesCollapsedMedia)
@@ -210,6 +221,7 @@ extension EnvironmentValues {
     /// 0 at the notch, 1 at the compact activity's full width; 0 when no compact activity is involved.
     @Entry var notchCompactReveal: CGFloat = 0
     @Entry var notchCompactRetracting = false
+    @Entry var notchExpandedMinorReveal: CGFloat = 0
 }
 
 /// Whether the collapsed row is currently revealed by the shell (false during the black
