@@ -1,6 +1,8 @@
 import NotchiumCore
 import NotchiumCaffeineFeature
 import NotchiumCalendarFeature
+import NotchiumClipboardFeature
+import NotchiumFocusFeature
 import SwiftUI
 import NotchiumQuickActionsFeature
 import NotchiumMediaFeature
@@ -13,12 +15,21 @@ public struct NotchiumSettingsView: View {
     private let audioMeter: SystemAudioMeter?
     private let calendarModel: CalendarActivityModel?
     private let menuBarInsertion: Binding<Bool>?
+    private let clipboardModel: ClipboardModel?
+    private let focusModeModel: FocusModeModel?
+    private let pomodoroModel: PomodoroModel?
 
     public init(environment: AppEnvironment, audioMeter: SystemAudioMeter? = nil,
                 calendarModel: CalendarActivityModel? = nil,
                 menuBarInsertion: Binding<Bool>? = nil,
                 caffeineModel: CaffeineControlModel? = nil,
-                quickActions: QuickActionsModel? = nil) {
+                quickActions: QuickActionsModel? = nil,
+                clipboardModel: ClipboardModel? = nil,
+                focusModeModel: FocusModeModel? = nil,
+                pomodoroModel: PomodoroModel? = nil) {
+        self.clipboardModel = clipboardModel
+        self.focusModeModel = focusModeModel
+        self.pomodoroModel = pomodoroModel
         self.quickActions = quickActions
         self.environment = environment
         self.caffeineModel = caffeineModel
@@ -50,6 +61,12 @@ public struct NotchiumSettingsView: View {
                                                               set: { quickActions.store.showOnHome = $0 }))
                 }
                 QuickActionsSettings(model: quickActions)
+            }
+            if environment.featureFlags[.focus], let focusModeModel, let pomodoroModel {
+                FocusSettingsSection(focus: focusModeModel, timer: pomodoroModel)
+            }
+            if environment.featureFlags[.clipboard], let clipboardModel {
+                ClipboardSettingsSection(model: clipboardModel)
             }
             Section("Distribution") {
                 Text(environment.distributionProfile.rawValue)
