@@ -165,16 +165,17 @@ final class ShelfFixPassTests: XCTestCase {
 
     func testOnlyASuccessfulExternalDropConsumesTheShelfItem() {
         XCTAssertTrue(ShelfDragOutcome.consumesItem(.copy))
-        XCTAssertTrue(ShelfDragOutcome.consumesItem(.link))
-        XCTAssertTrue(ShelfDragOutcome.consumesItem(.generic))
+        XCTAssertFalse(ShelfDragOutcome.consumesItem(.link))
+        XCTAssertFalse(ShelfDragOutcome.consumesItem(.generic))
+        XCTAssertTrue(ShelfDragOutcome.consumesItem(.move))
         XCTAssertFalse(ShelfDragOutcome.consumesItem([]), "Cancelled or refused drops keep the item")
 
         let view = ShelfDragSource.DragSourceView()
         XCTAssertEqual(view.draggingSession(NSDraggingSessionStub.make(), sourceOperationMaskFor: .outsideApplication),
-                       .copy, "Copy only: never an alias (.link) and never a move")
+                       [.move, .copy], "Real file operations only; AppKit modifiers negotiate copy")
         XCTAssertEqual(view.draggingSession(NSDraggingSessionStub.make(), sourceOperationMaskFor: .withinApplication), [])
         var delivered = 0
-        view.onDelivered = { delivered += 1 }
+        view.onDelivered = { _ in delivered += 1 }
         view.draggingSession(NSDraggingSessionStub.make(), endedAt: .zero, operation: [])
         XCTAssertEqual(delivered, 0)
         view.draggingSession(NSDraggingSessionStub.make(), endedAt: .zero, operation: .copy)
