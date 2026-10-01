@@ -102,8 +102,9 @@ final class Stage15StabilizationTests: XCTestCase {
             primary: download(0.4), others: 0))
         let calendar = NotchSecondaryGeometry.frame(layout: layout, beside: reminder)
         XCTAssertGreaterThan(transfer.minX, media.minX, "Beside the wider compact transfer, not the Music flanks")
-        XCTAssertGreaterThan(calendar.minX, layout.collapsedVisibleFrame.midX
-                             + NotchNotificationGeometry.size(for: .calendar, layout: layout).width / 2)
+        XCTAssertEqual(calendar.maxX, layout.hardwareNotchGeometry?.frame.minX, "Progress sits left of hardware")
+        let artwork = NotchSecondaryGeometry.frame(layout: layout, beside: reminder, kind: .media)
+        XCTAssertEqual(artwork.minX, layout.hardwareNotchGeometry?.frame.maxX, "Artwork sits right of hardware")
     }
 
     // MARK: Remote vs local Spotify default page
