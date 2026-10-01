@@ -29,7 +29,8 @@ struct NotchCompactActivitySlot: View {
                                          geometry: NotchCompactGeometry(layout: layout, activity: activity),
                                          reveal: reveal,
                                          entryID: shown.id, reduceMotion: model.reduceMotion,
-                                         action: model.activateCurrentActivity)
+                                         action: model.activateCurrentActivity,
+                                         blendsMedia: activity.blendsWithMedia && model.mediaVisiblyPlaying)
                     // A coalesced update keeps its ID: the same view updates in place.
                     .id(shown.id)
                     .transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.96)),
@@ -58,6 +59,9 @@ struct NotchCompactActivityView: View {
     let reduceMotion: Bool
     let action: @MainActor () -> Void
     var inlineWidth: CGFloat? = nil
+    /// Music is visibly playing: artwork and countdown lead, the waveform trails.
+    var blendsMedia = false
+    @Environment(\.notchMediaRenderer) private var mediaRenderer
 
     private var progress: CGFloat { min(max(reveal, 0), 1) }
     /// Content slides out from beneath the physical notch just behind the growing edge, so the
@@ -101,7 +105,17 @@ struct NotchCompactActivityView: View {
     }
 
     @ViewBuilder private var leading: some View {
-        if activity.showsTitle {
+        if blendsMedia, case let .countdown(countdown) = activity.trailing, let mediaRenderer {
+            HStack(spacing: 7) {
+                mediaRenderer.mediaArtwork(size: 20)
+                    .frame(width: 20, height: 20)
+                    .clipShape(.rect(cornerRadius: 5, style: .continuous))
+                    .scaleEffect(reduceMotion ? 1 : 0.7 + 0.3 * progress)
+                NotchCountdownText(countdown: countdown, font: .system(size: 12, weight: .semibold).monospacedDigit())
+                    .opacity(textOpacity)
+            }
+            .padding(.leading, 12)
+        } else if activity.showsTitle {
             HStack(spacing: 6) {
                 glyph
                     .frame(width: 18, height: 18)
@@ -146,6 +160,16 @@ struct NotchCompactActivityView: View {
     }
 
     @ViewBuilder private var trailing: some View {
+        if blendsMedia, let mediaRenderer {
+            mediaRenderer.mediaWaveform()
+                .opacity(textOpacity)
+                .padding(.trailing, 14)
+        } else {
+            standardTrailing
+        }
+    }
+
+    @ViewBuilder private var standardTrailing: some View {
         Group {
             switch activity.trailing {
             case let .level(level):
@@ -183,6 +207,20 @@ struct NotchCompactActivityView: View {
                         .opacity(textOpacity)
                 }
                 .animation(reduceMotion ? nil : NotchMotion.compactLevel, value: label)
+            case let .countdown(countdown):
+                NotchCountdownTimeline(countdown: countdown) { date in
+                    HStack(spacing: 7) {
+                        NotchCompactLevelBar(level: countdown.elapsedFraction(at: date), reveal: progress,
+                                             dimmed: !countdown.isRunning)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 4)
+                        Text(NotchCountdown.label(countdown.remaining(at: date)))
+                            .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                            .lineLimit(1)
+                            .fixedSize()
+                            .opacity(textOpacity * (countdown.isRunning ? 1 : 0.6))
+                    }
+                }
             }
         }
         // A state morph (progress → Done) cross-fades in place inside the unchanged shell.
@@ -199,6 +237,7 @@ struct NotchCompactActivityView: View {
         case .text: 1
         case .battery: 2
         case .progress: 3
+        case .countdown: 4
         }
     }
 
@@ -208,6 +247,8 @@ struct NotchCompactActivityView: View {
         case let .text(text): text
         case let .battery(level, charging): "\(Self.percent(level)) percent\(charging ? ", charging" : "")"
         case let .progress(fraction, label): fraction.map { "\(Self.percent($0)) percent" } ?? label
+        case let .countdown(countdown):
+            NotchCountdown.spokenLabel(countdown.remaining(at: .now)) + (countdown.isRunning ? "" : ", paused")
         }
     }
 
@@ -221,6 +262,8 @@ extension NotchCompactActivity.Tint {
         case .muted: .white.opacity(0.62)
         case .charging: Color(red: 0.19, green: 0.82, blue: 0.35)
         case .warning: Color(red: 1, green: 0.27, blue: 0.23)
+        // macOS Focus's indigo, softened for the black shell.
+        case .focus: Color(red: 0.49, green: 0.47, blue: 1.0)
         }
     }
 }
@@ -314,4 +357,47 @@ private struct NotchDeviceTurnGlyph: View {
 
     private struct TurnKey: Equatable { let style: NotchDeviceStyle; let connected: Bool }
     private struct TurnTask: Equatable { let trigger: UUID; let start: Date? }
+}
+
+/// Re-renders once per second only while the countdown runs; a paused countdown is static.
+/// Ticks are aligned to the deadline so the displayed second changes exactly on time.
+public struct NotchCountdownTimeline<Content: View>: View {
+    let countdown: NotchCountdown
+    let content: (Date) -> Content
+
+    public init(countdown: NotchCountdown, @ViewBuilder content: @escaping (Date) -> Content) {
+        self.countdown = countdown
+        self.content = content
+    }
+
+    public var body: some View {
+        if let endsAt = countdown.endsAt {
+            let phase = endsAt.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1)
+            let anchor = Date(timeIntervalSinceReferenceDate: Date.now.timeIntervalSinceReferenceDate.rounded(.down) - 1 + phase)
+            TimelineView(.periodic(from: anchor, by: 1)) { context in content(context.date) }
+        } else {
+            content(.now)
+        }
+    }
+}
+
+/// The remaining time as text, ticking from the deadline.
+public struct NotchCountdownText: View {
+    let countdown: NotchCountdown
+    let font: Font
+
+    public init(countdown: NotchCountdown, font: Font) {
+        self.countdown = countdown
+        self.font = font
+    }
+
+    public var body: some View {
+        NotchCountdownTimeline(countdown: countdown) { date in
+            Text(NotchCountdown.label(countdown.remaining(at: date)))
+                .font(font)
+                .lineLimit(1)
+                .fixedSize()
+                .accessibilityLabel(NotchCountdown.spokenLabel(countdown.remaining(at: date)))
+        }
+    }
 }
