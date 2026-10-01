@@ -42,6 +42,15 @@ public final class ScreenshotActivityModel {
         recent.removeAll { $0.id == capture.id }
     }
 
+    /// Removes presentation ownership only. The original capture remains on disk.
+    func consumeReference(to url: URL) {
+        recent.removeAll { $0.fileURL.standardizedFileURL == url.standardizedFileURL }
+        batch.removeAll { $0.fileURL.standardizedFileURL == url.standardizedFileURL }
+        guard isActivityLive else { return }
+        if batch.isEmpty, let activityID { activities.dismiss(id: activityID) }
+        else { present() }
+    }
+
     public func clearRecent() { recent.removeAll() }
 
     func reset() {
