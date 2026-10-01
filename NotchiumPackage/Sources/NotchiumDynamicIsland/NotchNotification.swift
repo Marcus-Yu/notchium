@@ -9,6 +9,7 @@ public struct NotchNotification: Identifiable, Equatable, Sendable {
         case charging, lowBattery, criticalBattery, powerDisconnected
         case transferActive, transferFinished, transferFailed
         case screenshot, shelfAdded
+        case focusTimer, focusTimerBesideMusic, focusTimerComplete, focusModeChanged
 
         public var defaultDuration: Duration {
             switch self {
@@ -28,12 +29,16 @@ public struct NotchNotification: Identifiable, Equatable, Sendable {
             case .transferFailed: .seconds(3)
             case .screenshot: .seconds(4)
             case .shelfAdded: .milliseconds(1750)
+            // Persistent while the timer runs, like an active transfer.
+            case .focusTimer, .focusTimerBesideMusic: .seconds(0)
+            case .focusTimerComplete: .seconds(3)
+            case .focusModeChanged: .seconds(2)
             }
         }
     }
     /// `.compact` occupies the notch's two sides at collapsed height; the others grow downward.
     public enum PresentationStyle: Equatable, Sendable { case calendar, feedback, compact }
-    public enum Action: Equatable, Sendable { case calendar, audio, shelf, join(URL), none }
+    public enum Action: Equatable, Sendable { case calendar, audio, shelf, pomodoro, join(URL), none }
     public enum Content: Equatable, Sendable {
         case calendar(title: String, status: String)
         case audio(NotchAudioHUD)
@@ -138,12 +143,15 @@ public struct NotchNotification: Identifiable, Equatable, Sendable {
         case .transferActive, .transferFinished, .transferFailed: .download
         case .screenshot: .screenshot
         case .shelfAdded: .clipboard
+        case .focusTimer, .focusTimerBesideMusic, .focusTimerComplete: .pomodoro
+        case .focusModeChanged: .focus
         default: .systemHUD
         }
         let destination: NotchActivityDestination? = switch action {
         case .calendar, .join: .calendar
         case .audio: .audio
         case .shelf: .shelf
+        case .pomodoro: .pomodoro
         case .none: nil
         }
         return NotchActivity(id: id, key: NotchActivityKey(coalescingKey), kind: activityKind,
