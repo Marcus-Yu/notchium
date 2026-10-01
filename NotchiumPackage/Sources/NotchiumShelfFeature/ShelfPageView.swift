@@ -10,6 +10,8 @@ import SwiftUI
 struct ShelfPageView: View {
     @Bindable var model: FilesFeatureModel
     @State private var selection: Set<ShelfModel.Item.ID> = []
+    /// Present when Clipboard shares this page; the title becomes the section switch.
+    @Environment(\.notchShelfSection) private var section
 
     var body: some View {
         VStack(alignment: .leading, spacing: ShelfStyle.sectionGap) {
@@ -55,7 +57,11 @@ struct ShelfPageView: View {
         let targets = model.shareItems(selection: selection)
         return HStack(spacing: ShelfStyle.controlGap) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text("Shelf").font(.system(size: 13, weight: .semibold))
+                if let section {
+                    NotchShelfSectionSwitch(selection: section)
+                } else {
+                    Text("Shelf").font(.system(size: 13, weight: .semibold))
+                }
                 if !model.shelf.items.isEmpty {
                     Text(selection.isEmpty ? "\(model.shelf.items.count)" : "\(selection.count) of \(model.shelf.items.count)")
                         .font(.system(size: 11, weight: .medium).monospacedDigit())
@@ -196,10 +202,10 @@ struct ShelfPageView: View {
 
 /// One set of Shelf metrics so controls, tiles and rows stay proportionate.
 enum ShelfStyle {
-    /// Comfortable macOS-sized hit target for toolbar actions.
-    static let control: CGFloat = 32
-    static let controlGap: CGFloat = 8
-    static let sectionGap: CGFloat = 10
+    /// Comfortable macOS-sized hit target for toolbar actions (shared with Clipboard).
+    static let control = NotchToolbarMetrics.control
+    static let controlGap = NotchToolbarMetrics.controlGap
+    static let sectionGap = NotchToolbarMetrics.sectionGap
     static let tileGap: CGFloat = 10
     static let tileWidth: CGFloat = 82
     static let shelfThumbnail = CGSize(width: 48, height: 48)
@@ -362,49 +368,7 @@ private struct AccessRow: View {
     }
 }
 
-/// Toolbar glyph: clearly visible at rest, brighter on hover; the style adds the pressed state.
-private struct ShelfToolLabel: View {
-    let symbol: String
-    var image: NSImage?
-    var compact = false
-    @Environment(\.isEnabled) private var isEnabled
-
-    var body: some View {
-        let size = compact ? 26 : ShelfStyle.control
-        Group {
-            if let image {
-                Image(nsImage: image).resizable().scaledToFit()
-                    .frame(width: compact ? 14 : 17, height: compact ? 14 : 17)
-                    .saturation(isEnabled ? 1 : 0)
-            } else {
-                Image(systemName: symbol).font(.system(size: compact ? 12 : 14, weight: .semibold))
-            }
-        }
-        .foregroundStyle(.white.opacity(isEnabled ? 0.95 : 0.3))
-        .opacity(isEnabled ? 1 : 0.55)
-        .frame(width: size, height: size)
-        .contentShape(.circle)
-    }
-}
-
-/// Resting fill that reads on black, a distinct hover, and a pressed state you can feel.
-private struct ShelfToolButtonStyle: ButtonStyle {
-    @State private var isHovered = false
-    @Environment(\.isEnabled) private var isEnabled
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    func makeBody(configuration: Configuration) -> some View {
-        let fill = !isEnabled ? 0.05 : (configuration.isPressed ? 0.32 : (isHovered ? 0.22 : 0.13))
-        configuration.label
-            .background(.white.opacity(fill), in: .circle)
-            .overlay { Circle().strokeBorder(.white.opacity(isEnabled && isHovered ? 0.18 : 0), lineWidth: 0.5) }
-            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.93 : 1)
-            .onHover { isHovered = $0 && isEnabled }
-            .animation(.easeOut(duration: 0.12), value: isHovered)
-            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
-    }
-}
-
+/// Toolbar controls are shared with Clipboard so both top rows keep one rhythm.
 private struct ShelfToolButton: View {
     let symbol: String
     let label: String
@@ -413,10 +377,7 @@ private struct ShelfToolButton: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) { ShelfToolLabel(symbol: symbol, image: image, compact: compact) }
-            .buttonStyle(ShelfToolButtonStyle())
-            .help(label)
-            .accessibilityLabel(label)
+        NotchToolbarButton(symbol: symbol, label: label, image: image, compact: compact, action: action)
     }
 }
 
