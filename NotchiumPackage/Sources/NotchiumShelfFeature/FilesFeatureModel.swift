@@ -20,6 +20,8 @@ public final class FilesFeatureModel: NotchShelfRendering {
     public private(set) var downloadsAccess: FeatureAvailability = .available
 
     @ObservationIgnored let actions: any FileActionPerforming
+    @ObservationIgnored weak var sharingAnchor: NSView?
+    @ObservationIgnored var sharingInteraction = NotchAuxiliaryInteractionHandler()
     @ObservationIgnored private let transferService: any FileTransferService
     @ObservationIgnored private let screenshotService: any ScreenshotService
     @ObservationIgnored private let notifications: NotificationCoordinator
@@ -89,7 +91,7 @@ public final class FilesFeatureModel: NotchShelfRendering {
 
     @discardableResult
     public func acceptDroppedFiles(_ urls: [URL]) -> Int {
-        let accepted = shelf.add(urls)
+        let accepted = insertIntoShelf(urls)
         guard !urls.isEmpty else { return 0 }
         // One concise result either way; a failed drop never pretends to have added anything.
         let (symbol, text, tint): (String, String, NotchCompactActivity.Tint) = accepted > 0
@@ -105,14 +107,22 @@ public final class FilesFeatureModel: NotchShelfRendering {
     // MARK: Actions
 
     public func addToShelf(_ urls: [URL]) {
-        let available = urls.filter { FileManager.default.fileExists(atPath: $0.path) }
-        if available.isEmpty { show("File is no longer available") } else { shelf.add(available) }
+        if insertIntoShelf(urls) == 0 { show("File is no longer available") }
+    }
+
+    private func insertIntoShelf(_ urls: [URL]) -> Int {
+        let inserted = shelf.insert(urls)
+        for url in inserted {
+            screenshots.consumeReference(to: url)
+            transfers.consumeReference(to: url)
+        }
+        return inserted.count
     }
 
     public func addChosenFiles() {
         Task { [weak self] in
             guard let self else { return }
-            self.shelf.add(await self.actions.chooseFiles())
+            self.addToShelf(await self.actions.chooseFiles())
         }
     }
 
@@ -124,7 +134,16 @@ public final class FilesFeatureModel: NotchShelfRendering {
     }
 
     public func airDrop(_ urls: [URL]) {
-        if actions.airDrop(urls) == .unavailable { show("AirDrop is unavailable") }
+        if actions.airDrop(urls, from: sharingAnchor, interaction: sharingInteraction) == .unavailable {
+            show("AirDrop is unavailable")
+        }
+    }
+
+    public func share(_ urls: [URL]) {
+        guard let sharingAnchor else { return }
+        if actions.share(urls, from: sharingAnchor, interaction: sharingInteraction) == .unavailable {
+            show("Sharing is unavailable")
+        }
     }
 
     private func show(_ message: String) {
