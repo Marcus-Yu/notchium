@@ -104,6 +104,9 @@ public final class DynamicIslandPresentationModel {
     public var caffeineController: (any NotchCaffeineControlling)?
     public var quickActionsRenderer: (any NotchQuickActionsRendering)?
     public var shelfRenderer: (any NotchShelfRendering)?
+    public var pomodoroRenderer: (any NotchPomodoroRendering)?
+    public var clipboardRenderer: (any NotchClipboardRendering)?
+    public var cameraController: (any NotchCameraControlling)?
     public var audioHUD: NotchAudioHUD? {
         guard case let .audio(hud) = activityCoordinator.activeTransient?.payload else { return nil }
         return hud
@@ -124,6 +127,14 @@ public final class DynamicIslandPresentationModel {
         return mediaRenderer?.collapsedMediaVisible == true
             && [.mediaSides, .combined].contains(activityCoordinator.presentationMode)
             && visualState == .collapsed
+    }
+
+    /// Music is playing with its collapsed flanks live, even while another baseline holds the notch.
+    var mediaVisiblyPlaying: Bool {
+        _ = activityRevision
+        return activityCoordinator.liveActivities.contains {
+            $0.kind == .media && $0.lifetime.isBaseline && $0.minimal != nil
+        }
     }
 
     /// The collapsed artwork follows the media surface, not the expanded page selection.
@@ -152,6 +163,7 @@ public final class DynamicIslandPresentationModel {
     }
 
     @ObservationIgnored private let clock: any AppClock
+    @ObservationIgnored private let pageSelectionNow: () -> ContinuousClock.Instant
     @ObservationIgnored private var pendingHoverTask: Task<Void, Never>?
     @ObservationIgnored private var pendingCollapseTask: Task<Void, Never>?
     @ObservationIgnored private var transitionTask: Task<Void, Never>?
@@ -168,16 +180,19 @@ public final class DynamicIslandPresentationModel {
 
     public init(
         phase: NotchPresentationPhase = .collapsed,
-        clock: any AppClock = ContinuousAppClock()
+        clock: any AppClock = ContinuousAppClock(),
+        pageSelectionNow: @escaping () -> ContinuousClock.Instant = { ContinuousClock().now }
     ) {
         self.phase = phase
         self.clock = clock
+        self.pageSelectionNow = pageSelectionNow
         activityCoordinator = ActivityCoordinator(clock: clock)
         pageModel = NotchPageModel()
         if phase.visualState != .collapsed { pageModel.beginExpansion(default: .home) }
         activityObservation = activityCoordinator.$activeTransient
-            .combineLatest(activityCoordinator.$persistentActivity, activityCoordinator.$secondary)
-            .sink { [weak self] _, _, _ in
+            .combineLatest(activityCoordinator.$persistentActivity, activityCoordinator.$secondary,
+                           activityCoordinator.$liveActivities)
+            .sink { [weak self] _, _, _, _ in
                 self?.activityRevision &+= 1
             }
     }
@@ -268,7 +283,7 @@ public final class DynamicIslandPresentationModel {
         target: NotchStableState = .expanded
     ) {
         if expanded {
-            pageModel.beginExpansion(default: activityCoordinator.preferredExpandedPage)
+            pageModel.beginExpansion(default: automaticOpenPage)
         }
         transition(to: expanded ? target : .collapsed)
     }
@@ -281,13 +296,16 @@ public final class DynamicIslandPresentationModel {
         } else {
             transitionTask?.cancel()
             transitionGeneration &+= 1
-            if state == .collapsed { pageModel.endExpansion() }
-            else { pageModel.beginExpansion(default: activityCoordinator.preferredExpandedPage) }
+            if state == .collapsed {
+                cameraController?.closePreview()
+                pageModel.endExpansion()
+            } else { pageModel.beginExpansion(default: automaticOpenPage) }
             phase = Self.phase(for: state)
         }
     }
 
     public func reset() {
+        cameraController?.closePreview()
         activityCoordinator.clearAll()
         fileDrag = .idle
         pendingHoverTask?.cancel()
@@ -312,7 +330,13 @@ public final class DynamicIslandPresentationModel {
 
     /// Repeated events coalesce into the coordinator's single Audio slot and reset its deadline.
     public func showAudioHUD(_ hud: NotchAudioHUD) {
-        notificationCoordinator.present(.audio(hud))
+        notificationCoordinator.present(.audio(hud), refreshingLifetime: true)
+    }
+
+    private var automaticOpenPage: NotchPage {
+        NotchPageModel.automaticOpenPage(existingDefault: activityCoordinator.preferredExpandedPage,
+                                       pomodoro: pomodoroRenderer?.automaticOpenPageState ?? .inactive,
+                                       now: pageSelectionNow())
     }
 
     /// An explicit click: opens the activity's destination. A transient is consumed; a
@@ -373,6 +397,7 @@ public final class DynamicIslandPresentationModel {
         case .calendar: pageModel.selectedPage = .calendar
         case .audio: pageModel.selectedPage = .audio
         case .shelf: pageModel.selectedPage = .shelf
+        case .pomodoro: pageModel.selectedPage = .pomodoro
         }
     }
 
@@ -434,6 +459,8 @@ public final class DynamicIslandPresentationModel {
     private func transition(to target: NotchStableState) {
         let source = visualState
         guard source != target || phase != Self.phase(for: target) else { return }
+        // The camera preview never outlives the open notch: capture stops as closing begins.
+        if target == .collapsed { cameraController?.closePreview() }
 
         transitionTask?.cancel()
         transitionGeneration &+= 1
