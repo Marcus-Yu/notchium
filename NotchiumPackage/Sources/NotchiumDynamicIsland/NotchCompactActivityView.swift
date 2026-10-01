@@ -21,7 +21,8 @@ struct NotchCompactActivitySlot: View {
         // arrived yet, so nothing stale can linger beside the restored activity.
         // A banner replacing the compact activity (Calendar over a transfer) takes the row at once:
         // retained content only accompanies a retraction back to rest.
-        let shown = current ?? (retracting && reveal > 0.001 && model.presentedNotification == nil ? retained : nil)
+        let shown = current ?? (retracting && Self.retainsContent(reveal: reveal, restoresMedia: model.showsCollapsedMedia)
+                                && model.presentedNotification == nil ? retained : nil)
         ZStack {
             if let shown, let activity = shown.content.compactActivity {
                 NotchCompactActivityView(activity: activity,
@@ -41,6 +42,12 @@ struct NotchCompactActivitySlot: View {
             if let value { retained = value }
         }
     }
+
+    static func retainsContent(reveal: CGFloat, restoresMedia: Bool) -> Bool {
+        // Music's leading artwork begins to emerge below one third of the reveal.
+        // The outgoing glyph must have yielded that slot by then.
+        reveal > (restoresMedia ? 1 / 3 : 0.001)
+    }
 }
 
 struct NotchCompactActivityView: View {
@@ -50,6 +57,7 @@ struct NotchCompactActivityView: View {
     let entryID: UUID
     let reduceMotion: Bool
     let action: @MainActor () -> Void
+    var inlineWidth: CGFloat? = nil
 
     private var progress: CGFloat { min(max(reveal, 0), 1) }
     /// Content slides out from beneath the physical notch just behind the growing edge, so the
@@ -59,25 +67,37 @@ struct NotchCompactActivityView: View {
     private var textOpacity: Double { Double(min(max((progress - 0.3) / 0.55, 0), 1)) }
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 0) {
-                leading
-                    .offset(x: inset)
-                    .frame(width: geometry.sideWidth, alignment: .leading)
-                Color.clear.frame(width: geometry.hardwareWidth)
-                trailing
-                    .offset(x: -inset)
-                    .frame(width: geometry.sideWidth, alignment: .trailing)
+        Group {
+            if let inlineWidth {
+                HStack(spacing: 0) {
+                    leading.frame(width: inlineWidth * 0.52, alignment: .leading)
+                    trailing.frame(width: inlineWidth * 0.48, alignment: .trailing)
+                }
+                .frame(width: inlineWidth, height: geometry.height)
+            } else {
+                Button(action: action) { compactRow }
+                    .buttonStyle(.plain)
             }
-            .frame(width: geometry.bodyWidth, height: geometry.height)
-            .contentShape(.rect)
         }
-        .buttonStyle(.plain)
         .foregroundStyle(.white)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(activity.title)
         .accessibilityValue(accessibilityValue)
         .accessibilityIdentifier("notchium.compact.activity")
+    }
+
+    private var compactRow: some View {
+        HStack(spacing: 0) {
+            leading
+                .offset(x: inset)
+                .frame(width: geometry.sideWidth, alignment: .leading)
+            Color.clear.frame(width: geometry.hardwareWidth)
+            trailing
+                .offset(x: -inset)
+                .frame(width: geometry.sideWidth, alignment: .trailing)
+        }
+        .frame(width: geometry.bodyWidth, height: geometry.height)
+        .contentShape(.rect)
     }
 
     @ViewBuilder private var leading: some View {
