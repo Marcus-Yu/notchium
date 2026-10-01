@@ -237,6 +237,9 @@ private struct NotchShellOuterSurface: View {
                                caffeine: model.caffeineController,
                                quickActions: model.quickActionsRenderer,
                                shelfRenderer: model.shelfRenderer,
+                               pomodoroRenderer: model.pomodoroRenderer,
+                               clipboardRenderer: model.clipboardRenderer,
+                               camera: model.cameraController,
                                close: model.collapse)
                 if model.presentationState == .activity,
                    let activity = model.activityCoordinator.activeTransient,
