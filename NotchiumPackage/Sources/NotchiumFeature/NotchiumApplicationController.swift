@@ -1,6 +1,9 @@
 import NotchiumCore
 import NotchiumCalendarFeature
 import NotchiumAudioFeature
+import NotchiumCameraFeature
+import NotchiumClipboardFeature
+import NotchiumFocusFeature
 import NotchiumCaffeineFeature
 #if DEBUG
 import NotchiumDebug
@@ -26,6 +29,10 @@ public final class NotchiumApplicationController {
     public let quickActions: QuickActionsModel
     public let caffeineModel: CaffeineControlModel
     public let filesModel: FilesFeatureModel
+    public let clipboardModel: ClipboardModel
+    public let cameraModel: CameraModel
+    public let focusModeModel: FocusModeModel
+    public let pomodoroModel: PomodoroModel
     public var mediaModel: MediaSessionController { mediaSessionController }
 #if DEBUG
     public let mockMediaProvider = MockMediaProvider()
@@ -43,7 +50,9 @@ public final class NotchiumApplicationController {
                 reminderService: any ReminderService = MockReminderService(),
                 shortcutService: any ShortcutService = MockShortcutService(),
                 workspace: any QuickActionWorkspace = NativeQuickActionWorkspace(),
-                actionStore: QuickActionStore? = nil) {
+                actionStore: QuickActionStore? = nil,
+                clipboardStore: (any ClipboardStoring)? = nil,
+                pomodoroStore: (any PomodoroPersisting)? = nil) {
         self.environment = environment
 #if DEBUG
         let shellDebugModel = NotchShellDebugModel()
@@ -88,6 +97,19 @@ public final class NotchiumApplicationController {
                                        actions: NativeFileActions(),
                                        activities: displayCoordinator.presentationModel.activityCoordinator)
         displayCoordinator.presentationModel.shelfRenderer = filesModel
+        let presentation = displayCoordinator.presentationModel
+        // Stores default to memory so tests and fixtures never touch the user's history.
+        clipboardModel = ClipboardModel(service: environment.services.clipboard,
+                                        store: clipboardStore ?? InMemoryClipboardStore())
+        cameraModel = CameraModel(service: environment.services.camera)
+        focusModeModel = FocusModeModel(service: environment.services.focus,
+                                        activities: presentation.activityCoordinator, shortcuts: shortcutService)
+        pomodoroModel = PomodoroModel(store: pomodoroStore ?? InMemoryPomodoroStore(),
+                                      notifications: notifications, clock: environment.clock)
+        pomodoroModel.focusControl = focusModeModel
+        if environment.featureFlags[.clipboard] { presentation.clipboardRenderer = clipboardModel }
+        if environment.featureFlags[.camera] { presentation.cameraController = cameraModel }
+        if environment.featureFlags[.focus] { presentation.pomodoroRenderer = pomodoroModel }
         audioModel.onHUD = { [weak presentation = displayCoordinator.presentationModel] hud in
             presentation?.showAudioHUD(hud)
         }
@@ -121,7 +143,8 @@ public final class NotchiumApplicationController {
         if CommandLine.arguments.contains("--notchium-stage11-fixture") { return stage11Fixture() }
 #endif
         return NotchiumApplicationController(environment: .production(), reminderService: EventKitReminderService(),
-                                      shortcutService: AppleShortcutService())
+                                      shortcutService: AppleShortcutService(),
+                                      clipboardStore: FileClipboardStore(), pomodoroStore: FilePomodoroStore())
     }
 
     public func start() {
@@ -133,6 +156,11 @@ public final class NotchiumApplicationController {
         if environment.featureFlags[.caffeine] { caffeineModel.start() }
         if environment.featureFlags[.activities] { startBatteryActivities() }
         if environment.featureFlags[.shelf] { filesModel.start() }
+        if environment.featureFlags[.clipboard] { clipboardModel.start() }
+        if environment.featureFlags[.focus] {
+            focusModeModel.start()
+            pomodoroModel.start()
+        }
         if environment.featureFlags[.media] {
             mediaModel.start()
             if let real = environment.services.media as? RealMediaProvider {
@@ -153,6 +181,10 @@ public final class NotchiumApplicationController {
         audioModel.stop()
         caffeineModel.stop()
         filesModel.stop()
+        clipboardModel.stop()
+        cameraModel.stop()
+        focusModeModel.stop()
+        pomodoroModel.stop()
         quickActions.runner.stop()
         if let real = environment.services.media as? RealMediaProvider {
             Task { await real.shutdown() }
