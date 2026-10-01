@@ -71,6 +71,8 @@ public enum NotchActivityMinimal: Equatable, Sendable {
     case glyph(NotchCompactActivity.Glyph, tint: NotchCompactActivity.Tint)
     /// A small ring; nil fraction is indeterminate. Used by persistent transfers.
     case progress(Double?)
+    /// A ring that empties toward a deadline; drawn from the deadline, never re-submitted per tick.
+    case countdown(NotchCountdown)
 }
 
 public enum NotchActivityDestination: Equatable, Sendable {
@@ -78,6 +80,7 @@ public enum NotchActivityDestination: Equatable, Sendable {
     case calendar
     case audio
     case shelf
+    case pomodoro
 }
 
 public enum NotchActivityPayload: Equatable, Sendable {
