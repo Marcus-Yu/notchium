@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import XCTest
 @testable import NotchiumServices
 
@@ -6,6 +7,50 @@ import XCTest
 /// real service's folder watch and attribute check must report exactly one capture.
 @MainActor
 final class ScreenshotDetectionTests: XCTestCase {
+    func testLateCaptureAttributeAndWritesAreObservedWithoutRetryDeadline() async throws {
+        let folder = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("polish-shot-\(UUID())")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let service = RealScreenshotService(location: { folder })
+        let stream = await service.events()
+        var events: [ScreenshotEvent] = []
+        let ready = expectation(description: "File write and metadata events produce a ready capture")
+        let collector = Task { @MainActor in
+            for await event in stream {
+                events.append(event)
+                if case .captured = event { ready.fulfill() }
+            }
+        }
+        defer { collector.cancel() }
+        let url = folder.appendingPathComponent("capture.png")
+        try Data().write(to: url)
+        // The incomplete candidate is watched; a delayed attribute must still be noticed
+        // after the old 3 x 400 ms retry window, independently of Spotlight indexing.
+        try await Task.sleep(for: .milliseconds(1600))
+        let attribute = Data([1])
+        let result = attribute.withUnsafeBytes {
+            setxattr(url.path, "com.apple.metadata:kMDItemIsScreenCapture", $0.baseAddress, $0.count, 0, 0)
+        }
+        XCTAssertEqual(result, 0)
+        let incompleteReady = await RealScreenshotService.isReadyCapture(url)
+        XCTAssertFalse(incompleteReady, "Never emit a tagged but incomplete image")
+        let image = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 2, pixelsHigh: 2,
+                                                   bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                                   isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        let data = try XCTUnwrap(image.representation(using: .png, properties: [:]))
+        let started = Date()
+        try data.write(to: url)
+        await fulfillment(of: [ready], timeout: 2)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 0.75)
+        XCTAssertEqual(events.count, 1)
+        let completeReady = await RealScreenshotService.isReadyCapture(url)
+        XCTAssertTrue(completeReady)
+        // More metadata/writes for the same image cannot create another capture.
+        try data.write(to: url)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(events.count, 1)
+    }
+
     func testRealScreencaptureFileIsDetectedPromptlyOnce() async throws {
         let folder = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("notchium-shots-\(UUID())")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
