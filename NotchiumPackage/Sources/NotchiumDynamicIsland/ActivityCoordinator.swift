@@ -23,6 +23,9 @@ public final class ActivityCoordinator: ObservableObject {
     @Published public private(set) var queueCount = 0
     @Published public private(set) var presentationMode: NotchPresentationMode = .none
 
+    /// Focus integration: while true, routine notifications stay quiet (see `ActivityPriorityPolicy`).
+    public var reducesInterruptions = false
+
     public var activeActivity: NotchActivity? { primary }
     public var foregroundActivity: NotchActivity? { primary }
     public var underlyingActivity: NotchActivity? { persistentActivity }
@@ -96,13 +99,14 @@ public final class ActivityCoordinator: ObservableObject {
     /// Returns whether the notification is now the primary presentation. A notification that
     /// cannot present yet stays live underneath until its own absolute deadline.
     @discardableResult
-    func presentNotification(_ notification: NotchNotification) -> Bool {
+    func presentNotification(_ notification: NotchNotification, refreshingLifetime: Bool = false) -> Bool {
+        if reducesInterruptions, ActivityPriorityPolicy.isQuietedDuringFocus(notification.kind) { return false }
         var incoming = notification
         let key = NotchActivityKey(notification.coalescingKey)
         // Calendar reminders keep discrete identities; other sources update in place.
         if let existing = entries[key]?.notification, incoming.presentationStyle != .calendar {
-            // Repeated service snapshots are not meaningful changes and never extend a lifetime.
-            if existing.content == incoming.content, existing.kind == incoming.kind {
+            // Repeated snapshots never extend a lifetime; explicit input can refresh the same value.
+            if !refreshingLifetime, existing.content == incoming.content, existing.kind == incoming.kind {
                 return primaryKey == key
             }
             incoming.id = existing.id
