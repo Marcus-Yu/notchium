@@ -26,9 +26,24 @@ final class NotchPanel: NSPanel, NSDraggingDestination {
     /// entered/prepare/perform). While a file drag is in progress the panel sits just below that
     /// layer, still above the menu bar, so Finder's drop can actually reach it.
     static let fileDragLevel: NSWindow.Level = .popUpMenu
+    private var acceptsFileDrags = false
+    private var nativeShareSources: Set<String> = []
 
     func setAcceptsFileDrags(_ accepts: Bool) {
-        let target = accepts ? Self.fileDragLevel : Self.restingLevel
+        acceptsFileDrags = accepts
+        updateLevel()
+    }
+
+    func setNativeSharingPresented(_ presented: Bool, source: String) {
+        if presented { nativeShareSources.insert(source) } else { nativeShareSources.remove(source) }
+        updateLevel()
+    }
+
+    private func updateLevel() {
+        // Native service windows and the picker sit above their floating source window.
+        // Independent level owners restore the current drag state, never a stale saved level.
+        let target: NSWindow.Level = !nativeShareSources.isEmpty ? .floating
+            : (acceptsFileDrags ? Self.fileDragLevel : Self.restingLevel)
         if level != target { level = target }
     }
 
