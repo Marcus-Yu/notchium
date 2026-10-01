@@ -46,7 +46,7 @@ let package = Package(
         ),
         .target(
             name: "NotchiumCameraFeature",
-            dependencies: ["NotchiumCore", "NotchiumServices"]
+            dependencies: ["NotchiumCore", "NotchiumServices", "NotchiumDynamicIsland", "NotchiumDesignSystem"]
         ),
         .target(
             name: "NotchiumAudioFeature",
@@ -62,7 +62,7 @@ let package = Package(
         ),
         .target(
             name: "NotchiumClipboardFeature",
-            dependencies: ["NotchiumCore", "NotchiumServices"]
+            dependencies: ["NotchiumCore", "NotchiumServices", "NotchiumDynamicIsland", "NotchiumDesignSystem"]
         ),
         .target(
             name: "NotchiumMonitoringFeature",
@@ -78,7 +78,7 @@ let package = Package(
         ),
         .target(
             name: "NotchiumFocusFeature",
-            dependencies: ["NotchiumCore", "NotchiumServices"]
+            dependencies: ["NotchiumCore", "NotchiumServices", "NotchiumDynamicIsland", "NotchiumDesignSystem"]
         ),
         .target(
             name: "NotchiumDebug",
@@ -139,6 +139,9 @@ let package = Package(
                 "NotchiumMediaFeature",
                 "NotchiumRealtimeAudio",
                 "NotchiumShelfFeature",
+                "NotchiumClipboardFeature",
+                "NotchiumCameraFeature",
+                "NotchiumFocusFeature",
             ]
         ),
     ]
