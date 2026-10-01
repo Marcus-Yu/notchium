@@ -95,9 +95,17 @@ public struct AudioDevicesSnapshot: Equatable, Sendable {
 public protocol AudioDevicesService: Sendable {
     func availability() async -> FeatureAvailability
     func updates() async -> AsyncStream<AudioDevicesSnapshot>
+    func volumeCommands() async -> AsyncStream<AudioVolumeCommandEvent>
     func selectOutput(id: String) async throws
     func setVolume(_ volume: Double, deviceID: String) async throws
     func setMuted(_ muted: Bool, deviceID: String) async throws
+}
+
+public extension AudioDevicesService {
+    /// Non-hardware implementations have no system input source.
+    func volumeCommands() async -> AsyncStream<AudioVolumeCommandEvent> {
+        AsyncStream { $0.finish() }
+    }
 }
 
 /// Listens to HAL device, default-output, volume, and mute events.
@@ -118,6 +126,15 @@ public final class RealAudioDevicesService: AudioDevicesService {
     private var systemListeners: [Listener] = []
     private var outputListeners: [Listener] = []
     private var observers: [UUID: AsyncStream<AudioDevicesSnapshot>.Continuation] = [:]
+    private var commandObservers: [UUID: AsyncStream<AudioVolumeCommandEvent>.Continuation] = [:]
+    private lazy var volumeKeyMonitor = SystemVolumeKeyMonitor { [weak self] command in
+        guard let self, !self.commandObservers.isEmpty else { return }
+        let id = self.defaultOutputID()
+        guard self.cachedOutputIDs.contains(id) else { return }
+        let output = self.device(id, selected: id)
+        let event = AudioVolumeCommandEvent(command: command, output: output)
+        self.commandObservers.values.forEach { $0.yield(event) }
+    }
     private var selectedID: AudioObjectID = kAudioObjectUnknown
     private var previous: AudioDevicesSnapshot?
     private var cachedOutputIDs: [AudioObjectID] = []
@@ -147,6 +164,23 @@ public final class RealAudioDevicesService: AudioDevicesService {
         let status = AudioObjectSetPropertyData(AudioObjectID(kAudioObjectSystemObject),
                                                 &address, 0, nil, UInt32(MemoryLayout.size(ofValue: value)), &value)
         guard status == noErr else { throw ServiceFailure.unavailable(.audioDevices) }
+    }
+
+    public func volumeCommands() async -> AsyncStream<AudioVolumeCommandEvent> {
+        let token = UUID()
+        return AsyncStream(bufferingPolicy: .bufferingNewest(16)) { continuation in
+            commandObservers[token] = continuation
+            if systemListeners.isEmpty { start() }
+            volumeKeyMonitor.start()
+            continuation.onTermination = { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.commandObservers[token] = nil
+                    if self.commandObservers.isEmpty { self.volumeKeyMonitor.stop() }
+                    self.stopIfUnobserved()
+                }
+            }
+        }
     }
 
     public func setVolume(_ volume: Double, deviceID: String) async throws {
@@ -188,7 +222,11 @@ public final class RealAudioDevicesService: AudioDevicesService {
 
     private func removeObserver(_ token: UUID) {
         observers[token] = nil
-        guard observers.isEmpty else { return }
+        stopIfUnobserved()
+    }
+
+    private func stopIfUnobserved() {
+        guard observers.isEmpty, commandObservers.isEmpty else { return }
         systemListeners.forEach(Self.remove)
         outputListeners.forEach(Self.remove)
         systemListeners.removeAll()
@@ -256,22 +294,24 @@ public final class RealAudioDevicesService: AudioDevicesService {
 
     private func snapshot() -> AudioDevicesSnapshot {
         let selected = defaultOutputID()
-        let outputs = cachedOutputIDs.map { id in
-            let details = outputDetails[id]
-            // Core Audio exposes no battery property, and macOS has no supported public API for
-            // AirPods/headphone battery; private Bluetooth sources are deliberately not used.
-            return AudioDevice(id: String(id), uid: details?.uid, name: details?.name ?? "Audio Output",
-                        isDefaultOutput: id == selected,
-                        volume: Self.scalar(id), isMuted: Self.muted(id),
-                        canSetVolume: details?.canSetVolume ?? false,
-                        canSetMute: details?.canSetMute ?? false,
-                        transport: details?.transport ?? .other)
-        }.sorted { a, b in
+        let outputs = cachedOutputIDs.map { device($0, selected: selected) }.sorted { a, b in
             a.isDefaultOutput == b.isDefaultOutput
                 ? a.name.localizedStandardCompare(b.name) == .orderedAscending
                 : a.isDefaultOutput
         }
         return AudioDevicesSnapshot(availability: .available, outputs: outputs)
+    }
+
+    private func device(_ id: AudioObjectID, selected: AudioObjectID) -> AudioDevice {
+        let details = outputDetails[id]
+        // Core Audio exposes no battery property, and macOS has no supported public API for
+        // AirPods/headphone battery; private Bluetooth sources are deliberately not used.
+        return AudioDevice(id: String(id), uid: details?.uid, name: details?.name ?? "Audio Output",
+                           isDefaultOutput: id == selected,
+                           volume: Self.scalar(id), isMuted: Self.muted(id),
+                           canSetVolume: details?.canSetVolume ?? false,
+                           canSetMute: details?.canSetMute ?? false,
+                           transport: details?.transport ?? .other)
     }
 
     private func defaultOutputID() -> AudioObjectID {
