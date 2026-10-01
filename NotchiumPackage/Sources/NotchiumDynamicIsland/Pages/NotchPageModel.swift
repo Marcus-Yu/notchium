@@ -1,7 +1,30 @@
 import Combine
+import Foundation
+
+/// Opening-page eligibility is independent of the timer's collapsed activity lifetime.
+public enum NotchPomodoroPageState: Equatable, Sendable {
+    case inactive
+    case running
+    case paused(at: ContinuousClock.Instant)
+}
 
 @MainActor
 public final class NotchPageModel: ObservableObject {
+    public static let pomodoroPausedPageGrace: Duration = .seconds(30)
+
+    /// Evaluate only when opening a fresh expansion. Media's existing local/remote resolver
+    /// remains authoritative; no scheduled work changes a page when this grace expires.
+    public static func automaticOpenPage(existingDefault: NotchPage,
+                                         pomodoro: NotchPomodoroPageState,
+                                         now: ContinuousClock.Instant) -> NotchPage {
+        if existingDefault == .music { return .music }
+        switch pomodoro {
+        case .running: return .pomodoro
+        case let .paused(at) where now < at.advanced(by: pomodoroPausedPageGrace): return .pomodoro
+        default: return existingDefault
+        }
+    }
+
     public private(set) var manualSelectionDuringExpansion = false
     private var expansionIsActive = false
     private var selectingAutomatically = false
@@ -20,6 +43,8 @@ public final class NotchPageModel: ObservableObject {
         }
     }
     @Published public var defaultPage: NotchPage
+    /// Files or Clipboard inside the Shelf page; kept across collapse like the page itself.
+    @Published public var shelfSection: NotchShelfSection = .files
 
     public init(selectedPage: NotchPage = .home,
                 enabledPages: [NotchPage] = NotchPage.allCases,
