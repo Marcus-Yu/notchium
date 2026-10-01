@@ -9,5 +9,6 @@ extension MediaFeatureModel: NotchMediaRendering {
         AnyView(CollapsedMediaView(model: self, hardwareWidth: hardwareWidth, hardwareHeight: hardwareHeight))
     }
     public func mediaArtwork(size: CGFloat) -> AnyView { AnyView(MediaArtwork(url: state.artwork, size: size)) }
+    public func mediaWaveform() -> AnyView { AnyView(MediaWaveform(isPlaying: state.isPlaying, meter: audioMeter)) }
     public func expandedMedia() -> AnyView { AnyView(MediaPageView(model: self)) }
 }
