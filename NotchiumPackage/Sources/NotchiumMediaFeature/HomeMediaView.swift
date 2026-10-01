@@ -12,6 +12,7 @@ struct HomeMediaView: View {
             if model.homeMediaConnected && model.state.hasMedia {
                 VStack(spacing: 0) {
                     information
+                    connectControl.padding(.top, 8)
                     Spacer(minLength: 10)
                     MediaProgressView(model: model)
                     controls.padding(.top, 8)
@@ -38,6 +39,38 @@ struct HomeMediaView: View {
                 .buttonStyle(.plain).accessibilityHidden(true)
         }
         .accessibilityIdentifier("notchium.home.media")
+        .onAppear { model.refreshDevicesIfStale() }
+        .onChange(of: model.homeMediaConnected) { _, connected in
+            if connected { model.refreshDevicesIfStale() }
+        }
+    }
+
+    private var connectControl: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "hifispeaker.and.homepod.fill").foregroundStyle(ExpandedPageStyle.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Spotify Connect").font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(ExpandedPageStyle.secondary)
+                Text(model.connectActiveDeviceName).font(.system(size: 10)).lineLimit(1)
+            }
+            Spacer(minLength: 2)
+            if model.devicesLoading { ProgressView().controlSize(.mini).tint(.white) }
+            else { Image(systemName: "arrow.right").font(.system(size: 9)).foregroundStyle(ExpandedPageStyle.secondary) }
+            Button {
+                if let target = model.connectTarget { model.transferPlayback(to: target) }
+            } label: {
+                Text(model.connectTargetName).font(.system(size: 10, weight: .medium)).lineLimit(1)
+                    .padding(.horizontal, 7).frame(height: 24)
+                    .background(.white.opacity(0.1), in: .capsule)
+            }
+            .buttonStyle(.plain)
+            .disabled(model.connectTarget == nil || model.devicesLoading)
+            .help(model.deviceIssue ?? (model.connectTarget == nil ? "Device unavailable" : "Transfer playback"))
+            .accessibilityLabel("Transfer Spotify to \(model.connectTargetName)")
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityValue(model.devicesLoading ? "Connecting" : "Active: \(model.connectActiveDeviceName)")
+        .accessibilityIdentifier("notchium.home.spotify-connect")
     }
 
     private var information: some View {
