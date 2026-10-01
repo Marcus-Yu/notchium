@@ -21,6 +21,7 @@ enum MockNotchActivity: String, CaseIterable, Identifiable {
     case urlCopied = "URL Copied"
     case imageCopied = "Image Copied"
     case focusComplete = "Focus Complete"
+    case timerRunning = "Focus Timer Running"
     case notification = "Important Notification"
 
     var id: String { rawValue }
@@ -38,6 +39,7 @@ enum MockNotchActivity: String, CaseIterable, Identifiable {
         case .screenshot: .screenshot
         case .urlCopied, .imageCopied: .clipboard
         case .focusComplete: .focus
+        case .timerRunning: .pomodoro
         case .notification: .notification
         }
     }
@@ -57,7 +59,7 @@ enum MockNotchActivity: String, CaseIterable, Identifiable {
             title: self == .charging ? "64% · Charging" : rawValue,
             subtitle: self == .playSong ? "Mock Artist · Mock Album" : nil,
             priority: kind.priority,
-            duration: self == .playSong || self == .startDownload ? nil : .seconds(3)
+            duration: self == .playSong || self == .startDownload || self == .timerRunning ? nil : .seconds(3)
         )
     }
 }
