@@ -80,6 +80,14 @@ struct NotchSecondaryActivityChip: View {
         case let .progress(fraction):
             NotchProgressRing(fraction: fraction, reduceMotion: model.reduceMotion)
                 .frame(width: 15, height: 15)
+        case let .countdown(countdown):
+            // Coarse ticks are enough for a 15 pt ring; the timer itself is deadline-based.
+            NotchCountdownTimeline(countdown: countdown) { date in
+                NotchProgressRing(fraction: 1 - countdown.elapsedFraction(at: date), reduceMotion: model.reduceMotion)
+                    .opacity(countdown.isRunning ? 1 : 0.55)
+            }
+            .frame(width: 15, height: 15)
+            .accessibilityLabel(NotchCountdown.spokenLabel(countdown.remaining(at: .now)))
         case nil:
             EmptyView()
         }
