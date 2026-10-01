@@ -27,6 +27,7 @@ public final class AudioFeatureModel: NotchAudioRendering {
     @ObservationIgnored private let preferences: UserDefaults
     @ObservationIgnored private let now: @Sendable () -> Date
     @ObservationIgnored private var deviceTask: Task<Void, Never>?
+    @ObservationIgnored private var volumeCommandTask: Task<Void, Never>?
     @ObservationIgnored private var processTask: Task<Void, Never>?
     @ObservationIgnored private var volumeTask: Task<Void, Never>?
     @ObservationIgnored private var mixerTask: Task<Void, Never>?
@@ -61,6 +62,13 @@ public final class AudioFeatureModel: NotchAudioRendering {
                 self.receive(snapshot)
             }
         }
+        volumeCommandTask = Task { [weak self, deviceService] in
+            let commands = await deviceService.volumeCommands()
+            for await event in commands {
+                guard let self, !Task.isCancelled else { break }
+                self.receiveVolumeCommand(event)
+            }
+        }
         // Event driven process observation must remain available to enforce persisted gains when
         // an adjusted app becomes audible. No sample metering or SwiftUI work runs while hidden.
         processTask = Task { [weak self, processService] in
@@ -74,6 +82,7 @@ public final class AudioFeatureModel: NotchAudioRendering {
 
     public func stop() {
         deviceTask?.cancel(); deviceTask = nil
+        volumeCommandTask?.cancel(); volumeCommandTask = nil
         processTask?.cancel(); processTask = nil
         volumeTask?.cancel(); volumeTask = nil
         let previousMixerTask = mixerTask
@@ -134,6 +143,16 @@ public final class AudioFeatureModel: NotchAudioRendering {
                 self?.errorMessage = nil
             } catch { self?.errorMessage = "Could not switch output." }
         }
+    }
+
+    /// HAL remains authoritative for normal changes. Only a command at its numeric boundary
+    /// needs independent feedback; never write audio or manufacture a changed snapshot.
+    func receiveVolumeCommand(_ event: AudioVolumeCommandEvent) {
+        let output = event.output
+        guard hasReceivedDevices, devices.currentOutput?.id == output.id, output.canSetVolume,
+              event.command.isUnchangedBoundary(volume: output.volume) else { return }
+        onHUD?(NotchAudioHUD(kind: .volume, deviceName: output.name,
+                             volume: output.volume, isMuted: output.isMuted ?? false))
     }
 
     public func changeVolume(_ value: Double, finished: Bool = false) {
