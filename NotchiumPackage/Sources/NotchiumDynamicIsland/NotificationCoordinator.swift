@@ -18,9 +18,10 @@ public final class NotificationCoordinator {
 
     /// Returns whether the notification is now presented. One that cannot present yet
     /// (a higher priority activity holds the notch) stays live until its own deadline.
+    /// Explicit input events may refresh an unchanged payload; duplicate state reports do not.
     @discardableResult
-    public func present(_ notification: NotchNotification) -> Bool {
-        activities?.presentNotification(notification) ?? false
+    public func present(_ notification: NotchNotification, refreshingLifetime: Bool = false) -> Bool {
+        activities?.presentNotification(notification, refreshingLifetime: refreshingLifetime) ?? false
     }
 
     /// Removes the active notification, or the live notification with `id` even if it is
