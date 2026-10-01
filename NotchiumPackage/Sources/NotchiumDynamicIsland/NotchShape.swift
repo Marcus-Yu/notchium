@@ -12,6 +12,8 @@ struct NotchShape: Shape {
     var topCornerRadius: CGFloat
     var bottomCornerRadius: CGFloat
     var hardwareExclusion: CGRect? = nil
+    var extensionHeight: CGFloat = 0
+    var extensionWidth: CGFloat = 0
 
     var animatableData: AnimatablePair<
         AnimatablePair<CGFloat, CGFloat>,
@@ -88,6 +90,31 @@ struct NotchShape: Shape {
             control1: CGPoint(x: rightWall, y: surface.maxY - extent + pull),
             control2: CGPoint(x: rightWall - extent + pull, y: surface.maxY)
         )
+        if extensionHeight > 0, extensionWidth > 0 {
+            // Continue the bottom edge through the centered extension. These concave roots
+            // and lower curves are part of this single outline, with no overlapping fills.
+            let h = min(extensionHeight, max(0, rect.maxY - surface.maxY))
+            let root = min(10, h / 2)
+            let half = min(extensionWidth / 2, max(0, (rightWall - leftWall) / 2 - extent - root))
+            let right = resolvedCenterX + half
+            let left = resolvedCenterX - half
+            let lower = min(bottomRadius * 0.6, h - root, half)
+            let bottom = surface.maxY + h
+            path.addLine(to: CGPoint(x: right + root, y: surface.maxY))
+            path.addQuadCurve(to: CGPoint(x: right, y: surface.maxY + root),
+                              control: CGPoint(x: right, y: surface.maxY))
+            path.addLine(to: CGPoint(x: right, y: bottom - lower))
+            path.addCurve(to: CGPoint(x: right - lower, y: bottom),
+                          control1: CGPoint(x: right, y: bottom - lower * 0.4),
+                          control2: CGPoint(x: right - lower * 0.4, y: bottom))
+            path.addLine(to: CGPoint(x: left + lower, y: bottom))
+            path.addCurve(to: CGPoint(x: left, y: bottom - lower),
+                          control1: CGPoint(x: left + lower * 0.4, y: bottom),
+                          control2: CGPoint(x: left, y: bottom - lower * 0.4))
+            path.addLine(to: CGPoint(x: left, y: surface.maxY + root))
+            path.addQuadCurve(to: CGPoint(x: left - root, y: surface.maxY),
+                              control: CGPoint(x: left, y: surface.maxY))
+        }
         path.addLine(to: CGPoint(x: leftWall + extent, y: surface.maxY))
         path.addCurve(
             to: CGPoint(x: leftWall, y: surface.maxY - extent),
