@@ -83,7 +83,8 @@ struct NotchSecondaryActivityChip: View {
         case let .countdown(countdown):
             // Coarse ticks are enough for a 15 pt ring; the timer itself is deadline-based.
             NotchCountdownTimeline(countdown: countdown) { date in
-                NotchProgressRing(fraction: 1 - countdown.elapsedFraction(at: date), reduceMotion: model.reduceMotion)
+                NotchProgressRing(fraction: countdown.elapsedFraction(at: date), reduceMotion: model.reduceMotion,
+                                  trackColor: .black)
                     .opacity(countdown.isRunning ? 1 : 0.55)
             }
             .frame(width: 15, height: 15)
@@ -99,11 +100,18 @@ struct NotchSecondaryActivityChip: View {
 struct NotchProgressRing: View {
     let fraction: Double?
     let reduceMotion: Bool
+    let trackColor: Color
+
+    init(fraction: Double?, reduceMotion: Bool, trackColor: Color = .white.opacity(0.22)) {
+        self.fraction = fraction
+        self.reduceMotion = reduceMotion
+        self.trackColor = trackColor
+    }
 
     var body: some View {
         if let fraction {
             ZStack {
-                Circle().stroke(.white.opacity(0.22), lineWidth: 2)
+                Circle().stroke(trackColor, lineWidth: 2)
                 Circle()
                     .trim(from: 0, to: CGFloat(min(max(fraction, 0), 1)))
                     .stroke(.white, style: StrokeStyle(lineWidth: 2, lineCap: .round))
