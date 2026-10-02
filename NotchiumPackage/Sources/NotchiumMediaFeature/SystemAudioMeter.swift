@@ -1,5 +1,4 @@
 import Foundation
-import NotchiumDynamicIsland
 import Combine
 import CoreGraphics
 import NotchiumCore
@@ -10,7 +9,9 @@ public final class SystemAudioMeter: ObservableObject {
     public enum Status: Equatable { case idle, starting, capturing, permissionRequired, unavailable }
     public static let staticLevels = [CGFloat](repeating: 0.12, count: 7)
     private static let activityThreshold = AudioSpectrumAnalyzer.minimum + 0.02
-    private static let activityTimeout = ActivityPriorityPolicy.pausedPresentationExpiry
+    // Keep artwork and waveform visible through short silent gaps between Spotify tracks.
+    // Explicit pause, device changes, and capture failures still clear activity immediately.
+    private static let activityTimeout: Duration = .milliseconds(1_500)
     @Published public private(set) var waveformLevels = staticLevels
     @Published public private(set) var status: Status = .idle
     @Published public private(set) var isAudioActive = false
