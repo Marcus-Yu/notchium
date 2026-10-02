@@ -9,7 +9,7 @@ import XCTest
 
 @MainActor
 final class UtilityControlTests: XCTestCase {
-    func testCaffeineClicksToggleAndHoldSelectsDisplayMode() async {
+    func testCaffeineClicksToggleMacAndDisplayAwake() async {
         let service = MockCaffeineService()
         let model = CaffeineControlModel(service: service)
         model.start()
@@ -18,7 +18,7 @@ final class UtilityControlTests: XCTestCase {
 
         model.cycleMode()
         await drainMainActorTasks()
-        XCTAssertEqual(model.mode, .system)
+        XCTAssertEqual(model.mode, .systemAndDisplay)
 
         model.cycleMode()
         await drainMainActorTasks()
