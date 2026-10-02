@@ -58,7 +58,7 @@ let package = Package(
         ),
         .target(
             name: "NotchiumQuickActionsFeature",
-            dependencies: ["NotchiumCore", "NotchiumServices", "NotchiumPersistence", "NotchiumDynamicIsland"]
+            dependencies: ["NotchiumCore", "NotchiumServices", "NotchiumPersistence", "NotchiumDynamicIsland", "NotchiumDesignSystem"]
         ),
         .target(
             name: "NotchiumClipboardFeature",
