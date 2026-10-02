@@ -169,13 +169,12 @@ The feasibility basis and distribution consequences for each row are defined in 
 
 ### 5.8 Caffeine
 
-- Three session-only states: off (neutral), system awake (green), and system plus display awake (blue).
-- An ordinary click toggles off → system awake, or either active state → off.
-- Holding from off or system awake for 0.75 seconds selects system plus display awake. A completed hold consumes the click.
-- A continuous border fills over the hold; early release performs the ordinary click and resets the border. Dragging out or cancelling the gesture performs no action.
-- The control is icon-only with a tooltip; no caption or duration selector.
-- Assertions are released when the user disables the feature and when the process exits.
-- Optional [closed-lid mode](LID_AWAKE.md) applies to both active states after separate administrator approval. It uses a short-lived privileged lease, defaults off at launch, and stops under low battery or high thermal pressure.
+- Two visible session-only states: off (neutral) and Mac plus display awake (orange).
+- An ordinary click enables indefinite keep-awake, or turns an active indefinite/timed session off. No hold is required.
+- Right-click or Control-click opens a native menu with 15 minutes, 30 minutes, 1 hour, and 2 hours. Choosing a duration starts or refreshes the session; the selected duration is checked.
+- The control is icon-only with a tooltip showing its expiry or any failure/approval guidance.
+- One cancelable deadline releases the assertion at timed expiry; disabling Caffeine or exiting also releases it. Sessions do not persist across relaunch.
+- The direct-download app requests the existing signed [closed-lid helper](LID_AWAKE.md) when Caffeine starts. First-time administrator approval is required, with a menu shortcut to approval settings. The helper keeps the Mac running when closed; the built-in panel still turns off. Existing battery, thermal, lease-expiry and crash-recovery safeguards apply.
 
 ### 5.9 Keyboard Cleaning Lock
 
@@ -227,7 +226,7 @@ The feasibility basis and distribution consequences for each row are defined in 
 
 ### 5.14 Focus and Pomodoro
 
-- Timers support work periods, breaks, pause/resume, skip, and completion notifications.
+- Timers support work periods, breaks, pause/resume, skip, and completion notifications. Every next stage waits for the user to press Start or Start Break; stages never start automatically.
 - Time behavior is derived from a monotonic injected clock so sleep/wake and clock changes do not corrupt sessions.
 - Frontmost-application tracking is separately opt-in and records bundle identifier plus duration, not window titles or document names.
 - Browser-domain tracking is separately opt-in and requires a Safari extension or a Chromium-compatible Chrome/Edge/Arc extension.
