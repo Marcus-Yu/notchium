@@ -44,7 +44,8 @@ import NotchiumServices
         let host = NSHostingView(rootView: home)
         host.frame = CGRect(x: 0, y: 0, width: 524, height: 196)
         host.layoutSubtreeIfNeeded()
-        XCTAssertFalse(containsScrollView(host))
+        XCTAssertTrue(containsScrollView(host), "Stage 20 bounds shortcut scrolling inside Home")
+        XCTAssertEqual(host.frame.height, 196)
         try await render(home, name: "home-four-actions", size: CGSize(width: 524, height: 196))
         await reminder.prepare()
         reminder.draft.title = "Call dentist"
