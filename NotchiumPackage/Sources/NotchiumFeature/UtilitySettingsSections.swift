@@ -64,8 +64,11 @@ struct FocusSettingsSection: View {
                     value: $timer.configuration.shortBreakMinutes, in: 1...30)
             Stepper("Long break: \(timer.configuration.longBreakMinutes) min",
                     value: $timer.configuration.longBreakMinutes, in: 5...60, step: 5)
+            Stepper("Long break every \(timer.configuration.sessionsPerCycle) focus session\(timer.configuration.sessionsPerCycle == 1 ? "" : "s")",
+                    value: $timer.configuration.sessionsPerCycle, in: 1...8)
+                .accessibilityIdentifier("notchium.pomodoro.longBreakCadence")
             Toggle("Play a sound when a phase ends", isOn: $timer.playsCompletionSound)
-            Button("Restore 30 / 5 / 15") { timer.configuration = .standard }
+            Button("Restore Timer Defaults") { timer.configuration = .standard }
                 .disabled(timer.configuration == .standard)
         }
     }
