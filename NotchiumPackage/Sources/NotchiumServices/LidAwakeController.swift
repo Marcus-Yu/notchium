@@ -34,7 +34,7 @@ public final class LidAwakeController {
                 return
             }
             isEnabled = true
-            message = "Ready. Closed-lid mode starts when either Caffeine mode is active."
+            message = "Ready. Closed-lid mode starts when Caffeine is active."
             reconcile()
         } catch {
             message = "Could not register the closed-lid helper: \(error.localizedDescription)"
@@ -85,7 +85,10 @@ public final class LidAwakeController {
     }
 
     private func reconcile() {
-        guard isEnabled && caffeineActive else { stopLease(); return }
+        // Disabled controllers have no lease. Preserve approval/failure guidance while
+        // ordinary Caffeine snapshots arrive instead of replacing it with an Off message.
+        guard isEnabled else { return }
+        guard caffeineActive else { stopLease(); return }
         guard heartbeat == nil else { return }
         generation &+= 1
         let token = generation
@@ -163,14 +166,14 @@ public final class LidAwakeController {
         heartbeat?.cancel()
         heartbeat = nil
         isActive = false
-        message = isEnabled ? "Ready. Closed-lid mode starts when either Caffeine mode is active." : "Off. Restoring normal sleep if needed."
+        message = isEnabled ? "Ready. Closed-lid mode starts when Caffeine is active." : "Off. Restoring normal sleep if needed."
         let token = generation
         let proxy = connection?.remoteObjectProxyWithErrorHandler { @Sendable _ in } as? LidAwakeProtocol
         proxy?.releaseLease { [weak self] success, detail in
             Task { @MainActor in
                 guard let self, self.generation == token else { return }
                 self.message = success && self.isEnabled
-                    ? "Ready. Closed-lid mode starts when either Caffeine mode is active."
+                    ? "Ready. Closed-lid mode starts when Caffeine is active."
                     : detail
             }
         }
