@@ -131,6 +131,28 @@ public final class PomodoroModel {
     public func skip() { apply { PomodoroEngine.skip(&$0, configuration: configuration, at: $1) } }
     public func end() { apply { PomodoroEngine.end(&$0, at: $1) } }
 
+    func perform(_ control: PomodoroControl) {
+        guard state.controls.contains(control) else { return }
+        switch control {
+        case .addFiveMinutes:
+            apply { state, _ in
+                PomodoroEngine.addFiveMinutes(&state, configuration: configuration)
+                return []
+            }
+        case .startFocus:
+            apply {
+                if $0.phase.isBreak { _ = PomodoroEngine.skip(&$0, configuration: configuration, at: $1) }
+                PomodoroEngine.start(&$0, configuration: configuration, at: $1)
+                return []
+            }
+        case .startBreak: startTimer()
+        case .pause: pause()
+        case .resume: resume()
+        case .skip, .skipBreak, .takeBreak: skip()
+        case .endFocus: end()
+        }
+    }
+
     /// The single primary control: Start, Pause or Resume.
     public func primaryAction() {
         switch state.run {
