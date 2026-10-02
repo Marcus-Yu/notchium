@@ -125,7 +125,12 @@ final class NotificationLifetimeTests: XCTestCase {
     let pressInteraction = CaffeinePressInteraction()
     var mode: CaffeineMode { .off }
     var isBusy: Bool { false }
+    var selectedDuration: CaffeineDuration? { nil }
+    var expiresAt: Date? { nil }
+    var statusMessage: String? { nil }
+    var needsClosedLidApproval: Bool { false }
     func cycleMode() {}
     func keepDisplayAwake() {}
+    func keepAwake(for duration: CaffeineDuration) {}
+    func openClosedLidApproval() {}
 }
-
