@@ -190,7 +190,7 @@ Presentation policy is semantic: Music requests `mediaSides`, Calendar requests 
 
 The expanded header contains one shared `GlassEffectContainer` with two spaced groups: Caffeine and Quick Reminder, then Settings and Close. All four controls are icon-only. Utility state is owned by application-lifetime feature models, not page views, so page changes and shell collapse do not reset it.
 
-`RealCaffeineService` uses `IOPMAssertionCreateWithName`. A click toggles prevention of idle system sleep; a 0.75-second hold selects the stronger system-and-display assertion. Replacing a mode creates the new assertion before releasing the old one, and application shutdown synchronously releases the active assertion. No duration selector or persisted relaunch state is involved. Optional [closed-lid keep-awake](LID_AWAKE.md) uses a separately approved, signed privileged helper with a renewable lease and recovery journal; it is not part of the public IOKit assertions.
+`RealCaffeineService` uses `IOPMAssertionCreateWithName`. A click toggles the system-and-display assertion and the header turns orange. A native right-click menu chooses 15/30/60/120 minutes. `CaffeineControlModel` owns the selected duration and one cancelable expiry through the injected `AppClock`; replacing a duration cancels the previous deadline. Replacing a mode creates the new assertion before releasing the old one, and application shutdown synchronously releases it. Sessions do not persist across relaunch. Production direct-distribution composition automatically requests the signed [closed-lid helper](LID_AWAKE.md) when Caffeine starts; fixtures never register it. Administrator approval, a renewable lease and a recovery journal remain separate from the public assertion. The built-in display still turns off when closed.
 
 
 Ambient Edge must not be added to `DynamicIslandPresentationModel` as decorative booleans. In its later stage it receives a separate immutable presentation model from the activity coordinator, and its AppKit overlay lifecycle remains independent of `NotchiumPanelController`.
@@ -227,7 +227,7 @@ The `NotchiumFeatureTests` unit-test target covers:
 - disabled Stage 1 permission requests;
 - unique feature-module registration;
 - persistent/transient arbitration, family coalescing, original deadlines, and hover pause;
-- Caffeine click/hold mode transitions and shutdown state;
+- Caffeine click/timed expiry transitions, native duration menu input, and shutdown state;
 - root dependency replacement;
 - delayed/cancelled collapsed, hovered, expanded, and transitioning behavior;
 - display selection, hot-plug fallback, and zero-display behavior;
@@ -269,6 +269,10 @@ Stage 2 is verified with the installed Xcode 26.6 toolchain using isolated Deriv
 - Best-effort suppression cannot guarantee full-screen video, presentation, game, or third-party screen-sharing detection and must retain manual controls.
 - The unresolved API, policy, hardware, browser-extension, clipboard-attribution, download-inference, and review risks listed in the Stage 0 documents remain open.
 
-## Stage 8 Home dashboard
+## Stage 8 Home dashboard (superseded by Stage 20)
 
 Home is the idle/default page and contains only a fixed Music-left / Calendar-right composition inside the canonical expanded shell. Existing application-lifetime Media and Calendar models supply compact renderers, while ActivityCoordinator preserves the established Music-priority default selection. There is no Home customization or Window Snapping in this phase. See [HOME_DASHBOARD.md](HOME_DASHBOARD.md) for layout, ownership, behavior, and validation boundaries.
+
+## Stage 20 Home ownership
+
+`HomeConfiguration` and the existing `QuickActionStore` now own one versioned Home record: stable section IDs, visibility/order, and general shortcut data. Existing Media/Calendar models remain authoritative. `NotchQuickActionsRendering.homeSections` carries enabled primary regions into the shell; `showsHomeActions` derives the optional lower strip from the authoritative configuration and visible pins; Home compacts its primary renderers through a presentation-only environment value while retaining the shared 524 × 266 shell and pointer geometry; Home never participates in automatic page arbitration. The existing Quick Actions module owns the native customization sheet and launcher runner. Bookmark/filesystem work is isolated in `QuickActionResources`, with Launch Services and cached icon access confined to the injected workspace adapter. See [HOME_DASHBOARD.md](HOME_DASHBOARD.md) for migration, reset, compact layout, and verification boundaries.
