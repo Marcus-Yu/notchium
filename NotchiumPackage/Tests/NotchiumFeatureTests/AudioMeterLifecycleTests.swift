@@ -173,7 +173,7 @@ final class AudioMeterLifecycleTests: XCTestCase {
         await drain()
         XCTAssertTrue(meter.isAudioActive)
         await clock.waitForPendingSleeps()
-        await clock.advance(by: .milliseconds(249))
+        await clock.advance(by: .milliseconds(1_499))
         await drain()
         XCTAssertTrue(meter.isAudioActive)
         await clock.advance(by: .milliseconds(1))
@@ -202,14 +202,82 @@ final class AudioMeterLifecycleTests: XCTestCase {
         XCTAssertEqual(sleepCount, 1)
         XCTAssertEqual(pendingCount, 1)
 
-        await clock.advance(by: .milliseconds(250))
+        await clock.advance(by: .milliseconds(1_500))
         await drain()
         XCTAssertTrue(meter.isAudioActive)
         await clock.waitForPendingSleeps()
-        await clock.advance(by: .milliseconds(250))
+        await clock.advance(by: .milliseconds(1_500))
         await drain()
         XCTAssertFalse(meter.isAudioActive)
         meter.stop()
+    }
+
+    func testTrackTransitionKeepsArtworkAndWaveformVisibleThroughSilentGap() async {
+        let capture = TestAudioCapture()
+        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
+        let meter = SystemAudioMeter(capture: capture, permissionGranted: { true }, activityClock: clock)
+        let model = MediaSessionController(provider: MockMediaProvider(), coordinator: ActivityCoordinator(clock: clock),
+                                           visibilityClock: clock, audioMeter: meter)
+        var first = state(true)
+        first.artwork = URL(string: "notchium-fixture://first-track")
+        model.receive(first)
+        await drain()
+        capture.levels?(Array(repeating: 0.8, count: 7))
+        await drain()
+        await clock.waitForPendingSleeps()
+
+        capture.levels?(Array(repeating: AudioSpectrumAnalyzer.minimum, count: 7))
+        await drain()
+        await clock.advance(by: .seconds(1))
+        await drain()
+        XCTAssertTrue(model.collapsedMediaVisible)
+        XCTAssertTrue(meter.isAudioActive, "The waveform stays mounted during a brief silent gap")
+        XCTAssertEqual(model.state.artwork, first.artwork)
+
+        var next = first
+        next.trackID = "2"
+        next.title = "Next track"
+        next.artwork = URL(string: "notchium-fixture://next-track")
+        model.receive(next)
+        capture.levels?(Array(repeating: 0.6, count: 7))
+        await drain()
+        await clock.advance(by: .milliseconds(500))
+        await drain()
+        XCTAssertTrue(model.collapsedMediaVisible)
+        XCTAssertTrue(meter.isAudioActive, "Resumed audio outlives the previous track's watchdog")
+        XCTAssertEqual(model.state.artwork, next.artwork)
+        XCTAssertEqual(meter.waveformLevels, Array(repeating: 0.6, count: 7))
+        XCTAssertEqual(capture.starts, 1)
+        XCTAssertEqual(capture.stops, 0)
+        model.stop()
+        await drain()
+    }
+
+    func testSustainedSilenceHidesCollapsedMediaAfterGracePeriod() async {
+        let capture = TestAudioCapture()
+        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
+        let meter = SystemAudioMeter(capture: capture, permissionGranted: { true }, activityClock: clock)
+        let model = MediaSessionController(provider: MockMediaProvider(), coordinator: ActivityCoordinator(clock: clock),
+                                           visibilityClock: clock, audioMeter: meter)
+        model.receive(state(true))
+        await drain()
+        capture.levels?(Array(repeating: 0.8, count: 7))
+        await drain()
+        await clock.waitForPendingSleeps()
+
+        capture.levels?(Array(repeating: AudioSpectrumAnalyzer.minimum, count: 7))
+        await drain()
+        await clock.advance(by: .milliseconds(1_499))
+        await drain()
+        XCTAssertTrue(model.collapsedMediaVisible)
+        await clock.advance(by: .milliseconds(1))
+        await drain()
+        XCTAssertFalse(model.collapsedMediaVisible)
+        XCTAssertFalse(meter.isAudioActive)
+        XCTAssertEqual(meter.waveformLevels, SystemAudioMeter.staticLevels)
+        XCTAssertTrue(model.state.isPlaying, "Audio inactivity does not overwrite Spotify playback metadata")
+        model.stop()
+        await drain()
     }
 
     func testHiddenWaveformSkipsPublicationButStillDetectsLocalAudio() async {
