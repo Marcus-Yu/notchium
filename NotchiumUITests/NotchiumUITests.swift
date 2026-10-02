@@ -50,7 +50,7 @@ final class NotchiumUITests: XCTestCase {
         }
     }
 
-    func testCaffeineFivePointerHoldsReachBlue() throws {
+    func testCaffeineFivePointerClicksToggleMacAndDisplayAwake() throws {
         let app = XCUIApplication()
         defer { app.terminate() }
         app.launchArguments = fixtureArguments(display: "builtInMock", surface: "physical", presentation: "expanded", appearance: "dark") + ["--notchium-stage11-fixture"]
@@ -59,11 +59,32 @@ final class NotchiumUITests: XCTestCase {
         XCTAssertTrue(caffeine.waitForExistence(timeout: 5))
         for repetition in 1...5 {
             XCTAssertEqual(caffeine.value as? String, "Off")
-            caffeine.press(forDuration: 0.85)
-            XCTAssertTrue(waitForCaffeine("Keeping Mac and display awake", element: caffeine), "Hold \(repetition)")
+            caffeine.click()
+            XCTAssertTrue(waitForCaffeine("Keeping Mac and display awake", element: caffeine), "Click \(repetition)")
             caffeine.click()
             XCTAssertTrue(waitForCaffeine("Off", element: caffeine))
         }
+    }
+
+    func testCaffeineRightClickDurationMenuRetainsTheOpenPage() throws {
+        let app = XCUIApplication()
+        defer { app.terminate() }
+        app.launchArguments = fixtureArguments(display: "builtInMock", surface: "physical", presentation: "expanded",
+                                               appearance: "dark") + ["--notchium-stage11-fixture"]
+        app.launch()
+        let caffeine = shellElement("notchium.shell.caffeine", in: app)
+        XCTAssertTrue(caffeine.waitForExistence(timeout: 5))
+        let home = app.buttons["notchium.page.home"]
+        home.click()
+        caffeine.rightClick()
+        let fifteenMinutes = app.menuItems["15 minutes"]
+        XCTAssertTrue(fifteenMinutes.waitForExistence(timeout: 3))
+        for title in ["30 minutes", "1 hour", "2 hours"] { XCTAssertTrue(app.menuItems[title].exists) }
+        fifteenMinutes.click()
+        XCTAssertTrue(waitForCaffeine("Keeping Mac and display awake", element: caffeine))
+        XCTAssertTrue(home.isSelected)
+        caffeine.click()
+        XCTAssertTrue(waitForCaffeine("Off", element: caffeine))
     }
 
     private func waitForCaffeine(_ value: String, element: XCUIElement) -> Bool {
