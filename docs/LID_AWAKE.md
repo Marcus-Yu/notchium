@@ -1,6 +1,6 @@
 # Closed-lid keep-awake (experimental, direct distribution)
 
-Ordinary Caffeine uses public idle-sleep assertions; those do not override lid-close sleep. The optional Settings → Closed-lid keep-awake control registers a separate `SMAppService` launch daemon. Administrator approval in Login Items & Extensions is required. The preference defaults off at each app launch. After approval, enable the toggle again; either active Caffeine mode then requests a lease. Turning Caffeine off releases it. The built-in panel turns off when the lid closes, even in blue mode.
+Ordinary Caffeine uses public idle-sleep assertions; those do not override lid-close sleep. In the direct-download app, clicking Caffeine turns its shortcut orange and keeps the Mac and display awake indefinitely; the native right-click menu offers 15/30/60/120 minutes. Activation also requests the existing separate `SMAppService` launch daemon. First-time administrator approval in Login Items & Extensions is required: the app opens those settings, and the Caffeine menu offers an approval shortcut while pending. After approval, toggle Caffeine off/on again to acquire the lease. Settings → Closed-lid keep-awake also remains available. The helper defaults inactive at launch and is never registered by mocked services. Turning Caffeine off, timed expiry, or app shutdown releases the lease. The built-in panel still turns off when the lid closes.
 
 ## Privilege boundary
 
@@ -28,4 +28,4 @@ The app's build phase compiles the daemon with Swift 6 and strict concurrency fo
 
 `Helpers/LidAwakeTests/main.swift` tests the power adapter with an injected fake command runner and a temporary journal; it never changes system settings or requires root. Scenarios: acquire, idempotent renewal, release, foreign ownership rejection, unsafe-condition rejection, crash recovery, and failed restoration followed by retry.
 
-Live validation still requires administrator approval and physical lid closure: test both green and blue on AC and battery, Caffeine off, app exit, killed app, killed helper, expiry, and helper removal. Check `pmset -g` before/after. Do not treat a successful command or unit test as proof of physical lid behavior.
+Live validation still requires administrator approval and physical lid closure: test indefinite and timed Caffeine on AC and battery, Caffeine off, app exit, killed app, killed helper, expiry, and helper removal. Check `pmset -g` before/after. Do not treat a successful command or unit test as proof of physical lid behavior.
