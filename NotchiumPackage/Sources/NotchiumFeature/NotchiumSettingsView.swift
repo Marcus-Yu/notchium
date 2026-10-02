@@ -9,6 +9,7 @@ import NotchiumMediaFeature
 import NotchiumServices
 
 public struct NotchiumSettingsView: View {
+    @State private var customizingHome = false
     private let quickActions: QuickActionsModel?
     private let environment: AppEnvironment
     private let caffeineModel: CaffeineControlModel?
@@ -57,10 +58,10 @@ public struct NotchiumSettingsView: View {
             }
             if let quickActions {
                 Section("Home") {
-                    Toggle("Show Quick Actions", isOn: Binding(get: { quickActions.store.showOnHome },
-                                                              set: { quickActions.store.showOnHome = $0 }))
+                    Button("Customize Home…") { customizingHome = true }
+                    Text("Choose sections and pin everyday shortcuts.").font(.caption).foregroundStyle(.secondary)
                 }
-                QuickActionsSettings(model: quickActions)
+                QuickActionsSettings(model: quickActions, showActions: false)
             }
             if environment.featureFlags[.focus], let focusModeModel, let pomodoroModel {
                 FocusSettingsSection(focus: focusModeModel, timer: pomodoroModel)
@@ -74,5 +75,12 @@ public struct NotchiumSettingsView: View {
         }
         .formStyle(.grouped)
         .frame(width: 520, height: 540)
+        .sheet(isPresented: $customizingHome) {
+            if let quickActions { HomeCustomizationView(model: quickActions) }
+        }
+        .onChange(of: quickActions?.requestedEditID) { _, id in
+            if id != nil { customizingHome = true }
+        }
+        .onAppear { if quickActions?.requestedEditID != nil { customizingHome = true } }
     }
 }
