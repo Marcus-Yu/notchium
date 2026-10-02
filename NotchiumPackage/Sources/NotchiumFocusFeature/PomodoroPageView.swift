@@ -127,27 +127,25 @@ private struct PomodoroTimerColumn: View {
 
     private func controls(_ state: PomodoroState, accent: Color) -> some View {
         HStack(spacing: 8) {
-            Button(action: model.primaryAction) {
-                Label(primaryTitle(state), systemImage: primarySymbol(state))
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
-                    .foregroundStyle(.black.opacity(0.85))
-                    .padding(.horizontal, 16)
-                    .frame(height: 28)
-                    .background(accent, in: .capsule)
-                    .contentShape(.capsule)
-            }
-            .buttonStyle(NotchUtilityButtonStyle())
-            .accessibilityIdentifier("notchium.pomodoro.primary")
-            if state.isActive {
-                PomodoroIconButton(symbol: "forward.end.fill", label: state.phase == .focus ? "Skip to Break" : "Skip Break",
-                                   action: model.skip)
-                PomodoroIconButton(symbol: "stop.fill", label: "End Cycle", action: model.end)
+            ForEach(state.controls) { control in
+                let primary = control == state.controls.first(where: \.isPrimary)
+                Button { model.perform(control) } label: {
+                    Text(control.title)
+                        .font(.system(size: 11, weight: primary ? .bold : .semibold, design: .rounded))
+                        .foregroundStyle(primary ? .black.opacity(0.85) : .white.opacity(0.85))
+                        .padding(.horizontal, 10)
+                        .frame(height: 28)
+                        .background(primary ? accent : .white.opacity(0.10), in: .capsule)
+                        .contentShape(.capsule)
+                }
+                .buttonStyle(NotchUtilityButtonStyle())
+                .accessibilityIdentifier(primary ? "notchium.pomodoro.primary" : "notchium.pomodoro.\(control.rawValue)")
             }
         }
-        .animation(.smooth(duration: 0.2), value: state.isActive)
+        .animation(.smooth(duration: 0.2), value: state.controls)
     }
 
-    /// "3 of 4" as four soft dots: taken sessions filled, the current one ringed.
+    /// One dot per configured session: taken sessions filled, the current one ringed.
     private func cycleDots(_ state: PomodoroState) -> some View {
         let total = model.configuration.sessionsPerCycle
         let current = model.focusNumber
@@ -171,41 +169,6 @@ private struct PomodoroTimerColumn: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Focus session \(current) of \(total)")
-    }
-
-    private func primaryTitle(_ state: PomodoroState) -> String {
-        switch state.run {
-        case .ready: state.phase == .focus ? "Start" : "Start Break"
-        case .running: "Pause"
-        case .paused: "Resume"
-        }
-    }
-
-    private func primarySymbol(_ state: PomodoroState) -> String {
-        if case .running = state.run { return "pause.fill" }
-        return "play.fill"
-    }
-}
-
-private struct PomodoroIconButton: View {
-    let symbol: String
-    let label: String
-    let action: () -> Void
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.white.opacity(isHovered ? 1 : 0.7))
-                .frame(width: 28, height: 28)
-                .background(.white.opacity(isHovered ? 0.16 : 0.08), in: .circle)
-                .contentShape(.circle)
-        }
-        .buttonStyle(NotchUtilityButtonStyle())
-        .onHover { isHovered = $0 }
-        .help(label)
-        .accessibilityLabel(label)
     }
 }
 
