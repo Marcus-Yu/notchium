@@ -33,31 +33,32 @@ struct HomeCalendarContent: View {
     let snapshot: CalendarSnapshot
     let date: Date
     let openCalendar: @MainActor () -> Void
+    @Environment(\.homeUsesCompactLayout) private var compact
 
     var body: some View {
         let summary = HomeCalendarSummary(events: snapshot.upcomingEvents, at: date)
         Button(action: openCalendar) {
             VStack(alignment: .leading, spacing: 0) {
                 Text(date.formatted(.dateTime.month(.wide).year()))
-                    .font(ExpandedPageStyle.caption)
+                    .font(compact ? .system(size: 10) : ExpandedPageStyle.caption)
                     .foregroundStyle(ExpandedPageStyle.secondary).lineLimit(1)
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(date.formatted(.dateTime.day())).font(.system(size: 34, weight: .light, design: .rounded))
+                    Text(date.formatted(.dateTime.day())).font(.system(size: compact ? 26 : 34, weight: .light, design: .rounded))
                     Text(date.formatted(.dateTime.weekday(.wide)))
                         .font(.system(size: 11)).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
-                }.padding(.top, 3)
-                Rectangle().fill(.white.opacity(0.1)).frame(height: 1).padding(.vertical, ExpandedPageStyle.groupGap)
+                }.padding(.top, compact ? 2 : 3)
+                Rectangle().fill(.white.opacity(0.1)).frame(height: 1).padding(.vertical, compact ? ExpandedPageStyle.Space.xs : ExpandedPageStyle.groupGap)
                 if snapshot.permission != .granted {
                     status("Set up Calendar", detail: "Open Calendar to get started.")
                 } else if snapshot.availability != .available {
                     status("Calendar unavailable", detail: "Open Calendar to check access.")
                 } else if let event = summary.nextEvent {
                     Text(summary.hasEventsToday ? "Next event" : "No events today")
-                        .font(ExpandedPageStyle.caption)
+                        .font(compact ? .system(size: 10) : ExpandedPageStyle.caption)
                         .foregroundStyle(ExpandedPageStyle.secondary).lineLimit(1)
-                    Text(event.title).font(.system(size: 12, weight: .medium)).lineLimit(2).padding(.top, 5)
+                    Text(event.title).font(.system(size: compact ? 11 : 12, weight: .medium)).lineLimit(2).padding(.top, compact ? 3 : 5)
                     Text(eventTime(event)).font(.system(size: 10)).foregroundStyle(ExpandedPageStyle.secondary)
-                        .lineLimit(1).padding(.top, 4)
+                        .lineLimit(1).padding(.top, compact ? 2 : 4)
                 } else {
                     status("No events today", detail: "Enjoy your free time.")
                 }
@@ -67,14 +68,14 @@ struct HomeCalendarContent: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.vertical, ExpandedPageStyle.Space.sm)
+        .padding(.vertical, compact ? ExpandedPageStyle.Space.xs : ExpandedPageStyle.Space.sm)
         .accessibilityIdentifier("notchium.home.calendar")
         .accessibilityHint("Open Calendar")
     }
 
     private func status(_ title: String, detail: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.system(size: 12, weight: .medium)).lineLimit(2)
+        VStack(alignment: .leading, spacing: compact ? 4 : 6) {
+            Text(title).font(.system(size: compact ? 11 : 12, weight: .medium)).lineLimit(2)
             Text(detail).font(.system(size: 10)).foregroundStyle(ExpandedPageStyle.secondary).lineLimit(2)
         }
     }
