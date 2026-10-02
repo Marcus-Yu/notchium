@@ -13,9 +13,8 @@
 /// Calendar alert (where Music is never the chip: it already lives in the banner's top row).
 /// Short system transients own the whole compact presentation; nothing sits beside them.
 public enum ActivityPriorityPolicy {
-    /// How long paused content stays in the collapsed notch. Music's flanks leave once local audio
-    /// has been silent this long; a paused timer leaves after the same interval. Hiding is
-    /// presentation only: the paused session itself is untouched.
+    /// How long a paused timer stays in the collapsed notch. Music owns a separate audio inactivity
+    /// grace period for track transitions. Hiding is presentation only: the paused session is untouched.
     public static let pausedPresentationExpiry: Duration = .milliseconds(250)
 
     public static func priority(for kind: NotchNotification.Kind) -> NotchActivityPriority {
