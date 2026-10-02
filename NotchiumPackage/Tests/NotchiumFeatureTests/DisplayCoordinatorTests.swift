@@ -3,6 +3,8 @@ import NotchiumCore
 import XCTest
 @testable import NotchiumMediaFeature
 import NotchiumServices
+import NotchiumPersistence
+import NotchiumQuickActionsFeature
 
 @MainActor
 private final class MockDisplaySource: NotchiumDisplaySnapshotting {
@@ -54,6 +56,56 @@ private final class MockPanelController: NotchPanelControlling {
 
 @MainActor
 final class DisplayCoordinatorTests: XCTestCase {
+    func testHomeShortcutChangesPreserveSharedShellAndPointerGeometryWhileOpen() async throws {
+        let suite = "HomeGeometry.\(UUID())"
+        let preferences = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { preferences.removePersistentDomain(forName: suite) }
+        let panel = MockPanelController()
+        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
+        let coordinator = makeCoordinator(source: MockDisplaySource(displays: [builtInDisplay()]), panel: panel, clock: clock)
+        let model = coordinator.presentationModel
+        let store = QuickActionStore(preferences: preferences)
+        let workspace = Stage20Workspace()
+        let runner = QuickActionRunner(store: store, workspace: workspace, shortcuts: CountingStage20Shortcuts(),
+                                      notifications: model.notificationCoordinator, clock: clock)
+        let reminder = QuickReminderModel(service: MockReminderService(), workspace: workspace, store: store,
+                                         notifications: model.notificationCoordinator, clock: clock)
+        let actions = QuickActionsModel(store: store, runner: runner, reminder: reminder)
+        model.quickActionsRenderer = actions
+        coordinator.start()
+        defer { runner.stop(); coordinator.stop() }
+        model.present(.expanded, animated: false)
+        model.pageModel.selectedPage = .home
+        try store.setSectionEnabled(.shortcuts, enabled: true)
+        await drainMainActorTasks()
+        let compact = try XCTUnwrap(panel.layout)
+        XCTAssertEqual(compact.expandedSize, ExpandedNotchLayout.size)
+        let action = QuickAction(kind: .url, displayName: "Docs", target: "https://example.com", pinnedToHome: true)
+        try store.save(action)
+        await drainMainActorTasks()
+        let extended = try XCTUnwrap(panel.layout)
+        XCTAssertEqual(extended, compact, "The first shortcut must fit within the existing 266 pt shell")
+        XCTAssertEqual(extended.visibleSurfaceFrame.height, extended.expandedSize.height)
+        XCTAssertEqual(extended.visibleSurfaceFrame.maxY, compact.visibleSurfaceFrame.maxY)
+        XCTAssertEqual(extended.panelFrame.maxY, compact.panelFrame.maxY)
+        XCTAssertGreaterThanOrEqual(extended.panelFrame.height, extended.expandedSize.height + NotchExpandedMinorGeometry.height)
+        XCTAssertEqual(model.pageModel.selectedPage, .home)
+        for index in 0..<20 {
+            try store.save(.init(kind: .url, displayName: "Site \(index)", target: "https://example.com", pinnedToHome: true))
+        }
+        await drainMainActorTasks()
+        XCTAssertEqual(panel.layout, extended, "Overflow must not grow Home beyond the shared shell")
+        model.pageModel.selectedPage = .music
+        await drainMainActorTasks()
+        XCTAssertEqual(panel.layout, compact, "Other pages keep their original geometry")
+        model.pageModel.selectedPage = .home
+        await drainMainActorTasks()
+        XCTAssertEqual(panel.layout, extended)
+        for action in store.actions { try store.remove(action.id) }
+        await drainMainActorTasks()
+        XCTAssertEqual(panel.layout, compact, "Removing the last shortcut preserves the shell and pointer region")
+        XCTAssertEqual(model.pageModel.selectedPage, .home)
+    }
     func testSpaceChangeCollapsesHoveredAndPinnedStatesBeforeReassertingPanel() async {
         for state in [NotchStableState.hovered, .expanded] {
             let source = MockDisplaySource(displays: [builtInDisplay()])
