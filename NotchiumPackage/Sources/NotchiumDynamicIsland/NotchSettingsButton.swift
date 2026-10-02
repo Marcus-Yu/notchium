@@ -30,6 +30,7 @@ struct NotchUtilityControls: View {
 
 private struct NotchCaffeineButton: View {
     let controller: any NotchCaffeineControlling
+    private let activeColor = Color(red: 1, green: 172.0 / 255.0, blue: 28.0 / 255.0)
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovered = false
@@ -40,11 +41,7 @@ private struct NotchCaffeineButton: View {
                               foreground: controller.mode == .off ? nil : foregroundStyle,
                               glass: controller.mode == .off ? nil : glass)
         }
-        .buttonStyle(CaffeinePressButtonStyle(
-            interaction: controller.pressInteraction,
-            allowsHold: controller.mode != .systemAndDisplay,
-            holdAction: controller.keepDisplayAwake
-        ))
+        .buttonStyle(pressStyle)
         .disabled(controller.isBusy)
         .onHover { isHovered = $0 }
         .animation(reduceMotion ? .easeOut(duration: 0.1) : .smooth(duration: 0.18),
@@ -54,35 +51,43 @@ private struct NotchCaffeineButton: View {
         .help(tooltip)
         .accessibilityLabel("Caffeine")
         .accessibilityValue(accessibilityValue)
-        .accessibilityHint("Click to toggle Mac awake. Hold for three quarters of a second to keep the display awake too.")
+        .accessibilityHint("Click to keep Mac and display awake until turned off. Right-click to choose a duration.")
+        .accessibilityActions {
+            ForEach(CaffeineDuration.allCases) { duration in
+                Button(duration.title) { controller.keepAwake(for: duration) }
+                    .disabled(controller.isBusy)
+            }
+        }
         .accessibilityIdentifier("notchium.shell.caffeine")
     }
 
+    private var pressStyle: CaffeinePressButtonStyle {
+        let approval: (() -> Void)? = controller.needsClosedLidApproval
+            ? { controller.openClosedLidApproval() } : nil
+        return CaffeinePressButtonStyle(interaction: controller.pressInteraction, allowsHold: false,
+                                        holdAction: controller.keepDisplayAwake,
+                                        selectedDuration: controller.selectedDuration,
+                                        durationAction: { controller.keepAwake(for: $0) },
+                                        closedLidApproval: approval)
+    }
+
     private var glass: Glass {
-        switch controller.mode {
-        case .off:
-            isHovered ? .regular.tint(.white.opacity(0.10)).interactive() : .clear.interactive()
-        case .system:
-            .regular.tint(.green.opacity(isHovered ? 0.60 : 0.48)).interactive()
-        case .systemAndDisplay:
-            .regular.tint(.blue.opacity(isHovered ? 0.64 : 0.52)).interactive()
-        }
+        controller.mode.isActive
+            ? .regular.tint(activeColor.opacity(isHovered ? 0.64 : 0.52)).interactive()
+            : (isHovered ? .regular.tint(.white.opacity(0.10)).interactive() : .clear.interactive())
     }
 
     private var foregroundStyle: Color {
-        switch controller.mode {
-        case .off: .white.opacity(isHovered ? 1 : 0.60)
-        case .system: .green
-        case .systemAndDisplay: .blue
-        }
+        controller.mode.isActive ? activeColor : .white.opacity(isHovered ? 1 : 0.60)
     }
 
     private var tooltip: String {
-        switch controller.mode {
-        case .off: "Keep Mac Awake"
-        case .system: "Mac Awake · Display Can Sleep"
-        case .systemAndDisplay: "Mac + Display Awake"
+        if let message = controller.statusMessage { return message }
+        guard controller.mode.isActive else { return "Keep Mac + Display Awake · Right-click for duration" }
+        if let expiresAt = controller.expiresAt {
+            return "Mac + Display Awake until \(expiresAt.formatted(date: .omitted, time: .shortened))"
         }
+        return "Mac + Display Awake · Click to turn off"
     }
 
     private var accessibilityValue: String {
