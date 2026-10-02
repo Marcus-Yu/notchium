@@ -39,14 +39,14 @@ import NotchiumServices
         }
     }
 
-    func testStoreDefaultOffPersistenceReorderAndPinLimit() throws {
+    func testStoreDefaultOffPersistenceReorderAndDensePins() throws {
         let store = QuickActionStore(preferences: preferences)
         XCTAssertFalse(store.showOnHome)
         let actions = (0..<5).map { QuickAction(kind: .url, displayName: "Site \($0)", target: "https://example.com", pinnedToHome: $0 < 4) }
         for action in actions { try store.save(action) }
         var fifth = actions[4]; fifth.pinnedToHome = true
-        XCTAssertThrowsError(try store.save(fifth))
-        XCTAssertEqual(store.pinned.count, 4)
+        try store.save(fifth)
+        XCTAssertEqual(store.pinned.count, 5)
         try store.move(from: IndexSet(integer: 4), to: 0)
         XCTAssertEqual(store.actions.first?.id, fifth.id)
         store.showOnHome = true
@@ -58,11 +58,11 @@ import NotchiumServices
         XCTAssertEqual(store.pinned.count, 4)
     }
 
-    func testMalformedPersistenceIsNotOverwritten() {
+    func testMalformedLegacyPersistenceIsKeptDuringRecovery() {
         preferences.set(Data("broken".utf8), forKey: "quickActions.v1")
         let store = QuickActionStore(preferences: preferences)
         XCTAssertNotNil(store.error)
-        XCTAssertThrowsError(try store.save(QuickAction(kind: .url)))
+        XCTAssertNoThrow(try store.save(QuickAction(kind: .url)))
         XCTAssertEqual(preferences.data(forKey: "quickActions.v1"), Data("broken".utf8))
     }
 
