@@ -25,7 +25,7 @@ final class Stage19PomodoroTests: XCTestCase {
         XCTAssertEqual(config.sessionsPerCycle, 4)
     }
 
-    func testFocusCompletesIntoARunningShortBreak() {
+    func testFocusCompletesIntoAShortBreakWaitingForStart() {
         var state = PomodoroState()
         PomodoroEngine.start(&state, configuration: config, at: t0)
         XCTAssertEqual(state.run, .running(endsAt: at(30)))
@@ -37,7 +37,11 @@ final class Stage19PomodoroTests: XCTestCase {
         XCTAssertEqual(record.focusedDuration, 30 * 60)
         XCTAssertEqual(record.cycleIndex, 1)
         XCTAssertEqual(state.phase, .shortBreak)
-        XCTAssertEqual(state.run, .running(endsAt: at(35)), "The break starts at the exact deadline")
+        XCTAssertEqual(state.run, .ready)
+        XCTAssertTrue(PomodoroEngine.advance(&state, configuration: config, to: at(60)).isEmpty)
+        XCTAssertEqual(PomodoroEngine.remaining(state, configuration: config, at: at(60)), 5 * 60)
+        PomodoroEngine.start(&state, configuration: config, at: at(60))
+        XCTAssertEqual(state.run, .running(endsAt: at(65)), "The full break starts only on user input")
     }
 
     func testFourFocusSessionsLeadToALongBreakThenANewCycle() {
@@ -49,6 +53,8 @@ final class Stage19PomodoroTests: XCTestCase {
             now += config.duration(of: .focus)
             _ = PomodoroEngine.advance(&state, configuration: config, to: now)
             phases.append(state.phase)
+            XCTAssertEqual(state.run, .ready, "Every break waits for user input")
+            PomodoroEngine.start(&state, configuration: config, at: now)
             now += config.duration(of: state.phase)
             _ = PomodoroEngine.advance(&state, configuration: config, to: now)
             XCTAssertEqual(state.run, .ready, "A finished break leaves the next Focus ready, not running")
@@ -72,7 +78,7 @@ final class Stage19PomodoroTests: XCTestCase {
         XCTAssertEqual(record.segments.count, 2)
     }
 
-    func testSkipFocusRecordsAnInterruptionAndStartsTheBreak() {
+    func testSkipFocusRecordsAnInterruptionAndReadiesTheBreak() {
         var state = PomodoroState()
         PomodoroEngine.start(&state, configuration: config, at: t0)
         let events = PomodoroEngine.skip(&state, configuration: config, at: at(12))
@@ -80,7 +86,8 @@ final class Stage19PomodoroTests: XCTestCase {
         XCTAssertFalse(record.completed)
         XCTAssertEqual(record.focusedDuration, 12 * 60)
         XCTAssertEqual(state.phase, .shortBreak)
-        XCTAssertEqual(state.run, .running(endsAt: at(17)))
+        XCTAssertEqual(state.run, .ready)
+        PomodoroEngine.start(&state, configuration: config, at: at(12))
         XCTAssertTrue(PomodoroEngine.skip(&state, configuration: config, at: at(13)).isEmpty)
         XCTAssertEqual(state.phase, .focus)
         XCTAssertEqual(state.run, .ready)
@@ -108,15 +115,15 @@ final class Stage19PomodoroTests: XCTestCase {
         XCTAssertEqual(NotchCountdown.label(0), "00:00")
     }
 
-    func testSleepWakeCatchUpCompletesFocusAndBreakInOrder() {
+    func testSleepWakeCatchUpCompletesOnlyTheStartedFocus() {
         var state = PomodoroState()
         PomodoroEngine.start(&state, configuration: config, at: t0)
         let events = PomodoroEngine.advance(&state, configuration: config, to: at(120))
-        XCTAssertEqual(events.count, 2)
+        XCTAssertEqual(events.count, 1)
         guard case let .focusCompleted(record, _) = events[0] else { return XCTFail() }
         XCTAssertEqual(record.end, at(30))
-        XCTAssertEqual(events[1], .breakCompleted(.shortBreak, at: at(35)))
-        XCTAssertEqual(state.run, .ready, "Time away is never recorded as a second Focus session")
+        XCTAssertEqual(state.phase, .shortBreak)
+        XCTAssertEqual(state.run, .ready, "Time away never starts or completes an unstarted stage")
     }
 
     // MARK: Statistics
@@ -192,12 +199,13 @@ final class Stage19PomodoroTests: XCTestCase {
         relaunched.refresh()
         XCTAssertEqual(relaunched.records.count, 1)
         XCTAssertTrue(relaunched.records[0].completed)
+        XCTAssertEqual(relaunched.state.phase, .shortBreak)
         XCTAssertEqual(relaunched.state.run, .ready)
         XCTAssertNil(relaunched.activities.notifications.active, "A completion hours ago is history, not an announcement")
         XCTAssertEqual(store.load().records.count, 1)
     }
 
-    func testCompletionAnnouncesThenTheBreakCountsDown() {
+    func testCompletionAnnouncesAndTheBreakWaitsForUserInput() {
         let clock = TestAppClock(now: t0, automaticallyAdvances: false)
         var now = t0
         let timer = model(clock: clock, now: { now })
@@ -211,10 +219,24 @@ final class Stage19PomodoroTests: XCTestCase {
         XCTAssertEqual(result?.content.compactActivity?.title, "Focus Complete")
         XCTAssertEqual(result?.content.compactActivity?.trailing, .text("Break · 05:00"))
         let live = timer.activities.liveActivities.first { $0.key == NotchActivityKey(PomodoroModel.activityKey) }
-        XCTAssertEqual(live?.id, id, "The break continues the same timer activity")
+        XCTAssertNil(live, "A ready break has no running countdown activity")
+        XCTAssertEqual(timer.state.run, .ready)
         timer.activities.dismiss(key: NotchActivityKey(PomodoroModel.resultKey))
+        now = at(60)
+        timer.refresh()
+        XCTAssertNil(timer.activities.notifications.active)
+        XCTAssertEqual(timer.countdown().remaining(at: now), 300)
+        timer.primaryAction()
+        XCTAssertEqual(timer.activities.notifications.active?.id, id, "Starting the break reuses the timer identity")
         XCTAssertEqual(timer.activities.notifications.active?.content.compactActivity?.trailing,
-                       .countdown(.running(total: 300, endsAt: at(35))))
+                       .countdown(.running(total: 300, endsAt: at(65))))
+        now = at(65)
+        timer.refresh()
+        XCTAssertEqual(timer.state.phase, .focus)
+        XCTAssertEqual(timer.state.run, .ready)
+        now = at(90)
+        timer.primaryAction()
+        XCTAssertEqual(timer.state.run, .running(endsAt: at(120)))
     }
 
     func testTimerPreferenceBlendsWithVisibleMusicAndMusicPreferenceMakesTheTimerTheChip() {
@@ -393,6 +415,7 @@ final class Stage19PomodoroTests: XCTestCase {
         let timer = model()
         timer.startTimer()
         timer.skip()
+        timer.startTimer()
         XCTAssertEqual(timer.activities.notifications.active?.content.compactActivity?.glyph, .symbol("leaf.fill"))
         XCTAssertEqual(PomodoroStyle.symbol(.longBreak), "beach.umbrella.fill")
     }
