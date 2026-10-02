@@ -2,51 +2,116 @@ import Foundation
 import NotchiumCore
 import Observation
 
+/// One authoritative, versioned Home record; Stage 11 preference keys are migration inputs only.
 @MainActor @Observable public final class QuickActionStore {
-    public static let homeCapacity = 4
-    public private(set) var actions: [QuickAction]
-    public var showOnHome: Bool { didSet { preferences.set(showOnHome, forKey: "quickActions.showOnHome") } }
+    public static let configurationKey = "home.configuration.v1"
+    public private(set) var configuration: HomeConfiguration
+    public var actions: [QuickAction] { configuration.shortcuts }
+    public var showOnHome: Bool {
+        get { configuration.enabledSections.contains(HomeSectionID.shortcuts.rawValue) }
+        set { try? setSectionEnabled(.shortcuts, enabled: newValue) }
+    }
     public var reminderListID: String { didSet { preferences.set(reminderListID, forKey: "quickActions.reminderListID") } }
     public private(set) var error: String?
     @ObservationIgnored private let preferences: UserDefaults
+    @ObservationIgnored private var isReadOnly = false
+
     public init(preferences: UserDefaults) {
         self.preferences = preferences
-        showOnHome = preferences.bool(forKey: "quickActions.showOnHome")
         reminderListID = preferences.string(forKey: "quickActions.reminderListID") ?? ""
-        if let data = preferences.data(forKey: "quickActions.v1") {
-            do { actions = try JSONDecoder().decode([QuickAction].self, from: data).sorted { $0.order < $1.order } }
-            catch { actions = []; self.error = "Couldn’t read saved actions. Restart before making changes." }
-        } else { actions = [] }
+        configuration = HomeConfiguration()
+        if let data = preferences.data(forKey: Self.configurationKey) {
+            do {
+                configuration = try JSONDecoder().decode(HomeConfiguration.self, from: data)
+                if configuration.schemaVersion > HomeConfiguration.currentVersion {
+                    isReadOnly = true
+                    error = "Home was saved by a newer Notchium version. Update Notchium to customize it."
+                }
+            } catch { recover(data, key: Self.configurationKey) }
+        } else if let data = preferences.data(forKey: "quickActions.v1") {
+            do {
+                // Decode through the per-item resilient Home schema, keeping unknown records.
+                let records = try JSONSerialization.jsonObject(with: data)
+                guard records is [Any] else { throw StoreFailure.unreadable }
+                let migrated = try JSONSerialization.data(withJSONObject: ["shortcuts": records])
+                configuration = try JSONDecoder().decode(HomeConfiguration.self, from: migrated)
+                if preferences.bool(forKey: "quickActions.showOnHome") {
+                    configuration.enabledSections.append(HomeSectionID.shortcuts.rawValue)
+                }
+                try commit(configuration)
+            } catch { recover(data, key: "quickActions.v1") }
+        }
     }
-    public var pinned: [QuickAction] { Array(actions.filter { $0.pinnedToHome && $0.enabled }.prefix(Self.homeCapacity)) }
+    public var pinned: [QuickAction] { actions.filter { $0.pinnedToHome && $0.enabled } }
+
     public func save(_ action: QuickAction) throws {
-        var next = actions
-        if let index = next.firstIndex(where: { $0.id == action.id }) { next[index] = action }
-        else { next.append(action) }
-        guard next.filter(\.pinnedToHome).count <= Self.homeCapacity else { throw StoreFailure.pinLimit }
+        var next = configuration
+        if let index = next.shortcuts.firstIndex(where: { $0.id == action.id }) {
+            var edited = action
+            edited.order = next.shortcuts[index].order
+            next.shortcuts[index] = edited
+        }
+        else {
+            var appended = action
+            appended.order = next.shortcuts.count
+            next.shortcuts.append(appended)
+        }
         try commit(next)
     }
-    public func remove(_ id: UUID) throws { try commit(actions.filter { $0.id != id }) }
+    public func remove(_ id: UUID) throws {
+        var next = configuration
+        next.shortcuts.removeAll { $0.id == id }
+        for index in next.shortcuts.indices { next.shortcuts[index].order = index }
+        try commit(next)
+    }
     public func move(from source: IndexSet, to destination: Int) throws {
-        var next = actions
-        let moving = source.sorted().map { next[$0] }
-        for index in source.sorted(by: >) { next.remove(at: index) }
-        next.insert(contentsOf: moving, at: destination - source.filter { $0 < destination }.count)
+        var next = configuration
+        guard source.allSatisfy({ next.shortcuts.indices.contains($0) }),
+              (0...next.shortcuts.count).contains(destination) else { return }
+        let moving = source.sorted().map { next.shortcuts[$0] }
+        for index in source.sorted(by: >) { next.shortcuts.remove(at: index) }
+        next.shortcuts.insert(contentsOf: moving, at: destination - source.filter { $0 < destination }.count)
+        for index in next.shortcuts.indices { next.shortcuts[index].order = index }
         try commit(next)
     }
-    private func commit(_ next: [QuickAction]) throws {
-        guard error == nil else { throw StoreFailure.unreadable }
-        let ordered = next.enumerated().map { index, action in var action = action; action.order = index; return action }
-        preferences.set(try JSONEncoder().encode(ordered), forKey: "quickActions.v1")
-        actions = ordered
+    public func setSectionEnabled(_ id: HomeSectionID, enabled: Bool) throws {
+        var next = configuration
+        next.enabledSections.removeAll { $0 == id.rawValue }
+        if enabled { next.enabledSections.append(id.rawValue) }
+        try commit(next)
+    }
+    public func moveSection(from source: IndexSet, to destination: Int) throws {
+        var sections = configuration.orderedSections
+        guard source.allSatisfy({ sections.indices.contains($0) }), (0...sections.count).contains(destination) else { return }
+        let moving = source.sorted().map { sections[$0] }
+        for index in source.sorted(by: >) { sections.remove(at: index) }
+        sections.insert(contentsOf: moving, at: destination - source.filter { $0 < destination }.count)
+        var next = configuration
+        let unknown = next.sectionOrder.filter { HomeSectionID(rawValue: $0) == nil }
+        next.sectionOrder = sections.map(\.rawValue) + unknown
+        try commit(next)
+    }
+    public func resetHomeLayout() throws {
+        var next = configuration
+        next.resetLayout()
+        try commit(next)
+    }
+    private func commit(_ next: HomeConfiguration) throws {
+        guard !isReadOnly else { throw StoreFailure.unreadable }
+        var normalized = next
+        normalized.normalize()
+        preferences.set(try JSONEncoder().encode(normalized), forKey: Self.configurationKey)
+        configuration = normalized
+    }
+    private func recover(_ data: Data, key: String) {
+        // Keep the original bytes for recovery, while allowing the clean defaults to be edited.
+        if preferences.data(forKey: "\(key).recovery") == nil { preferences.set(data, forKey: "\(key).recovery") }
+        configuration = HomeConfiguration()
+        error = "Home settings couldn’t be read. Defaults were restored; the original data was kept."
+        try? commit(configuration)
     }
     public enum StoreFailure: LocalizedError {
-        case pinLimit, unreadable
-        public var errorDescription: String? {
-            switch self {
-            case .pinLimit: "Home can show up to four pinned actions. Unpin an action first."
-            case .unreadable: "Saved actions could not be read. Restart before making changes."
-            }
-        }
+        case unreadable
+        public var errorDescription: String? { "This Home configuration can’t be changed by this version of Notchium." }
     }
 }
