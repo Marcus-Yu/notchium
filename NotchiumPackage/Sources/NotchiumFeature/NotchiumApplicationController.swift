@@ -90,7 +90,9 @@ public final class NotchiumApplicationController {
                                           notifications: notifications, clock: environment.clock)
         quickActions = QuickActionsModel(store: store, runner: runner, reminder: reminder)
         displayCoordinator.presentationModel.quickActionsRenderer = quickActions
-        caffeineModel = CaffeineControlModel(service: environment.services.caffeine)
+        caffeineModel = CaffeineControlModel(service: environment.services.caffeine, clock: environment.clock,
+                                             automaticallyEnableClosedLid: environment.distributionProfile == .developerID
+                                                && environment.services.caffeine is RealCaffeineService)
         filesModel = FilesFeatureModel(transfers: environment.services.transfers,
                                        screenshots: environment.services.screenshot,
                                        shelf: environment.services.shelf,
