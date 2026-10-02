@@ -80,6 +80,7 @@ struct NotchPagesView: View {
     private var pages: some View {
         ZStack {
             HomeDashboardView(pages: model, media: mediaRenderer, calendar: calendarRenderer, quickActions: quickActions)
+                .environment(\.notchHomePageVisible, isExpanded && model.selectedPage == .home)
                 .opacity(model.selectedPage == .home ? 1 : 0)
                 .disabled(model.selectedPage != .home)
                 .allowsHitTesting(model.selectedPage == .home)
