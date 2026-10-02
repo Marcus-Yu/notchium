@@ -1,14 +1,20 @@
 import AppKit
+import NotchiumCore
 import SwiftUI
 
 struct CaffeinePressButtonStyle: PrimitiveButtonStyle {
     let interaction: CaffeinePressInteraction
     let allowsHold: Bool
     let holdAction: () -> Void
+    var selectedDuration: CaffeineDuration? = nil
+    var durationAction: ((CaffeineDuration) -> Void)? = nil
+    var closedLidApproval: (() -> Void)? = nil
 
     func makeBody(configuration: Configuration) -> some View {
         PressBody(configuration: configuration, interaction: interaction,
-                  allowsHold: allowsHold, holdAction: holdAction)
+                  allowsHold: allowsHold, holdAction: holdAction,
+                  selectedDuration: selectedDuration, durationAction: durationAction,
+                  closedLidApproval: closedLidApproval)
     }
 
     private struct PressBody: View {
@@ -16,6 +22,9 @@ struct CaffeinePressButtonStyle: PrimitiveButtonStyle {
         let interaction: CaffeinePressInteraction
         let allowsHold: Bool
         let holdAction: () -> Void
+        let selectedDuration: CaffeineDuration?
+        let durationAction: ((CaffeineDuration) -> Void)?
+        let closedLidApproval: (() -> Void)?
         @Environment(\.isEnabled) private var isEnabled
 
         var body: some View {
@@ -23,7 +32,7 @@ struct CaffeinePressButtonStyle: PrimitiveButtonStyle {
                 .overlay {
                     Circle()
                         .trim(from: 0, to: interaction.progress)
-                        .stroke(.blue, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                        .stroke(.orange, style: StrokeStyle(lineWidth: 2, lineCap: .round))
                         .rotationEffect(.degrees(-90))
                         .padding(1)
                         .transaction { $0.animation = nil }
@@ -33,7 +42,8 @@ struct CaffeinePressButtonStyle: PrimitiveButtonStyle {
                 .overlay {
                     CaffeinePointerInput(interaction: interaction, isEnabled: isEnabled,
                                          allowsHold: allowsHold, click: configuration.trigger,
-                                         hold: holdAction)
+                                         hold: holdAction, selectedDuration: selectedDuration,
+                                         durationAction: durationAction, closedLidApproval: closedLidApproval)
                         .accessibilityHidden(true)
                 }
                 .sensoryFeedback(.alignment, trigger: interaction.completionCount)
@@ -52,6 +62,9 @@ struct CaffeinePointerInput: NSViewRepresentable {
     let allowsHold: Bool
     let click: () -> Void
     let hold: () -> Void
+    var selectedDuration: CaffeineDuration? = nil
+    var durationAction: ((CaffeineDuration) -> Void)? = nil
+    var closedLidApproval: (() -> Void)? = nil
 
     func makeNSView(context: Context) -> PressView { PressView() }
     func updateNSView(_ view: PressView, context: Context) {
@@ -68,9 +81,50 @@ struct CaffeinePointerInput: NSViewRepresentable {
 
         override func mouseDown(with event: NSEvent) {
             guard let input, input.isEnabled else { return }
+            if event.modifierFlags.contains(.control) {
+                showDurationMenu(with: event)
+                return
+            }
             activeInteraction = input.interaction
             input.interaction.begin(allowsHold: input.allowsHold, click: input.click, hold: input.hold)
         }
+        override func rightMouseDown(with event: NSEvent) {
+            showDurationMenu(with: event)
+        }
+
+        override func menu(for event: NSEvent) -> NSMenu? {
+            guard let input, input.isEnabled, input.durationAction != nil else { return nil }
+            let menu = NSMenu(title: "Keep Awake For")
+            for duration in CaffeineDuration.allCases {
+                let item = NSMenuItem(title: duration.title, action: #selector(selectDuration(_:)), keyEquivalent: "")
+                item.target = self
+                item.tag = duration.rawValue
+                item.state = input.selectedDuration == duration ? .on : .off
+                menu.addItem(item)
+            }
+            if input.closedLidApproval != nil {
+                menu.addItem(.separator())
+                let approval = NSMenuItem(title: "Approve Closed-Lid Support…", action: #selector(approveClosedLid),
+                                          keyEquivalent: "")
+                approval.target = self
+                menu.addItem(approval)
+            }
+            return menu
+        }
+
+        private func showDurationMenu(with event: NSEvent) {
+            cancelPress()
+            guard let menu = menu(for: event) else { return }
+            // Native menu tracking already participates in the panel's auxiliary retention.
+            NSMenu.popUpContextMenu(menu, with: event, for: self)
+        }
+
+        @objc private func selectDuration(_ item: NSMenuItem) {
+            guard let input, input.isEnabled, let duration = CaffeineDuration(rawValue: item.tag) else { return }
+            input.durationAction?(duration)
+        }
+
+        @objc private func approveClosedLid() { input?.closedLidApproval?() }
         override func mouseDragged(with event: NSEvent) {
             // Native-style hysteresis tolerates ordinary trackpad/mouse movement.
             if !containsPress(event) { cancelPress() }
