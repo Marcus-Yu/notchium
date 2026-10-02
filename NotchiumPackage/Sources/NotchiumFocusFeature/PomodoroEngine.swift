@@ -70,7 +70,8 @@ public struct PomodoroState: Codable, Equatable, Sendable {
     public var run: Run = .ready
     /// Focus sessions already taken in this cycle (completed or skipped), 0…sessionsPerCycle.
     public var cyclePosition = 0
-    /// The phase's full length, fixed when it started so a settings change never warps it.
+    /// The phase's full length, set by a ready-phase extension or when it starts. Once set,
+    /// settings changes never warp it; zero uses the configured duration.
     public var phaseDuration: TimeInterval = 0
     public var session: OpenSession?
 
@@ -106,11 +107,18 @@ public enum PomodoroEngine {
 
     public static func start(_ state: inout PomodoroState, configuration: PomodoroConfiguration, at now: Date) {
         guard state.run == .ready else { return }
-        state.phaseDuration = configuration.duration(of: state.phase)
+        if state.phaseDuration <= 0 { state.phaseDuration = configuration.duration(of: state.phase) }
         state.run = .running(endsAt: now.addingTimeInterval(state.phaseDuration))
         if state.phase == .focus {
             state.session = .init(id: UUID(), start: now, segmentStart: now)
         }
+    }
+
+    /// Extends only an upcoming phase, without starting it or changing the saved defaults.
+    public static func addFiveMinutes(_ state: inout PomodoroState, configuration: PomodoroConfiguration) {
+        guard state.run == .ready else { return }
+        let duration = state.phaseDuration > 0 ? state.phaseDuration : configuration.duration(of: state.phase)
+        state.phaseDuration = duration + 5 * 60
     }
 
     public static func pause(_ state: inout PomodoroState, at now: Date) {
@@ -125,9 +133,8 @@ public enum PomodoroEngine {
         if state.phase == .focus { state.session?.segmentStart = now }
     }
 
-    /// Completes every deadline that has passed by `now`, in order. A completed Focus session
-    /// starts its break at the exact deadline; a finished break leaves the next Focus ready,
-    /// so time away from the Mac is never recorded as focus.
+    /// Completes a deadline that has passed by `now`. Every next phase stays ready until
+    /// explicitly started, including when catching up after sleep or relaunch.
     public static func advance(_ state: inout PomodoroState, configuration: PomodoroConfiguration,
                                to now: Date) -> [PomodoroEvent] {
         var events: [PomodoroEvent] = []
@@ -138,8 +145,8 @@ public enum PomodoroEngine {
                 state.cyclePosition += 1
                 let next: PomodoroPhase = state.cyclePosition >= configuration.sessionsPerCycle ? .longBreak : .shortBreak
                 state.phase = next
-                state.phaseDuration = configuration.duration(of: next)
-                state.run = .running(endsAt: endsAt.addingTimeInterval(state.phaseDuration))
+                state.phaseDuration = 0
+                state.run = .ready
                 if let record { events.append(.focusCompleted(record, next: next)) }
             } else {
                 let finished = state.phase
@@ -150,18 +157,18 @@ public enum PomodoroEngine {
         return events
     }
 
-    /// Focus → its break (running); a break → the next Focus, ready.
+    /// Focus → its break; a break → the next Focus. The next phase is always ready.
     public static func skip(_ state: inout PomodoroState, configuration: PomodoroConfiguration,
                             at now: Date) -> [PomodoroEvent] {
-        guard state.run != .ready else { return [] }
         if state.phase == .focus {
+            guard state.run != .ready else { return [] }
             closeSegment(&state, at: now)
             let record = closeSession(&state, at: now, completed: false)
             state.cyclePosition += 1
             let next: PomodoroPhase = state.cyclePosition >= configuration.sessionsPerCycle ? .longBreak : .shortBreak
             state.phase = next
-            state.phaseDuration = configuration.duration(of: next)
-            state.run = .running(endsAt: now.addingTimeInterval(state.phaseDuration))
+            state.phaseDuration = 0
+            state.run = .ready
             return [.focusInterrupted(record)]
         }
         finishBreak(&state)
@@ -182,7 +189,7 @@ public enum PomodoroEngine {
     /// Remaining time of the current phase.
     public static func remaining(_ state: PomodoroState, configuration: PomodoroConfiguration, at now: Date) -> TimeInterval {
         switch state.run {
-        case .ready: configuration.duration(of: state.phase)
+        case .ready: state.phaseDuration > 0 ? state.phaseDuration : configuration.duration(of: state.phase)
         case let .running(endsAt): max(0, endsAt.timeIntervalSince(now))
         case let .paused(remaining): remaining
         }
