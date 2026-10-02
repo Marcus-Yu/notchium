@@ -2,6 +2,7 @@ import SwiftUI
 import Observation
 import NotchiumDynamicIsland
 import NotchiumPersistence
+import NotchiumCore
 
 @MainActor @Observable public final class QuickActionsModel: NotchQuickActionsRendering {
     public var requestedEditID: UUID?
@@ -11,7 +12,8 @@ import NotchiumPersistence
     public init(store: QuickActionStore, runner: QuickActionRunner, reminder: QuickReminderModel) {
         self.store = store; self.runner = runner; self.reminder = reminder
     }
-    public var showsHomeActions: Bool { store.showOnHome && !store.pinned.isEmpty }
+    public var showsHomeActions: Bool { store.configuration.showsShortcutRegion }
+    public var homeSections: [HomeSectionID] { store.configuration.primarySections }
     public func reminderButton() -> AnyView { AnyView(QuickReminderButton(model: reminder)) }
     public func homeActions() -> AnyView { AnyView(HomeQuickActionsView(model: self)) }
 }
