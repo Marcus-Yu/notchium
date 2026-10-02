@@ -3,11 +3,12 @@ import Synchronization
 import NotchiumCore
 
 public enum QuickActionFailure: LocalizedError, Equatable {
-    case unavailable, invalidURL, shortcutMissing, shortcutFailed, discoveryFailed, disabled
+    case unavailable, invalidURL, shortcutMissing, shortcutFailed, discoveryFailed, disabled, accessDenied
     public var errorDescription: String? {
         switch self {
         case .unavailable: "This item is unavailable. Edit the action to select it again."
-        case .invalidURL: "Enter a valid http or https website address."
+        case .invalidURL: "Enter a valid web address or app link."
+        case .accessDenied: "Access was denied. Edit the shortcut and choose the item again."
         case .shortcutMissing: "This shortcut is missing or ambiguous. Refresh and select it again."
         case .shortcutFailed: "The shortcut did not complete. Check it in Shortcuts and try again."
         case .discoveryFailed: "Couldn’t load shortcuts. Open Shortcuts, then refresh."
