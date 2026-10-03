@@ -226,7 +226,7 @@ The feasibility basis and distribution consequences for each row are defined in 
 
 ### 5.14 Focus and Pomodoro
 
-- Timers support work periods, breaks, pause/resume, skip, and completion notifications. Every next stage waits for the user to press Start or Start Break; stages never start automatically.
+- Timers support work periods, breaks, pause/resume, skip, and completion notifications. Natural completion leaves the next stage ready for user input; clicking Skip or Skip Break advances and immediately starts the next timer. Completion reveals a small downward banner with the next phase's ready controls (+ 5 mins / Start Focus, or + 5 mins / Start Break / Skip), without forcing the full notch open. Settings offers selectable local completion sounds with previews.
 - Time behavior is derived from a monotonic injected clock so sleep/wake and clock changes do not corrupt sessions.
 - Frontmost-application tracking is separately opt-in and records bundle identifier plus duration, not window titles or document names.
 - Browser-domain tracking is separately opt-in and requires a Safari extension or a Chromium-compatible Chrome/Edge/Arc extension.
