@@ -36,7 +36,7 @@ extension PomodoroState {
         case .running:
             phase.isBreak ? [.pause, .skipBreak] : [.pause]
         case .paused:
-            phase.isBreak ? [.resume, .startFocus] : [.resume, .takeBreak, .endFocus]
+            phase.isBreak ? [.resume, .startFocus] : [.takeBreak, .resume, .endFocus]
         }
     }
 }
