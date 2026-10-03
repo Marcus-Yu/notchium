@@ -67,7 +67,15 @@ struct FocusSettingsSection: View {
             Stepper("Long break every \(timer.configuration.sessionsPerCycle) focus session\(timer.configuration.sessionsPerCycle == 1 ? "" : "s")",
                     value: $timer.configuration.sessionsPerCycle, in: 1...8)
                 .accessibilityIdentifier("notchium.pomodoro.longBreakCadence")
-            Toggle("Play a sound when a phase ends", isOn: $timer.playsCompletionSound)
+            HStack {
+                Picker("Completion sound", selection: $timer.completionSound) {
+                    ForEach(PomodoroSound.allCases) { Text($0.title).tag($0) }
+                }
+                .accessibilityIdentifier("notchium.pomodoro.completionSound")
+                Button("Preview", systemImage: "speaker.wave.2", action: timer.previewCompletionSound)
+                    .disabled(timer.completionSound == .none)
+                    .accessibilityIdentifier("notchium.pomodoro.previewSound")
+            }
             Button("Restore Timer Defaults") { timer.configuration = .standard }
                 .disabled(timer.configuration == .standard)
         }
