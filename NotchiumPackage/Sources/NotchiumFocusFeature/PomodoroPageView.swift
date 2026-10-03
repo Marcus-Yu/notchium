@@ -84,7 +84,8 @@ private struct PomodoroTimerColumn: View {
                     face(countdown, accent: accent, at: .now)
                 }
             }
-            controls(state, accent: accent)
+            PomodoroControlsView(model: model,
+                                 centersPrimary: state.phase == .focus && state.controls.contains(.resume))
             cycleDots(state)
         }
         .animation(.smooth(duration: 0.3), value: state.phase)
@@ -123,26 +124,6 @@ private struct PomodoroTimerColumn: View {
             .frame(width: 176, height: 6)
             .accessibilityHidden(true)
         }
-    }
-
-    private func controls(_ state: PomodoroState, accent: Color) -> some View {
-        HStack(spacing: 8) {
-            ForEach(state.controls) { control in
-                let primary = control == state.controls.first(where: \.isPrimary)
-                Button { model.perform(control) } label: {
-                    Text(control.title)
-                        .font(.system(size: 11, weight: primary ? .bold : .semibold, design: .rounded))
-                        .foregroundStyle(primary ? .black.opacity(0.85) : .white.opacity(0.85))
-                        .padding(.horizontal, 10)
-                        .frame(height: 28)
-                        .background(primary ? accent : .white.opacity(0.10), in: .capsule)
-                        .contentShape(.capsule)
-                }
-                .buttonStyle(NotchUtilityButtonStyle())
-                .accessibilityIdentifier(primary ? "notchium.pomodoro.primary" : "notchium.pomodoro.\(control.rawValue)")
-            }
-        }
-        .animation(.smooth(duration: 0.2), value: state.controls)
     }
 
     /// One dot per configured session: taken sessions filled, the current one ringed.
