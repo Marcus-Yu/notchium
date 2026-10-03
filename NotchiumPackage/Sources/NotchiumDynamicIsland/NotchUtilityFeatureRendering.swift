@@ -4,7 +4,14 @@ import SwiftUI
 @MainActor public protocol NotchPomodoroRendering: AnyObject {
     var automaticOpenPageState: NotchPomodoroPageState { get }
     func expandedPomodoro() -> AnyView
+    func completionBanner(title: String, openTimer: @escaping @MainActor () -> Void) -> AnyView
     func setPageVisible(_ visible: Bool)
+}
+
+public extension NotchPomodoroRendering {
+    func completionBanner(title: String, openTimer: @escaping @MainActor () -> Void) -> AnyView {
+        AnyView(Button(title, action: openTimer).buttonStyle(.plain))
+    }
 }
 
 /// Content injection for Clipboard history, shown as the Shelf page's second section.
