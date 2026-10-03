@@ -73,8 +73,8 @@ final class ShelfFixPassTests: XCTestCase {
         XCTAssertFalse(Surface.revealsContent(expanded: false, notificationVisible: false, wasExpanded: true))
 
         // Geometry-driven handoff: hidden while the shell is still closing, revealed once it has
-        // landed at the compact height (no wait for the spring's removal callback). The Music
-        // path (no compact target) keeps its existing gate.
+        // landed at the compact height (no wait for the spring's removal callback).
+        // Music follows the same handoff, so restoring its row never waits through the tail.
         let passive = NotchShape(width: 200, height: 32, centerX: 300, topCornerRadius: 0, bottomCornerRadius: 8)
         func closing(height: CGFloat, compact: Bool) -> NotchSurfaceFrame<EmptyView> {
             NotchSurfaceFrame(shape: .init(width: 400, height: height, centerX: 300, bottomRadius: 12,
@@ -84,7 +84,8 @@ final class ShelfFixPassTests: XCTestCase {
         XCTAssertEqual(closing(height: 140, compact: true).contentPhase, .closingBlack, "No early flash")
         XCTAssertEqual(closing(height: 32.5, compact: true).contentPhase, .collapsed, "Revealed as it lands")
         XCTAssertEqual(closing(height: 31, compact: true).contentPhase, .collapsed, "Overshoot never flickers")
-        XCTAssertEqual(closing(height: 32, compact: false).contentPhase, .closingBlack, "Music gate unchanged")
+        XCTAssertEqual(closing(height: 140, compact: false).contentPhase, .closingBlack, "Music stays hidden until landing")
+        XCTAssertEqual(closing(height: 32, compact: false).contentPhase, .collapsed, "Music returns at landing")
     }
 
     // MARK: Real drop ingestion
