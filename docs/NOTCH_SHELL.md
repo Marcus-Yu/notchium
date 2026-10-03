@@ -35,13 +35,20 @@ Expansion reveals the shape's growing perimeter directly around the hardware foo
 - Both hover and click use one symmetric `interactiveSpring(response: 0.40, dampingFraction: 0.80, blendDuration: 0)` on shell geometry only. Pinning an already hovered shell does not start another morph.
 - Reduce Motion uses a native 0.12 s ease-out geometry transition, including explicit DEBUG overrides; media remains opaque.
 
-Injected clock tasks retain interaction/hover bookkeeping (400 ms nominal). They do not reveal content. The persistent SwiftUI `NotchTransitionSurface` owns a separate visual state machine: collapsed → openingBlack → expanded → closingBlack → collapsed. Every new geometry target hides content synchronously, before the shell begins moving. On opening, expanded content appears at 75% of the height expansion and is clipped to the current animated shell, at its full final size. Closing content stays hidden until SwiftUI's `.removed` animation completion, including the spring tail. Generation tokens reject completions from superseded targets; input remains enabled and reversal retargets the existing spring.
+Injected clock tasks retain interaction/hover bookkeeping (400 ms nominal). They do not reveal content. The persistent SwiftUI `NotchTransitionSurface` owns a separate visual state machine: collapsed → openingBlack → expanded → closingBlack → collapsed. Every new geometry target hides content synchronously, before the shell begins moving. On opening, expanded content appears at 75% of the height expansion and is clipped to the current animated shell, at its full final size. On closing, expanded content hides immediately; collapsed media, compact activities and secondary indicators return when the animated height reaches the collapsed target (within 0.75 pt). They do not wait for SwiftUI's `.removed` completion and its invisible spring tail. Width-only collapsed changes restore content immediately after retargeting. Generation tokens reject completions from superseded targets; input remains enabled and reversal retargets the existing spring.
 
 The black shape alone receives animated width, height, center, corner radius and auxiliary geometry. Expanded and collapsed content remain separately mounted at their intended dimensions, with no scale, positional retraction, matched geometry or fade. A binary visibility mask hides actual content; this is not a cover over an animated page. The content clip follows the interpolated shell geometry; the page layout itself stays fixed. Child animation transactions are suppressed while black, while normal open-page control animations remain available after settling. All pages share this gate, including utilities, reminders and compact HUD content. Root-host updates no longer inject animation transactions. The NSPanel frame remains stable.
 
 Content hide and reveal are immediate (0 ms); opening reveal is geometry-based rather than delayed until spring completion. Reduce Motion retains the black choreography with 0.12 s ease-out shell geometry. Services continue receiving target-state visibility changes, never per-frame animation progress.
 
 Motion reference: [current BoringNotch ContentView](https://github.com/TheBoredTeam/boring.notch/blob/main/boringNotch/ContentView.swift), inspected September 25, 2026. The reference uses a shared interactive spring (response 0.38, damping 0.8) and separate open/close springs (0.42/0.8 and 0.45/1.0). Notchium independently implements the requested symmetric 0.40/0.80 spring and black-only choreography. No GPL source was copied.
+
+The active surface and its content mask cannot shrink below the measured hardware
+footprint during spring undershoot. Shoulders and lower corners stay outside that
+footprint while media flanks retract, and zero-shoulder media uses the same continuous
+lower curves as expansion. Collapsed media, compact activities and notification rows
+use the measured hardware center, matching the silhouette and pointer geometry on
+asymmetric display snapshots. The passive hardware endpoint remains empty.
 
 ## Validation and acceptance
 
