@@ -41,20 +41,22 @@ final class NotchTransitionSurfaceTests: XCTestCase {
         }
     }
 
-    func testEverySampleIsBlackAcrossAllPageSizesAndBothDirections() throws {
+    func testClosingStaysBlackBeforeLandingAcrossAllPageSizes() throws {
         // Sample at 60 Hz over a 0.4 s nominal morph. This is a raster invariant
         // test, not a live 60 fps recording or a frame-pacing measurement.
         for size in [CGSize(width: 524, height: 266), CGSize(width: 560, height: 302)] {
             for reverse in [false, true] {
                 for frame in 0...24 {
                     let progress = CGFloat(reverse ? 24 - frame : frame) / 24
+                    // Landing now restores the collapsed row; its raster is checked separately.
+                    guard progress > 0 else { continue }
                     let shape = NotchShellSurface(
                         width: 292 + (size.width - 292) * progress,
                         height: 38 + (size.height - 38) * progress,
                         centerX: 300, bottomRadius: 8 + 20 * progress,
                         passiveShape: NotchShape(width: 212, height: 38, centerX: 300,
                                                  topCornerRadius: 0, bottomCornerRadius: 8))
-                    let image = try render(NotchSurfaceFrame(shape: shape, phase: .closingBlack, expandedHeight: size.height) { _ in
+                    let image = try render(NotchSurfaceFrame(shape: shape, phase: .closingBlack, expandedHeight: 38) { _ in
                         // Bright content covering the entire host catches any leak,
                         // regardless of which page, media or utility is mounted.
                         Rectangle().fill(.red)
@@ -120,6 +122,56 @@ final class NotchTransitionSurfaceTests: XCTestCase {
         XCTAssertEqual(hidden.width, 84)
         XCTAssertEqual(hidden.height, 84)
         XCTAssertTrue(pixels(hidden).allSatisfy { $0 == 0 })
+    }
+
+    func testCollapsedMusicReturnsAtLandingBeforeSpringCompletion() throws {
+        let passive = NotchShape(width: 180, height: 32, centerX: 200,
+                                 topCornerRadius: 0, bottomCornerRadius: 8)
+        for notificationVisible in [false, true] {
+            // Include the first landing and subsequent spring-tail samples. Music
+            // and compact activities must restore together without waiting for .removed.
+            for height: CGFloat in [140, 33, 32.75, 32, 29, 32.1] {
+                let surface = NotchSurfaceFrame(
+                    shape: .init(width: 260, height: height, centerX: 200,
+                                 bottomRadius: 8, passiveShape: passive),
+                    phase: .closingBlack, expandedHeight: 32,
+                    notificationVisible: notificationVisible) { phase in
+                        ZStack(alignment: .top) {
+                            Color.clear
+                            HStack {
+                                Color.red.frame(width: 24, height: 24)
+                                Spacer()
+                                Color.blue.frame(width: 24, height: 16)
+                            }
+                            .frame(width: 236, height: 32)
+                            .modifier(CollapsedMediaPresentation(visible: phase == .collapsed))
+                            Color.green.frame(width: 200, height: 100)
+                                .padding(.top, 50)
+                                .modifier(NotchPresentationClip(visible: phase == .expanded))
+                        }
+                        .frame(width: 400, height: 322)
+                    }
+                let landed = height <= 32.75
+                XCTAssertEqual(surface.contentPhase, landed ? .collapsed : .closingBlack)
+                let image = try render(surface)
+                let data = pixels(image)
+                XCTAssertEqual(data[(16 * image.width + 92) * 4], landed ? 255 : 0)
+                XCTAssertEqual(data[(16 * image.width + 307) * 4 + 2], landed ? 255 : 0)
+                XCTAssertEqual(data[(70 * image.width + 200) * 4 + 1], 0, "Expanded page never leaks")
+                var reversing = surface
+                reversing.hidesPendingTarget = true
+                XCTAssertEqual(reversing.contentPhase, .closingBlack, "A reversal hides the previous target immediately")
+            }
+        }
+    }
+
+    func testWidthOnlyRetargetDoesNotBlankTheCollapsedRow() {
+        let surface = NotchSurfaceFrame(
+            shape: .init(width: 280, height: 32, centerX: 200, bottomRadius: 8,
+                         passiveShape: .init(width: 180, height: 32, centerX: 200,
+                                             topCornerRadius: 0, bottomCornerRadius: 8)),
+            phase: .closingBlack, expandedHeight: 32) { _ in EmptyView() }
+        XCTAssertEqual(surface.contentPhase, .collapsed)
     }
 
     private func render(_ view: some View) throws -> CGImage {
