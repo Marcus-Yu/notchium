@@ -18,7 +18,8 @@ final class ExpandedTopSurfaceTests: XCTestCase {
         let path = shape.path(in: panel)
         XCTAssertEqual(path.boundingRect, CGRect(x: 95, y: 0, width: 450, height: 190))
         for x in stride(from: 95.5, through: 544.5, by: 1) {
-            for y in stride(from: 0.5, through: 161.5, by: 1) {
+            // Zero-shoulder media now shares the shell's continuous lower curve.
+            for y in stride(from: 0.5, through: 190 - 28 * NotchShape.lowerCornerExtentMultiplier - 0.5, by: 1) {
                 XCTAssertTrue(path.contains(CGPoint(x: x, y: y)))
             }
         }
