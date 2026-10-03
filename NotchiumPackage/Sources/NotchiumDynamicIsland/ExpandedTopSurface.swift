@@ -1,29 +1,5 @@
 import SwiftUI
 
-struct ExpandedTopSurface: Shape {
-    var bottomRadius: CGFloat = 28
-
-    func path(in rect: CGRect) -> Path {
-        let r = min(bottomRadius, rect.width / 2, rect.height / 2)
-
-        var path = Path()
-        path.move(to: CGPoint(x: 0, y: 0))
-        path.addLine(to: CGPoint(x: rect.width, y: 0))
-        path.addLine(to: CGPoint(x: rect.width, y: rect.height - r))
-        path.addQuadCurve(
-            to: CGPoint(x: rect.width - r, y: rect.height),
-            control: CGPoint(x: rect.width, y: rect.height)
-        )
-        path.addLine(to: CGPoint(x: r, y: rect.height))
-        path.addQuadCurve(
-            to: CGPoint(x: 0, y: rect.height - r),
-            control: CGPoint(x: 0, y: rect.height)
-        )
-        path.closeSubpath()
-        return path
-    }
-}
-
 /// Keeps native geometry interpolation alive when returning to the empty
 /// passive endpoint. Expanded paths never subtract the hardware footprint.
 struct NotchShellSurface: Shape {
@@ -65,21 +41,31 @@ struct NotchShellSurface: Shape {
         let surfaceWidth = width + max(0, reminderWidth - width) * reveal.width
         let totalHeight = height + max(0, reminderHeight) * reveal.height
         let isExpanded = reminderHeight * reveal.height > 0 || surfaceWidth > passiveShape.width || totalHeight > passiveShape.height
-        if isExpanded {
-            if shoulderRadius > 0 {
-                // Soft concave shoulders meet the screen edge; broad lower curves
-                // form the same black object, with no separate banner outline.
-                return NotchShape(width: surfaceWidth, height: totalHeight, centerX: centerX,
-                                  topCornerRadius: shoulderRadius,
-                                  bottomCornerRadius: bottomRadius,
-                                  extensionHeight: extensionHeight,
-                                  extensionWidth: NotchExpandedMinorGeometry.width).path(in: rect)
-            }
-            return ExpandedTopSurface(bottomRadius: max(0, bottomRadius))
-                .path(in: CGRect(x: 0, y: 0, width: surfaceWidth, height: totalHeight))
-                .applying(CGAffineTransform(translationX: centerX - surfaceWidth / 2, y: rect.minY))
-        } else {
-            return passiveShape.path(in: rect)
+        guard isExpanded else { return passiveShape.path(in: rect) }
+
+        var resolvedWidth = surfaceWidth
+        var resolvedHeight = totalHeight
+        var resolvedShoulder = max(0, shoulderRadius)
+        var resolvedBottom = max(0, bottomRadius)
+        if let hardware = passiveShape.hardwareExclusion {
+            // An underdamped close can travel above the hardware's bottom edge.
+            // Constrain the drawn geometry, shared by the fill and content mask,
+            // while leaving the live spring free to reverse and settle naturally.
+            resolvedWidth = max(resolvedWidth, hardware.width + 2 * abs(centerX - hardware.midX))
+            resolvedHeight = max(resolvedHeight, hardware.maxY - rect.minY)
+            let flank = max(0, min(hardware.minX - (centerX - resolvedWidth / 2),
+                                   centerX + resolvedWidth / 2 - hardware.maxX))
+            // Keep both the concave shoulder and the continuous lower corner
+            // outside the hardware, even as media's flanks retract to zero.
+            resolvedShoulder = min(resolvedShoulder, flank)
+            resolvedBottom = min(resolvedBottom, (flank - resolvedShoulder) / NotchShape.lowerCornerExtentMultiplier)
         }
+        // Use the same curve topology at zero shoulder radius. Switching to a
+        // quadratic rounded rectangle at that endpoint made media corners pop.
+        return NotchShape(width: resolvedWidth, height: resolvedHeight, centerX: centerX,
+                          topCornerRadius: resolvedShoulder,
+                          bottomCornerRadius: resolvedBottom,
+                          extensionHeight: extensionHeight,
+                          extensionWidth: NotchExpandedMinorGeometry.width).path(in: rect)
     }
 }
