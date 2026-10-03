@@ -39,8 +39,12 @@ public final class PomodoroModel {
             publishActivity()
         }
     }
-    public var playsCompletionSound: Bool {
-        didSet { preferences.set(playsCompletionSound, forKey: Keys.sound) }
+    public var completionSound: PomodoroSound {
+        didSet {
+            guard completionSound != oldValue else { return }
+            preferences.set(completionSound.rawValue, forKey: Keys.selectedSound)
+            soundPlayer.stop()
+        }
     }
     public private(set) var isPageVisible = false
     /// A paused timer leaves the collapsed notch after the shared paused-content interval.
@@ -55,6 +59,7 @@ public final class PomodoroModel {
     @ObservationIgnored private let notifications: NotificationCoordinator
     @ObservationIgnored private let clock: any AppClock
     @ObservationIgnored private let preferences: UserDefaults
+    @ObservationIgnored private let soundPlayer: any PomodoroSoundPlaying
     @ObservationIgnored let calendar: Calendar
     @ObservationIgnored private let currentDate: () -> Date
     @ObservationIgnored private let monotonicNow: () -> ContinuousClock.Instant
@@ -74,16 +79,19 @@ public final class PomodoroModel {
         static let configuration = "notchium.pomodoro.configuration.v1"
         static let collapsed = "notchium.pomodoro.collapsed.v1"
         static let sound = "notchium.pomodoro.sound.v1"
+        static let selectedSound = "notchium.pomodoro.selectedSound.v1"
     }
 
     public init(store: any PomodoroPersisting, notifications: NotificationCoordinator, clock: any AppClock,
                 preferences: UserDefaults = .standard, calendar: Calendar = .current,
                 now: @escaping () -> Date = Date.init,
-                monotonicNow: @escaping () -> ContinuousClock.Instant = { ContinuousClock().now }) {
+                monotonicNow: @escaping () -> ContinuousClock.Instant = { ContinuousClock().now },
+                soundPlayer: any PomodoroSoundPlaying = SystemPomodoroSoundPlayer()) {
         self.store = store
         self.notifications = notifications
         self.clock = clock
         self.preferences = preferences
+        self.soundPlayer = soundPlayer
         self.calendar = calendar
         currentDate = now
         self.monotonicNow = monotonicNow
@@ -93,7 +101,8 @@ public final class PomodoroModel {
         configuration = preferences.data(forKey: Keys.configuration)
             .flatMap { try? JSONDecoder().decode(PomodoroConfiguration.self, from: $0) } ?? .standard
         collapsedPreference = preferences.string(forKey: Keys.collapsed).flatMap(CollapsedTimerPreference.init) ?? .timer
-        playsCompletionSound = preferences.bool(forKey: Keys.sound)
+        completionSound = preferences.string(forKey: Keys.selectedSound).flatMap(PomodoroSound.init(rawValue:))
+            ?? (preferences.bool(forKey: Keys.sound) ? .glass : .none)
         // Paused before relaunch: long past the grace period.
         if case .paused = state.run { hidesPausedTimer = true }
     }
@@ -121,6 +130,8 @@ public final class PomodoroModel {
         observers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0); NotificationCenter.default.removeObserver($0) }
         observers.removeAll()
         notifications.dismiss(coalescingKey: Self.activityKey)
+        dismissCompletion()
+        soundPlayer.stop()
     }
 
     // MARK: Controls
@@ -128,8 +139,28 @@ public final class PomodoroModel {
     public func startTimer() { apply { PomodoroEngine.start(&$0, configuration: configuration, at: $1); return [] } }
     public func pause() { apply { PomodoroEngine.pause(&$0, at: $1); return [] } }
     public func resume() { apply { PomodoroEngine.resume(&$0, at: $1); return [] } }
-    public func skip() { apply { PomodoroEngine.skip(&$0, configuration: configuration, at: $1) } }
-    public func end() { apply { PomodoroEngine.end(&$0, at: $1) } }
+    public func skip() {
+        guard state.isActive || state.phase.isBreak else { return }
+        let phaseToSkip = state.phase
+        apply { next, now in
+            // Catch-up may have already completed the phase the user clicked Skip on.
+            let events = next.phase == phaseToSkip
+                ? PomodoroEngine.skip(&next, configuration: configuration, at: now) : []
+            PomodoroEngine.start(&next, configuration: configuration, at: now)
+            return events
+        }
+    }
+    public func end() {
+        dismissCompletion()
+        apply { PomodoroEngine.end(&$0, at: $1) }
+    }
+
+    public func previewCompletionSound() {
+        guard completionSound != .none else { return }
+        soundPlayer.play(completionSound)
+    }
+
+    public func dismissCompletion() { notifications.dismiss(coalescingKey: Self.resultKey) }
 
     func perform(_ control: PomodoroControl) {
         guard state.controls.contains(control) else { return }
@@ -148,7 +179,9 @@ public final class PomodoroModel {
         case .startBreak: startTimer()
         case .pause: pause()
         case .resume: resume()
-        case .skip, .skipBreak, .takeBreak: skip()
+        case .skip, .skipBreak: skip()
+        case .takeBreak:
+            apply { PomodoroEngine.skip(&$0, configuration: configuration, at: $1) }
         case .endFocus: end()
         }
     }
@@ -209,6 +242,7 @@ public final class PomodoroModel {
         if case .paused = next.run {
             if case .running = state.run { pauseInstant = monotonicNow() }
         } else { pauseInstant = nil }
+        if next.phase != state.phase || next.run != state.run { dismissCompletion() }
         state = next
         for event in events {
             switch event {
@@ -283,25 +317,24 @@ public final class PomodoroModel {
     }
 
     private func announce(_ event: PomodoroEvent?, now: Date) {
-        let title: String, status: String, at: Date
+        // A completion consumed by a start/skip click no longer needs ready-stage controls.
+        guard state.run == .ready else { return }
+        let title: String, at: Date
         switch event {
-        case let .focusCompleted(record, next)?:
+        case let .focusCompleted(record, _)?:
             title = "Focus Complete"
-            status = "\(next.title) · \(NotchCountdown.label(configuration.duration(of: next)))"
             at = record.end
         case let .breakCompleted(phase, time)?:
             title = phase == .longBreak ? "Cycle Complete" : "Break Over"
-            status = "Ready"
             at = time
         default: return
         }
         // Caught-up completions (after sleep or relaunch) only update history.
         guard now.timeIntervalSince(at) < Self.staleCompletion else { return }
         notifications.present(NotchNotification(
-            kind: .focusTimerComplete, coalescingKey: Self.resultKey, action: .pomodoro, presentationStyle: .compact,
-            content: .compact(.init(glyph: .symbol("checkmark.circle.fill"), title: title,
-                                    trailing: .text(status), tint: .primary))))
-        if playsCompletionSound { NSSound(named: "Glass")?.play() }
+            kind: .focusTimerComplete, coalescingKey: Self.resultKey, action: .pomodoro,
+            presentationStyle: .pomodoroCompletion, content: .pomodoroCompletion(title: title)))
+        if completionSound != .none { soundPlayer.play(completionSound) }
     }
 }
 
@@ -316,4 +349,8 @@ extension PomodoroModel: NotchPomodoroRendering {
     }
 
     public func expandedPomodoro() -> AnyView { AnyView(PomodoroPageView(model: self)) }
+
+    public func completionBanner(title: String, openTimer: @escaping @MainActor () -> Void) -> AnyView {
+        AnyView(PomodoroCompletionView(model: self, title: title, openTimer: openTimer))
+    }
 }
