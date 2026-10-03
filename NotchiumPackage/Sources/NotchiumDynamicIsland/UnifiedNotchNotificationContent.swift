@@ -20,6 +20,8 @@ struct UnifiedNotchNotificationContent: View {
                             .lineLimit(2).padding(.horizontal, NotchNotificationGeometry.contentLeadingInset)
                     case .calendar:
                         model.calendarRenderer?.reminderBanner(action: model.activateCurrentActivity)
+                    case let .pomodoroCompletion(title):
+                        model.pomodoroRenderer?.completionBanner(title: title, openTimer: model.activateCurrentActivity)
                     case .audio, .compact:
                         EmptyView()
                     }
