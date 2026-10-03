@@ -31,16 +31,17 @@ public struct NotchNotification: Identifiable, Equatable, Sendable {
             case .shelfAdded: .milliseconds(1750)
             // Persistent while the timer runs, like an active transfer.
             case .focusTimer, .focusTimerBesideMusic: .seconds(0)
-            case .focusTimerComplete: .seconds(3)
+            case .focusTimerComplete: .seconds(20)
             case .focusModeChanged: .seconds(2)
             }
         }
     }
     /// `.compact` occupies the notch's two sides at collapsed height; the others grow downward.
-    public enum PresentationStyle: Equatable, Sendable { case calendar, feedback, compact }
+    public enum PresentationStyle: Equatable, Sendable { case calendar, pomodoroCompletion, feedback, compact }
     public enum Action: Equatable, Sendable { case calendar, audio, shelf, pomodoro, join(URL), none }
     public enum Content: Equatable, Sendable {
         case calendar(title: String, status: String)
+        case pomodoroCompletion(title: String)
         case audio(NotchAudioHUD)
         case feedback(title: String, symbol: String)
         case compact(NotchCompactActivity)
@@ -50,7 +51,7 @@ public struct NotchNotification: Identifiable, Equatable, Sendable {
             switch self {
             case let .audio(hud): NotchCompactActivity(hud)
             case let .compact(activity): activity
-            case .calendar, .feedback: nil
+            case .calendar, .pomodoroCompletion, .feedback: nil
             }
         }
     }
@@ -127,6 +128,8 @@ public struct NotchNotification: Identifiable, Equatable, Sendable {
         switch content {
         case let .calendar(eventTitle, status):
             title = eventTitle; subtitle = status; payload = .none
+        case let .pomodoroCompletion(message):
+            title = message; subtitle = nil; payload = .none
         case let .feedback(message, _):
             title = message; subtitle = nil; payload = .none
         case let .audio(hud):
@@ -156,7 +159,7 @@ public struct NotchNotification: Identifiable, Equatable, Sendable {
         }
         return NotchActivity(id: id, key: NotchActivityKey(coalescingKey), kind: activityKind,
             title: title, subtitle: subtitle, priority: priority,
-            presentationStyle: presentationStyle == .calendar ? .downwardBanner : .compactHUD,
+            presentationStyle: [.calendar, .pomodoroCompletion].contains(presentationStyle) ? .downwardBanner : .compactHUD,
             lifetime: lifetime, isDismissible: dismissible,
             destination: destination, usesDefaultDestination: false,
             duration: lifetime.isBaseline ? nil : duration, payload: payload, minimal: minimal)
