@@ -216,8 +216,10 @@ final class Stage19PomodoroTests: XCTestCase {
         timer.refresh()
         let result = timer.activities.notifications.active
         XCTAssertEqual(result?.kind, .focusTimerComplete)
-        XCTAssertEqual(result?.content.compactActivity?.title, "Focus Complete")
-        XCTAssertEqual(result?.content.compactActivity?.trailing, .text("Break · 05:00"))
+        XCTAssertEqual(result?.content, .pomodoroCompletion(title: "Focus Complete"))
+        XCTAssertEqual(result?.presentationStyle, .pomodoroCompletion)
+        XCTAssertEqual(result?.lifetime, .transient)
+        XCTAssertEqual(result?.duration, .seconds(20))
         let live = timer.activities.liveActivities.first { $0.key == NotchActivityKey(PomodoroModel.activityKey) }
         XCTAssertNil(live, "A ready break has no running countdown activity")
         XCTAssertEqual(timer.state.run, .ready)
