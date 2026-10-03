@@ -163,10 +163,10 @@ nonisolated struct NotchSurfaceFrame<Content: View>: View, Animatable {
     var contentPhase: NotchVisualTransition.Phase {
         guard !hidesPendingTarget else { return .closingBlack }
         if notificationVisible && keepsNotificationContent { return .collapsed }
-        // Closing onto a compact activity (a transfer): reveal once the shell has landed at its
-        // target height, read from the interpolated geometry, instead of waiting for the spring's
-        // removal callback. At or below the target, so overshoot never flickers it back.
-        if phase == .closingBlack, notificationVisible, shape.height <= expandedHeight + 0.75 { return .collapsed }
+        // Restore every collapsed row (Music, compact activities and secondary indicators)
+        // as the shell lands, rather than waiting for the spring's invisible removal tail.
+        // Width-only changes are already at that height and need no black-content pause.
+        if phase == .closingBlack, shape.height <= expandedHeight + 0.75 { return .collapsed }
         if notificationVisible && phase == .expanded { return .collapsed }
         if phase == .openingBlack {
             let collapsedHeight = shape.passiveShape.height
