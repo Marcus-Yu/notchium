@@ -407,7 +407,10 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         let zone = model.surfaceState == .collapsed
             ? currentLayout.collapsedHoverFrame
             : currentLayout.visibleSurfaceFrame
-        model.setHovered(NotchHoverRegion.contains(point, in: zone) || insideNotification)
+        // Completion buttons remain reachable in the small banner. Only hovering the normal
+        // notch activation area opens the full shell; the banner body owns its own interaction.
+        let keepsCompletionCompact = model.presentedNotification?.presentationStyle == .pomodoroCompletion
+        model.setHovered(NotchHoverRegion.contains(point, in: zone) || (insideNotification && !keepsCompletionCompact))
     }
 
     private func notificationFrame(for layout: NotchPanelLayout) -> CGRect? {
