@@ -3,6 +3,7 @@ import SwiftUI
 /// Shared dimensions for drawing and pointer retention; neither depends on content updates.
 public enum NotchNotificationGeometry {
     static let calendarHeight: CGFloat = 88
+    public static let pomodoroCompletionHeight: CGFloat = 104
     static let audioHeight: CGFloat = 56
     static let lowerRadius: CGFloat = 34
     static let shoulderRadius: CGFloat = 12
@@ -15,6 +16,7 @@ public enum NotchNotificationGeometry {
     static func contentHeight(for style: NotchNotification.PresentationStyle) -> CGFloat {
         switch style {
         case .calendar: calendarHeight
+        case .pomodoroCompletion: pomodoroCompletionHeight
         case .compact: 0
         case .feedback: audioHeight
         }
@@ -27,7 +29,7 @@ public enum NotchNotificationGeometry {
         }
         let mediaWidth = CollapsedMediaGeometry(hardwareWidth: layout.hardwareNotchGeometry?.frame.width ?? 0,
                                                hardwareHeight: layout.collapsedVisibleFrame.height).width
-        return CGSize(width: style == .calendar ? NotchReminderGeometry.width(for: layout) : max(292, mediaWidth, layout.collapsedVisibleFrame.width),
+        return CGSize(width: [.calendar, .pomodoroCompletion].contains(style) ? NotchReminderGeometry.width(for: layout) : max(292, mediaWidth, layout.collapsedVisibleFrame.width),
                height: layout.collapsedVisibleFrame.height + contentHeight(for: style))
     }
 
