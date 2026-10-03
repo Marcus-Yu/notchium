@@ -18,7 +18,7 @@ final class PomodoroControlTests: XCTestCase {
             XCTAssertEqual(state.controls.map(\.title), phase.isBreak ? ["Pause", "Skip Break"] : ["Pause"])
             state.run = .paused(remaining: 240)
             XCTAssertEqual(state.controls.map(\.title), phase.isBreak
-                ? ["Resume", "Start Focus"] : ["Resume", "Take Break", "End Focus"])
+                ? ["Resume", "Start Focus"] : ["Take Break", "Resume", "End Focus"])
         }
     }
 
@@ -82,6 +82,7 @@ final class PomodoroControlTests: XCTestCase {
         timer.perform(.skip)
         XCTAssertEqual(timer.state.phase, .focus)
         XCTAssertEqual(timer.state.cyclePosition, 1)
+        XCTAssertEqual(timer.state.run, .running(endsAt: date.addingTimeInterval(1800)))
     }
 
     func testPausedBreakStartFocusStartsANewFocusImmediately() {
@@ -98,6 +99,52 @@ final class PomodoroControlTests: XCTestCase {
             XCTAssertEqual(timer.state.session?.segmentStart, now)
             XCTAssertEqual(timer.state.cyclePosition, phase == .longBreak ? 0 : 1)
             XCTAssertTrue(timer.records.isEmpty)
+        }
+    }
+
+    func testSkipButtonsStartFocusImmediatelyAndPersistTheNewDeadline() {
+        for phase in [PomodoroPhase.shortBreak, .longBreak] {
+            for started in [false, true] {
+                var state = PomodoroState()
+                state.phase = phase
+                state.cyclePosition = phase == .longBreak ? 4 : 1
+                state.phaseDuration = 1200
+                if started { state.run = .running(endsAt: now.addingTimeInterval(1200)) }
+                let store = InMemoryPomodoroStore(PomodoroArchive(state: state))
+                let preferences = defaults()
+                let timer = makeModel(store: store, preferences: preferences, now: { self.now })
+                timer.configuration.focusMinutes = 20
+                let control: PomodoroControl = started ? .skipBreak : .skip
+                timer.perform(control)
+                XCTAssertEqual(timer.state.phase, .focus)
+                XCTAssertEqual(timer.state.run, .running(endsAt: now.addingTimeInterval(1200)))
+                XCTAssertEqual(timer.state.session?.segmentStart, now)
+                XCTAssertEqual(timer.state.cyclePosition, phase == .longBreak ? 0 : 1)
+                XCTAssertTrue(timer.records.isEmpty)
+                let running = timer.state
+                timer.perform(control)
+                XCTAssertEqual(timer.state, running, "A second click on the old control must not skip the new Focus")
+                let restored = makeModel(store: store, preferences: preferences, now: { self.now })
+                XCTAssertEqual(restored.state, running)
+            }
+        }
+    }
+
+    func testSkipAtAnExpiredBreakStartsFocusWithoutSkippingOrReannouncingIt() {
+        for phase in [PomodoroPhase.shortBreak, .longBreak] {
+            var state = PomodoroState()
+            state.phase = phase
+            state.cyclePosition = phase == .longBreak ? 4 : 1
+            state.phaseDuration = 300
+            state.run = .running(endsAt: now)
+            let clickTime = now.addingTimeInterval(1)
+            let timer = makeModel(store: InMemoryPomodoroStore(PomodoroArchive(state: state)), now: { clickTime })
+            timer.perform(.skipBreak)
+            XCTAssertEqual(timer.state.phase, .focus)
+            XCTAssertEqual(timer.state.run, .running(endsAt: clickTime.addingTimeInterval(1800)))
+            XCTAssertEqual(timer.state.session?.segmentStart, clickTime)
+            XCTAssertEqual(timer.state.cyclePosition, phase == .longBreak ? 0 : 1)
+            XCTAssertNotEqual(timer.notificationsForTesting.active?.coalescingKey, PomodoroModel.resultKey)
         }
     }
 
