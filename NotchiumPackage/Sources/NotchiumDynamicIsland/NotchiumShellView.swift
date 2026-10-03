@@ -195,6 +195,7 @@ private struct NotchShellOuterSurface: View {
                 }
                 .frame(width: compact ? compactGeometry.width : (surfaced ? notificationWidth : mediaGeometry.width),
                        alignment: .top)
+                .offset(x: layout.collapsedVisibleFrame.midX - layout.panelFrame.midX)
                 .zIndex(3)
 
                 NotchSecondaryActivityChip(model: model, layout: layout)
