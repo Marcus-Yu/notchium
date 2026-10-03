@@ -6,6 +6,7 @@ import SwiftUI
 /// inside the fixed host panel. The shape therefore grows downward and outward
 /// without moving its top edge or swapping to a second rounded-rectangle view.
 struct NotchShape: Shape {
+    static let lowerCornerExtentMultiplier: CGFloat = 1.18
     var width: CGFloat
     var height: CGFloat
     var centerX: CGFloat
@@ -82,7 +83,7 @@ struct NotchShape: Shape {
         )
         // Continuous lower corners: the curve starts a little earlier along each edge and
         // eases in, so the wall flows into the bottom without a visible tangent break.
-        let extent = min(bottomRadius * 1.18, (surface.width - 2 * topRadius) / 2, surface.height - topRadius)
+        let extent = min(bottomRadius * Self.lowerCornerExtentMultiplier, (surface.width - 2 * topRadius) / 2, surface.height - topRadius)
         let pull = extent * 0.6
         path.addLine(to: CGPoint(x: rightWall, y: surface.maxY - extent))
         path.addCurve(
