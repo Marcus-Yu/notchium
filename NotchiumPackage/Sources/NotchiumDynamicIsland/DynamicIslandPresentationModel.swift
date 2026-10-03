@@ -76,7 +76,7 @@ public final class DynamicIslandPresentationModel {
         guard surfaceState == .collapsed, fileDrag == .idle,
               let secondary = activityCoordinator.secondary else { return nil }
         if let notification = presentedNotification {
-            return notification.presentationStyle == .feedback ? nil : secondary
+            return [.feedback, .pomodoroCompletion].contains(notification.presentationStyle) ? nil : secondary
         }
         return showsCollapsedMedia ? secondary : nil
     }
