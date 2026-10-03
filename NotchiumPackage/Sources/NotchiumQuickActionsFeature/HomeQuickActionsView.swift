@@ -8,16 +8,23 @@ struct HomeQuickActionsView: View {
     let model: QuickActionsModel
 
     var body: some View {
-        ScrollView(.horizontal) {
-            LazyHStack(spacing: HomeDashboardStyle.shortcutGap) {
-                ForEach(model.store.pinned) { action in
-                    ShortcutTile(action: action, model: model)
-                        .frame(width: HomeDashboardStyle.shortcutWidth, height: HomeDashboardStyle.shortcutHeight)
+        let actions = model.store.pinned
+        GeometryReader { geometry in
+            let contentWidth = max(0, geometry.size.width - HomeDashboardStyle.focusInset * 2)
+            let gaps = HomeDashboardStyle.shortcutGap * CGFloat(max(0, actions.count - 1))
+            let tileWidth = max(HomeDashboardStyle.minimumShortcutWidth,
+                                (contentWidth - gaps) / CGFloat(max(1, actions.count)))
+            ScrollView(.horizontal) {
+                LazyHStack(spacing: HomeDashboardStyle.shortcutGap) {
+                    ForEach(actions) { action in
+                        ShortcutTile(action: action, model: model)
+                            .frame(width: tileWidth, height: HomeDashboardStyle.shortcutHeight)
+                    }
                 }
+                .padding(HomeDashboardStyle.focusInset)
             }
-            .padding(HomeDashboardStyle.focusInset)
+            .scrollIndicators(.hidden)
         }
-        .scrollIndicators(.hidden)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Shortcuts")
         .accessibilityIdentifier("notchium.home.shortcuts")
@@ -43,13 +50,14 @@ private struct ShortcutTile: View {
                     else if model.runner.succeeded.contains(action.id) { Image(systemName: "checkmark") }
                     else { QuickActionIcon(action: action, runner: model.runner) }
                 }.frame(width: 18, height: 18).accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .center, spacing: 2) {
                     Text(action.displayName).font(.system(size: 11, weight: .medium)).lineLimit(1)
                     if issue != nil { Text("Unavailable").font(.system(size: 9)).lineLimit(1) }
-                }.frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
             .foregroundStyle(.white.opacity(issue == nil ? 0.9 : 0.6))
-            .padding(.horizontal, 7).frame(minHeight: 34)
+            .padding(.horizontal, 7)
+            .frame(maxWidth: .infinity, minHeight: HomeDashboardStyle.shortcutHeight, alignment: .center)
             .background(.white.opacity(hovered ? 0.13 : 0.06), in: .rect(cornerRadius: 8))
             .overlay {
                 RoundedRectangle(cornerRadius: 8).strokeBorder(
