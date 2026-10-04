@@ -99,3 +99,7 @@ owns `createdAt`/`expiresAt` and one cancellable task per accepted update. Meani
 Audio updates coalesce with stable identity and refresh expiry; duplicate snapshots do
 not. Calendar reminders have discrete identities. No hover, drag, page selection or
 expand/collapse operation changes the deadline. The normal activation area always wins.
+
+### Restored activity visibility
+
+The shell observes `ActivityCoordinator.presentationDidResolve`, emitted once after all activity slots and the presentation mode are assigned. It no longer bridges individual `@Published` streams, which emit before assignment and could invalidate the shell with the previous visibility mode during launch. Running media and restored Pomodoro sessions render without requiring an open/close toggle. Activity ranking, persistence, and deadlines are unchanged.
