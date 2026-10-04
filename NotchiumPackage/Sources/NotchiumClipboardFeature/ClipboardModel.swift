@@ -37,12 +37,14 @@ public final class ClipboardModel {
     public private(set) var lastCopiedID: UUID?
     public var historyLimit: Int {
         didSet {
+            guard historyLimit != oldValue else { return }
             preferences.set(historyLimit, forKey: Keys.limit)
             enforceBounds(at: currentDate())
         }
     }
     public var retention: ClipboardRetention {
         didSet {
+            guard retention != oldValue else { return }
             preferences.set(retention.rawValue, forKey: Keys.retention)
             enforceBounds(at: currentDate())
         }
@@ -59,6 +61,8 @@ public final class ClipboardModel {
     @ObservationIgnored private let currentDate: () -> Date
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var copiedTask: Task<Void, Never>?
+    @ObservationIgnored private var persistedItems: [ClipboardItem] = []
+    @ObservationIgnored private var persistedImageIDs: Set<UUID>?
 
     private enum Keys {
         static let limit = "notchium.clipboard.limit.v1"
@@ -75,6 +79,7 @@ public final class ClipboardModel {
         historyLimit = Self.limitOptions.contains(limit) ? limit : 50
         retention = preferences.string(forKey: Keys.retention).flatMap(ClipboardRetention.init) ?? .month
         items = store.loadItems()
+        persistedItems = items
         enforceBounds(at: now())
     }
 
@@ -90,7 +95,12 @@ public final class ClipboardModel {
 
     public func stop() {
         task?.cancel(); task = nil
+        copiedTask?.cancel(); copiedTask = nil
+        lastCopiedID = nil
+        store.flush()
     }
+
+    isolated deinit { stop() }
 
     // MARK: History
 
@@ -113,18 +123,26 @@ public final class ClipboardModel {
     private func enforceBounds(at now: Date) {
         var unpinned = 0
         let cutoff = retention.maximumAge.map { now.addingTimeInterval(-$0) }
-        items = items.filter { item in
+        let bounded = items.filter { item in
             guard !item.isPinned else { return true }
             if let cutoff, item.capturedAt < cutoff { return false }
             unpinned += 1
             return unpinned <= historyLimit
         }
+        if items != bounded { items = bounded }
         persist()
     }
 
     private func persist() {
-        store.saveItems(items)
-        store.removeImages(except: Set(items.filter { $0.kind == .image }.map(\.id)))
+        if persistedItems != items {
+            store.saveItems(items)
+            persistedItems = items
+        }
+        let images = Set(items.filter { $0.kind == .image }.map(\.id))
+        if persistedImageIDs != images {
+            store.removeImages(except: images)
+            persistedImageIDs = images
+        }
     }
 
     // MARK: Actions
