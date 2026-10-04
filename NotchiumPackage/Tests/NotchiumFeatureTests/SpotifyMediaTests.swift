@@ -231,6 +231,23 @@ private actor EventPlaybackTransport: MediaHTTPTransport {
 }
 
 @MainActor final class SpotifyMediaTests: XCTestCase {
+    func testTransferReservesControlBeforeDeviceDiscoverySuspends() async throws {
+        let transport = Stage22HeldDevicesTransport(playback: playback())
+        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
+        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
+                                         transport: transport, clock: clock)
+        try await provider.connect()
+        await clock.waitForPendingSleeps()
+        let first = Task { try await provider.transferPlayback(to: "target") }
+        await transport.waitForHeldDevices()
+        do { try await provider.transferPlayback(to: "target"); XCTFail("Overlapping device transfer accepted") }
+        catch { XCTAssertEqual(error as? MediaFailure, .busy) }
+        await transport.releaseDevices()
+        try await first.value
+        let writes = await transport.transferWrites
+        XCTAssertEqual(writes, 1)
+        await provider.shutdown()
+    }
     private func authorizedStore() -> MemorySpotifyStore {
         .init(data: Data(#"{"clientID":"fixture","accessToken":"fixture-access","refreshToken":"fixture-refresh","expiration":9999999999}"#.utf8))
     }
@@ -1561,4 +1578,26 @@ private actor EventPlaybackTransport: MediaHTTPTransport {
 
 private extension Data {
     var formattedForTest: String { String(decoding: self, as: UTF8.self) }
+}
+
+private actor Stage22HeldDevicesTransport: MediaHTTPTransport {
+    let playback: Data
+    private var devices: CheckedContinuation<MediaHTTPResponse, Never>?
+    private var deviceReads = 0
+    private(set) var transferWrites = 0
+    init(playback: Data) { self.playback = playback }
+    func send(_ request: URLRequest) async -> MediaHTTPResponse {
+        if request.url?.path.hasSuffix("/devices") == true {
+            deviceReads += 1
+            if deviceReads == 1 { return await withCheckedContinuation { devices = $0 } }
+            return deviceResponse
+        }
+        if request.httpMethod == "PUT" { transferWrites += 1; return .init(status: 204) }
+        return .init(data: playback, status: 200)
+    }
+    private var deviceResponse: MediaHTTPResponse {
+        .init(data: Data(#"{"devices":[{"id":"target","name":"Target","type":"Computer","is_restricted":false}]}"#.utf8), status: 200)
+    }
+    func waitForHeldDevices() async { while devices == nil { await Task.yield() } }
+    func releaseDevices() { devices?.resume(returning: deviceResponse); devices = nil }
 }
