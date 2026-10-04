@@ -87,10 +87,23 @@ public final class RealClipboardService: ClipboardService {
     private var continuations: [UUID: AsyncStream<ClipboardCapture>.Continuation] = [:]
     private var timer: Timer?
     private var lastChangeCount: Int
+    private var imageTask: Task<Void, Never>?
+    private var generation = 0
+    private let processImage: @Sendable (Data) async -> ClipboardContent?
 
-    public init(pasteboard: NSPasteboard = .general) {
+    public convenience init(pasteboard: NSPasteboard = .general) {
+        self.init(pasteboard: pasteboard, processImage: ClipboardImageProcessing.process)
+    }
+
+    init(pasteboard: NSPasteboard, processImage: @escaping @Sendable (Data) async -> ClipboardContent?) {
         self.pasteboard = pasteboard
+        self.processImage = processImage
         lastChangeCount = pasteboard.changeCount
+    }
+
+    isolated deinit {
+        timer?.invalidate()
+        imageTask?.cancel()
     }
 
     public func availability() async -> FeatureAvailability { .available }
@@ -107,6 +120,7 @@ public final class RealClipboardService: ClipboardService {
     }
 
     public func write(_ content: ClipboardContent) async {
+        invalidateImage()
         pasteboard.clearContents()
         switch content {
         case let .text(text): pasteboard.setString(text, forType: .string)
@@ -123,6 +137,7 @@ public final class RealClipboardService: ClipboardService {
     private func remove(_ id: UUID) {
         continuations[id] = nil
         guard continuations.isEmpty else { return }
+        invalidateImage()
         timer?.invalidate()
         timer = nil
     }
@@ -138,9 +153,10 @@ public final class RealClipboardService: ClipboardService {
         self.timer = timer
     }
 
-    private func poll() {
+    func poll() {
         let count = pasteboard.changeCount
         guard count != lastChangeCount else { return }
+        invalidateImage()
         lastChangeCount = count
         guard count != ownChangeCount else { return }
         let types = pasteboard.types?.map(\.rawValue) ?? []
@@ -152,9 +168,13 @@ public final class RealClipboardService: ClipboardService {
             emit(.init(content: .files(urls), capturedAt: now))
         } else if let raw = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff) {
             // Decoding and downsampling happen off the main thread.
-            Task.detached(priority: .utility) { [weak self] in
-                guard let content = ClipboardImageProcessing.content(from: raw) else { return }
-                await self?.emit(.init(content: content, capturedAt: now))
+            let generation = generation
+            imageTask = Task(priority: .utility) { [weak self, processImage] in
+                let content = await processImage(raw)
+                guard let self, !Task.isCancelled, self.generation == generation,
+                      self.lastChangeCount == count, self.pasteboard.changeCount == count else { return }
+                self.imageTask = nil
+                if let content { self.emit(.init(content: content, capturedAt: now)) }
             }
         } else if let url = Self.webURL(from: pasteboard) {
             emit(.init(content: .url(url), capturedAt: now))
@@ -163,6 +183,12 @@ public final class RealClipboardService: ClipboardService {
                   text.count <= ClipboardPrivacyPolicy.maximumTextLength {
             emit(.init(content: .text(text), capturedAt: now))
         }
+    }
+
+    private func invalidateImage() {
+        generation &+= 1
+        imageTask?.cancel()
+        imageTask = nil
     }
 
     private func emit(_ capture: ClipboardCapture) {
@@ -184,6 +210,11 @@ public enum ClipboardImageProcessing {
     /// Long edge of the stored image that is copied back.
     public static let maximumPixelSize = 2048
     public static let thumbnailPixelSize = 96
+
+    @concurrent static func process(_ data: Data) async -> ClipboardContent? {
+        guard !Task.isCancelled else { return nil }
+        return content(from: data)
+    }
 
     public static func content(from data: Data) -> ClipboardContent? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
