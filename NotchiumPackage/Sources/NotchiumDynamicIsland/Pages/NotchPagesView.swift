@@ -23,6 +23,7 @@ struct NotchPagesView: View {
         VStack(spacing: 0) {
             navigation
                 .frame(height: ExpandedNotchLayout.navigationHeight)
+                .zIndex(1) // Keep utility hover labels above the page content.
 
             ZStack {
                 pages
