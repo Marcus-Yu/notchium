@@ -69,12 +69,19 @@ public protocol ClipboardStoring: AnyObject, Sendable {
     func saveImage(_ png: Data, id: UUID)
     func loadImage(id: UUID) -> Data?
     func removeImages(except ids: Set<UUID>)
+    /// Drain ordered writes before application teardown. In-memory stores need no barrier.
+    func flush()
 }
+
+public extension ClipboardStoring { func flush() {} }
 
 /// Application Support/Notchium/Clipboard: one JSON index plus one PNG per image. Local only.
 public final class FileClipboardStore: ClipboardStoring, @unchecked Sendable {
     private let directory: URL
-    private let lock = NSLock()
+    // All disk work and the image index are serialized here. Synchronous reads/barriers
+    // observe every preceding write; routine saves never encode or scan on MainActor.
+    private let queue = DispatchQueue(label: "notchium.clipboard.store", qos: .utility)
+    private var imageIDs: Set<UUID>?
 
     public init(directory: URL? = nil) {
         self.directory = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -85,14 +92,14 @@ public final class FileClipboardStore: ClipboardStoring, @unchecked Sendable {
     private func imageURL(_ id: UUID) -> URL { directory.appendingPathComponent("\(id.uuidString).png") }
 
     public func loadItems() -> [ClipboardItem] {
-        lock.withLock {
+        queue.sync {
             guard let data = try? Data(contentsOf: index) else { return [] }
             return (try? JSONDecoder().decode([ClipboardItem].self, from: data)) ?? []
         }
     }
 
     public func saveItems(_ items: [ClipboardItem]) {
-        lock.withLock {
+        queue.async { [self] in
             guard let data = try? JSONEncoder().encode(items) else { return }
             ensureDirectory()
             try? data.write(to: index, options: [.atomic])
@@ -100,25 +107,39 @@ public final class FileClipboardStore: ClipboardStoring, @unchecked Sendable {
     }
 
     public func saveImage(_ png: Data, id: UUID) {
-        lock.withLock {
+        queue.async { [self] in
             ensureDirectory()
             try? png.write(to: imageURL(id), options: [.atomic])
+            if imageIDs != nil { imageIDs?.insert(id) }
         }
     }
 
     public func loadImage(id: UUID) -> Data? {
-        lock.withLock { try? Data(contentsOf: imageURL(id)) }
+        queue.sync { try? Data(contentsOf: imageURL(id)) }
     }
 
     public func removeImages(except ids: Set<UUID>) {
-        lock.withLock {
-            let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
-            for file in files where file.pathExtension == "png" {
-                guard let id = UUID(uuidString: file.deletingPathExtension().lastPathComponent), !ids.contains(id) else { continue }
-                try? FileManager.default.removeItem(at: file)
+        queue.async { [self] in
+            if imageIDs == nil {
+                guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+                else { return }
+                imageIDs = Set(files.filter { $0.pathExtension == "png" }.compactMap {
+                    UUID(uuidString: $0.deletingPathExtension().lastPathComponent)
+                })
+            }
+            for id in imageIDs!.subtracting(ids) {
+                do {
+                    try FileManager.default.removeItem(at: imageURL(id))
+                    imageIDs?.remove(id)
+                } catch {
+                    // Missing files are already removed. Keep real failures for a later cleanup.
+                    if !FileManager.default.fileExists(atPath: imageURL(id).path) { imageIDs?.remove(id) }
+                }
             }
         }
     }
+
+    public func flush() { queue.sync {} }
 
     private func ensureDirectory() {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
