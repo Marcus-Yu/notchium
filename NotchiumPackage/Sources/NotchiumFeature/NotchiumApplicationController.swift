@@ -38,6 +38,7 @@ public final class NotchiumApplicationController {
     public let mockMediaProvider = MockMediaProvider()
 #endif
     @ObservationIgnored private var mediaConnectionTask: Task<Void, Never>?
+    @ObservationIgnored private var mediaShutdownTask: Task<Void, Never>?
     @ObservationIgnored private var batteryTask: Task<Void, Never>?
     public private(set) var isRunning = false
 
@@ -166,7 +167,12 @@ public final class NotchiumApplicationController {
         if environment.featureFlags[.media] {
             mediaModel.start()
             if let real = environment.services.media as? RealMediaProvider {
-                mediaConnectionTask = Task { try? await real.connect() }
+                let previous = mediaShutdownTask
+                mediaConnectionTask = Task {
+                    await previous?.value
+                    guard !Task.isCancelled else { return }
+                    try? await real.connect()
+                }
             }
         }
 
@@ -176,7 +182,8 @@ public final class NotchiumApplicationController {
 
     public func stop() {
         guard isRunning else { return }
-        mediaConnectionTask?.cancel(); mediaConnectionTask = nil
+        mediaConnectionTask?.cancel()
+        mediaConnectionTask = nil
         batteryTask?.cancel(); batteryTask = nil
         mediaModel.stop()
         calendarModel.stop()
@@ -189,7 +196,13 @@ public final class NotchiumApplicationController {
         pomodoroModel.stop()
         quickActions.runner.stop()
         if let real = environment.services.media as? RealMediaProvider {
-            Task { await real.shutdown() }
+            // A rapid start waits for this shutdown instead of letting an old teardown
+            // invalidate the replacement authenticated session.
+            let previous = mediaShutdownTask
+            mediaShutdownTask = Task {
+                await previous?.value
+                await real.shutdown()
+            }
         }
         displayCoordinator.stop()
         isRunning = false
