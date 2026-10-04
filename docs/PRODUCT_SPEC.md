@@ -172,7 +172,8 @@ The feasibility basis and distribution consequences for each row are defined in 
 - Two visible session-only states: off (neutral) and Mac plus display awake (orange).
 - An ordinary click enables indefinite keep-awake, or turns an active indefinite/timed session off. No hold is required.
 - Right-click or Control-click opens a native menu with 15 minutes, 30 minutes, 1 hour, and 2 hours. Choosing a duration starts or refreshes the session; the selected duration is checked.
-- The control is icon-only with a tooltip showing its expiry or any failure/approval guidance.
+- Active sessions show a solid orange coffee cup on the same neutral glass background as Reminder, Mirror, and Settings. The background stays mounted across mode changes; toggling only changes the cup colour, without glass morphing or movement. Indefinite sessions have no orange progress border; timed sessions add an orange border that fills clockwise from the top as time elapses (25 minutes left of 30 fills one-sixth).
+- The icon-only control shows a small label directly below the cup on hover with the remaining minutes and seconds for timed sessions, updated once per second. Other states show keep-awake or failure/approval guidance.
 - One cancelable deadline releases the assertion at timed expiry; disabling Caffeine or exiting also releases it. Sessions do not persist across relaunch.
 - The direct-download app requests the existing signed [closed-lid helper](LID_AWAKE.md) when Caffeine starts. First-time administrator approval is required, with a menu shortcut to approval settings. The helper keeps the Mac running when closed; the built-in panel still turns off. Existing battery, thermal, lease-expiry and crash-recovery safeguards apply.
 
