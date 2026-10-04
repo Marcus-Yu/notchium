@@ -7,6 +7,8 @@ public enum ShareOutcome: Equatable, Sendable {
     case presented
     /// No service can take these items (e.g. AirDrop off/unsupported, or nothing shareable).
     case unavailable
+    /// A native sharing presentation is already active; nothing new was started.
+    case inProgress
 }
 
 /// Native file actions. Sharing only ever presents Apple's own UI: AirDrop is the public
@@ -20,6 +22,8 @@ public enum ShareOutcome: Equatable, Sendable {
     func airDrop(_ urls: [URL], from view: NSView?, interaction: NotchAuxiliaryInteractionHandler) -> ShareOutcome
     func share(_ urls: [URL], from view: NSView, interaction: NotchAuxiliaryInteractionHandler) -> ShareOutcome
     func chooseFiles() async -> [URL]
+    /// A native Share/AirDrop presentation currently owns sharing.
+    var isSharing: Bool { get }
     /// Files & Folders privacy settings, for recovering denied folder access.
     func openPrivacySettings()
 }
@@ -31,6 +35,7 @@ extension FileActionPerforming {
     public func share(_ urls: [URL], from view: NSView, interaction: NotchAuxiliaryInteractionHandler) -> ShareOutcome {
         .unavailable
     }
+    public var isSharing: Bool { false }
 }
 
 @MainActor public final class NativeFileActions: FileActionPerforming {
@@ -75,6 +80,8 @@ extension FileActionPerforming {
     public func share(_ urls: [URL], from view: NSView, interaction: NotchAuxiliaryInteractionHandler) -> ShareOutcome {
         sharing.share(urls, from: view, interaction: interaction)
     }
+
+    public var isSharing: Bool { sharing.isActive }
 
     public func chooseFiles() async -> [URL] {
         let panel = NSOpenPanel()
