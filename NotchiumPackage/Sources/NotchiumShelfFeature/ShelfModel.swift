@@ -25,15 +25,26 @@ public final class ShelfModel {
     @ObservationIgnored private let service: any ShelfService
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var references: [UUID: Data] = [:]
-    @ObservationIgnored private var accessing: Set<UUID> = []
+    @ObservationIgnored private var accessing: [UUID: URL] = [:]
 
     public init(service: any ShelfService, now: @escaping () -> Date = Date.init) {
         self.service = service
         self.now = now
     }
 
+    isolated deinit { stopAccessingFiles() }
+
+    /// Release the exact URLs acquired, including bookmarks subsequently resolved to a
+    /// new path. A later restore reacquires only the surviving references.
+    func stopAccessingFiles() {
+        accessing.values.forEach(service.stopAccessing)
+        accessing.removeAll()
+    }
+
     /// Rebuilds from persisted references: expired, unresolvable or missing files are dropped.
     public func restore() {
+        stopAccessingFiles()
+        references.removeAll()
         let cutoff = now().addingTimeInterval(-Self.maximumAge)
         var restored: [Item] = []
         for record in service.loadRecords() where record.addedAt >= cutoff && restored.count < Self.capacity {
@@ -41,7 +52,7 @@ public final class ShelfModel {
                   !restored.contains(where: { Self.sameFile($0.url, resolved.url) }) else { continue }
             references[record.id] = resolved.isStale
                 ? service.reference(for: resolved.url) ?? record.reference : record.reference
-            if service.startAccessing(resolved.url) { accessing.insert(record.id) }
+            if service.startAccessing(resolved.url) { accessing[record.id] = resolved.url }
             restored.append(Item(id: record.id, url: resolved.url, addedAt: record.addedAt, isAvailable: true))
         }
         items = restored
@@ -70,7 +81,7 @@ public final class ShelfModel {
             guard service.fileExists(url), let reference = service.reference(for: url) else { continue }
             let item = Item(id: UUID(), url: url, addedAt: now(), isAvailable: true)
             references[item.id] = reference
-            if service.startAccessing(url) { accessing.insert(item.id) }
+            if service.startAccessing(url) { accessing[item.id] = url }
             items.insert(item, at: 0)
             accepted.append(url)
         }
@@ -116,7 +127,7 @@ public final class ShelfModel {
 
     private func release(_ item: Item) {
         references[item.id] = nil
-        if accessing.remove(item.id) != nil { service.stopAccessing(item.url) }
+        if let acquired = accessing.removeValue(forKey: item.id) { service.stopAccessing(acquired) }
     }
 
     private func persist() {
