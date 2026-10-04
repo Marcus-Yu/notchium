@@ -15,6 +15,8 @@ public final class CalendarActivityModel: NotchCalendarRendering {
     @ObservationIgnored private let openMeeting: @MainActor (URL) -> Void
     public let reminders: CalendarReminderCoordinator
     @ObservationIgnored private var observation: Task<Void, Never>?
+    @ObservationIgnored private var permissionTask: Task<Void, Never>?
+    @ObservationIgnored private var serviceStopTask: Task<Void, Never>?
 
     public init(service: any CalendarService, coordinator: ActivityCoordinator,
                 clock: any AppClock = ContinuousAppClock(),
@@ -48,7 +50,10 @@ public final class CalendarActivityModel: NotchCalendarRendering {
 
     public func start() {
         guard observation == nil else { return }
+        let previousStop = serviceStopTask
         observation = Task { [weak self, service] in
+            await previousStop?.value
+            guard !Task.isCancelled else { return }
             for await snapshot in await service.updates() {
                 guard !Task.isCancelled, let self else { return }
                 self.receive(snapshot)
@@ -56,13 +61,28 @@ public final class CalendarActivityModel: NotchCalendarRendering {
             }
         }
         // The first launch asks once. EventKit will not prompt again after a decision.
-        Task { [service] in await service.requestAccess() }
+        permissionTask = Task { [service] in
+            await previousStop?.value
+            guard !Task.isCancelled else { return }
+            await service.requestAccess()
+        }
     }
 
     public func stop() {
         observation?.cancel(); observation = nil
+        permissionTask?.cancel(); permissionTask = nil
         reminders.stop()
-        Task { [service] in await service.stop() }
+        let previousStop = serviceStopTask
+        serviceStopTask = Task { [service] in
+            await previousStop?.value
+            await service.stop()
+        }
+    }
+
+    isolated deinit {
+        observation?.cancel()
+        permissionTask?.cancel()
+        reminders.stop()
     }
 
     public func requestAccess() { Task { [service] in await service.requestAccess() } }
