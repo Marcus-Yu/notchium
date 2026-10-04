@@ -33,6 +33,42 @@ final class Stage15StabilizationTests: XCTestCase {
 
     // MARK: Multi-activity priority and continuity
 
+    func testRepeatedMixedInterruptionsPreserveBaselineIdentitiesAndPageOwnership() {
+        let presentation = DynamicIslandPresentationModel(clock: clock())
+        let activities = presentation.activityCoordinator
+        let files = FilesFeatureModel(transfers: MockFileTransferService(), screenshots: MockScreenshotService(),
+                                      shelf: MockShelfService(), actions: NoActions(), activities: activities,
+                                      now: { [base] in base })
+        defer { presentation.reset() }
+        activities.present(music())
+        files.transfers.receive(download(0.1))
+        activities.notifications.present(.init(kind: .focusTimer, coalescingKey: "pomodoro.running",
+            action: .none, presentationStyle: .compact,
+            content: .compact(.init(glyph: .symbol("timer"), title: "Focus", trailing: .text("25:00"))),
+            lifetime: .persistent))
+        let baseline = Dictionary(uniqueKeysWithValues: activities.liveActivities.map { ($0.key, $0.id) })
+        for cycle in 0..<100 {
+            presentation.present(.expanded, animated: false)
+            presentation.pageModel.selectedPage = .calendar
+            activities.reducesInterruptions = cycle.isMultiple(of: 2)
+            activities.notifications.present(.init(kind: .screenshot, coalescingKey: "screenshot", action: .shelf,
+                presentationStyle: .compact,
+                content: .compact(.init(glyph: .symbol("camera"), title: "Shot", trailing: .text("Saved")))))
+            activities.notifications.present(.audio(.init(kind: .volume, deviceName: "Speakers",
+                                                           volume: Double(cycle) / 100, isMuted: false)))
+            activities.notifications.present(reminder)
+            files.transfers.receive(download(Double(cycle + 1) / 101))
+            XCTAssertEqual(activities.primary?.kind, .calendar)
+            XCTAssertEqual(presentation.pageModel.selectedPage, .calendar)
+            for (key, id) in baseline {
+                XCTAssertEqual(activities.liveActivities.first { $0.key == key }?.id, id)
+            }
+            for key in ["calendar.e", "audio.level", "screenshot"] { activities.dismiss(key: .init(key)) }
+            XCTAssertEqual(Set(activities.liveActivities.map(\.key)), Set(baseline.keys))
+            presentation.present(.collapsed, animated: false)
+        }
+    }
+
     func testMusicDownloadCalendarSequenceKeepsTheRightPrimaryAndSecondary() async {
         let clock = clock()
         let presentation = DynamicIslandPresentationModel(clock: clock)
