@@ -48,6 +48,9 @@ public final class RealAudioProcessesService: AudioProcessesService {
     private var last: [AudioProducingProcess] = []
 
     public init() {}
+    isolated deinit {
+        if let observerID { stop(ifCurrent: observerID) }
+    }
 
     public func updates() async -> AsyncStream<[AudioProducingProcess]> {
         let token = UUID()
