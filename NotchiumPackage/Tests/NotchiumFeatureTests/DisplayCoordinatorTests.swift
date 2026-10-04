@@ -1,3 +1,4 @@
+import AppKit
 import NotchiumCore
 @testable import NotchiumDynamicIsland
 import XCTest
@@ -56,6 +57,22 @@ private final class MockPanelController: NotchPanelControlling {
 
 @MainActor
 final class DisplayCoordinatorTests: XCTestCase {
+    func testQueuedPresentationChangesCannotReshowASleepingPanelAndRestartRecovers() async {
+        let panel = MockPanelController()
+        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
+        let coordinator = makeCoordinator(source: MockDisplaySource(displays: [builtInDisplay()]), panel: panel, clock: clock)
+        coordinator.start()
+        defer { coordinator.stop() }
+        NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.screensDidSleepNotification, object: nil)
+        let before = panel.reconcileCount
+        coordinator.presentationModel.present(.expanded, animated: false)
+        await drainMainActorTasks()
+        XCTAssertEqual(panel.reconcileCount, before)
+        XCTAssertNil(panel.placement)
+        coordinator.stop()
+        coordinator.start()
+        XCTAssertNotNil(panel.placement, "A restart must not retain the old sleep flag")
+    }
     func testHomeShortcutChangesPreserveSharedShellAndPointerGeometryWhileOpen() async throws {
         let suite = "HomeGeometry.\(UUID())"
         let preferences = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -106,45 +123,39 @@ final class DisplayCoordinatorTests: XCTestCase {
         XCTAssertEqual(panel.layout, compact, "Removing the last shortcut preserves the shell and pointer region")
         XCTAssertEqual(model.pageModel.selectedPage, .home)
     }
-    func testSpaceChangeCollapsesHoveredAndPinnedStatesBeforeReassertingPanel() async {
+    func testSpaceChangeCollapsesHoverButPreservesPinnedSessionBeforeReassertingPanel() async {
         for state in [NotchStableState.hovered, .expanded] {
-            let source = MockDisplaySource(displays: [builtInDisplay()])
             let panel = MockPanelController()
             let clock = ControlledAppClock()
-            let coordinator = makeCoordinator(source: source, panel: panel, clock: clock)
+            let coordinator = makeCoordinator(source: MockDisplaySource(displays: [builtInDisplay()]), panel: panel, clock: clock)
             coordinator.start()
             let model = coordinator.presentationModel
             model.present(state, animated: false)
+            model.pageModel.selectedPage = .shelf
             model.setHovered(true)
             await drainMainActorTasks()
             let frame = panel.layout?.panelFrame
-            let hideCount = panel.hideCount
-            panel.onOrderFront = {
-                XCTAssertEqual(model.phase, .transitioning(from: state, to: .collapsed))
+            let hides = panel.hideCount
+            NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
+            if state == .hovered {
+                XCTAssertEqual(model.phase, .transitioning(from: .hovered, to: .collapsed))
+            } else {
+                XCTAssertEqual(model.phase, .expanded)
             }
-
-            NSWorkspace.shared.notificationCenter.post(
-                name: NSWorkspace.activeSpaceDidChangeNotification, object: nil
-            )
-
-            XCTAssertEqual(model.phase, .transitioning(from: state, to: .collapsed))
+            for _ in 0..<1000 where panel.orderFrontRegardlessCount == 0 {
+                await clock.releaseAll()
+                await Task.yield()
+            }
+            await waitUntil { state == .expanded || model.phase == .collapsed }
             XCTAssertEqual(panel.orderFrontRegardlessCount, 1)
-            await waitForPendingSleep(clock)
-            await clock.releaseAll()
-            await waitUntil { model.phase == .collapsed }
-            XCTAssertEqual(model.phase, .collapsed)
+            XCTAssertEqual(model.visualState, state == .expanded ? .expanded : .collapsed)
+            XCTAssertEqual(model.pageModel.selectedPage, .shelf)
             XCTAssertEqual(panel.layout?.panelFrame, frame)
-            XCTAssertEqual(panel.hideCount, hideCount)
-
-            // The pointer staying inside cannot re-trigger hover after a swipe.
+            XCTAssertEqual(panel.hideCount, hides)
             model.setHovered(true)
             await clock.releaseAll()
             await drainMainActorTasks()
-            XCTAssertEqual(model.phase, .collapsed)
-
-            // A deliberate click still opens and pins normally.
-            model.toggleExpanded()
-            XCTAssertEqual(model.visualState, .expanded)
+            XCTAssertEqual(model.visualState, state == .expanded ? .expanded : .collapsed)
             coordinator.stop()
         }
     }
@@ -205,7 +216,7 @@ final class DisplayCoordinatorTests: XCTestCase {
         }
     }
 
-    func testSpaceChangePreservesActivitiesQueueAndUnpinsWithoutMovingPanel() async {
+    func testSpaceChangePreservesActivitiesQueueAndPinnedPageWithoutMovingPanel() async {
         let source = MockDisplaySource(displays: [builtInDisplay()])
         let panel = MockPanelController()
         let clock = TestAppClock(now: Date(timeIntervalSince1970: 0), automaticallyAdvances: false)
@@ -227,21 +238,23 @@ final class DisplayCoordinatorTests: XCTestCase {
         NSWorkspace.shared.notificationCenter.post(
             name: NSWorkspace.activeSpaceDidChangeNotification, object: nil
         )
-        XCTAssertEqual(model.presentationState, .activity)
-        XCTAssertEqual(model.visualState, .collapsed)
+        XCTAssertEqual(model.presentationState, .expanded)
+        XCTAssertEqual(model.visualState, .expanded)
         XCTAssertNotNil(model.activityCoordinator.activeActivity)
         XCTAssertEqual(model.activityCoordinator.queueCount, 0)
         XCTAssertNotNil(model.activityCoordinator.persistentActivity)
         XCTAssertNotNil(model.activityCoordinator.activeTransient)
         XCTAssertEqual(model.pageModel.selectedPage, .calendar)
-        await drainMainActorTasks()
-        XCTAssertEqual(model.presentationState, .activity)
+        await clock.waitForPendingSleeps(2) // Existing transient deadline + Space coalescer.
+        await clock.advance(by: .milliseconds(80))
+        await waitUntil { panel.orderFrontRegardlessCount == 1 }
+        XCTAssertEqual(model.presentationState, .expanded)
         XCTAssertEqual(panel.layout?.panelFrame, frame)
         XCTAssertEqual(panel.hideCount, hides)
         XCTAssertEqual(panel.orderFrontRegardlessCount, 1)
     }
 
-    func testMediaRemainsAcrossSpaceChangesAndPinnedCollapse() async throws {
+    func testMediaRemainsAcrossSpaceChangesWithPinnedSessionPreserved() async throws {
         let panel = MockPanelController()
         let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
         let coordinator = makeCoordinator(source: MockDisplaySource(displays: [builtInDisplay()]), panel: panel, clock: clock)
@@ -265,10 +278,10 @@ final class DisplayCoordinatorTests: XCTestCase {
         let activity = coordinator.presentationModel.activityCoordinator.activeActivity?.id
         let hides = panel.hideCount
         for pinned in [false, true, false] {
-            if pinned { coordinator.presentationModel.present(.expanded, animated: false) }
+            coordinator.presentationModel.present(pinned ? .expanded : .collapsed, animated: false)
             NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
-            XCTAssertEqual(coordinator.presentationModel.visualState, .collapsed)
-            XCTAssertTrue(coordinator.presentationModel.showsCollapsedMedia)
+            XCTAssertEqual(coordinator.presentationModel.visualState, pinned ? .expanded : .collapsed)
+            XCTAssertEqual(coordinator.presentationModel.showsCollapsedMedia, !pinned)
             XCTAssertEqual(media.state.trackID, track)
             XCTAssertEqual(coordinator.presentationModel.activityCoordinator.activeActivity?.id, activity)
             XCTAssertEqual(panel.hideCount, hides)
@@ -280,7 +293,7 @@ final class DisplayCoordinatorTests: XCTestCase {
         // separately verified in DisplayGeometryTests; physical continuity needs live QA.
     }
 
-    func testSpaceChangeLeavesPassiveStateAndPanelUnchanged() {
+    func testSpaceChangeLeavesPassiveStateAndPanelUnchanged() async {
         let source = MockDisplaySource(displays: [builtInDisplay()])
         let panel = MockPanelController()
         let coordinator = makeCoordinator(source: source, panel: panel)
@@ -294,6 +307,7 @@ final class DisplayCoordinatorTests: XCTestCase {
             object: nil
         )
 
+        await waitUntil { panel.orderFrontRegardlessCount == 1 }
         XCTAssertEqual(panel.orderFrontRegardlessCount, 1)
         XCTAssertEqual(panel.reconcileCount, reconcileCount)
         XCTAssertEqual(coordinator.presentationModel.phase, .collapsed)
@@ -313,8 +327,10 @@ final class DisplayCoordinatorTests: XCTestCase {
         NSWorkspace.shared.notificationCenter.post(
             name: NSWorkspace.activeSpaceDidChangeNotification, object: nil
         )
-        await clock.releaseAll()
-        await drainMainActorTasks()
+        for _ in 0..<1000 where panel.orderFrontRegardlessCount == 0 {
+            await clock.releaseAll()
+            await Task.yield()
+        }
         XCTAssertEqual(model.phase, .collapsed)
         model.setHovered(true)
         await drainMainActorTasks()
@@ -325,7 +341,7 @@ final class DisplayCoordinatorTests: XCTestCase {
         model.setHovered(true)
         await waitForPendingSleep(clock)
         await clock.releaseAll()
-        await drainMainActorTasks()
+        await waitUntil { model.visualState == .hovered }
         XCTAssertEqual(model.visualState, .hovered)
     }
 
@@ -344,7 +360,7 @@ final class DisplayCoordinatorTests: XCTestCase {
         XCTAssertEqual(panel.orderFrontRegardlessCount, 0)
     }
 
-    func testBuiltInArrivalEnablesShellAndCollapses() {
+    func testBuiltInArrivalPreservesOwnerAndExplicitMigrationPreservesSession() {
         let source = MockDisplaySource(displays: [externalDisplay()])
         let panel = MockPanelController()
         let coordinator = makeCoordinator(source: source, panel: panel)
@@ -357,7 +373,10 @@ final class DisplayCoordinatorTests: XCTestCase {
         source.displays = [externalDisplay(), builtInDisplay(primary: false)]
         coordinator.refreshDisplayConfiguration()
 
-        XCTAssertEqual(coordinator.presentationModel.phase, .collapsed)
+        XCTAssertEqual(coordinator.presentationModel.phase, .expanded)
+        XCTAssertNil(panel.placement, "Reconnecting a display is not a navigation or ownership request")
+        coordinator.claimDisplay(NotchiumDisplayID(rawValue: 1))
+        XCTAssertEqual(coordinator.presentationModel.phase, .expanded)
         XCTAssertEqual(panel.placement?.mode, .physicalNotch)
         XCTAssertEqual(panel.placement?.display.id, NotchiumDisplayID(rawValue: 1))
     }
