@@ -59,6 +59,7 @@ public final class RealScreenshotService: ScreenshotService {
     private var validationRequested: Set<URL> = []
     private var access: FeatureAvailability = .available
     private let locate: @Sendable () -> URL
+    private var generation = 0
 
     /// `location` overrides the configured folder (tests); production reads screencapture's setting.
     public init(location: (@Sendable () -> URL)? = nil) {
@@ -111,6 +112,10 @@ public final class RealScreenshotService: ScreenshotService {
 
     private func watch(_ location: URL) {
         guard folder?.standardizedFileURL != location.standardizedFileURL else { return }
+        generation &+= 1
+        let generation = generation
+        scanTask?.cancel(); scanTask = nil
+        scanRequested = false
         folderSource?.cancel()
         folderSource = nil
         folder = location
@@ -125,7 +130,16 @@ public final class RealScreenshotService: ScreenshotService {
         guard descriptor >= 0 else { access = .unavailable(.temporarilyUnavailable); return }
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor,
                                                                eventMask: [.write, .rename, .delete], queue: .main)
-        source.setEventHandler { [weak self] in MainActor.assumeIsolated { self?.scheduleScan() } }
+        source.setEventHandler { [weak self, weak source] in
+            MainActor.assumeIsolated {
+                guard let self, self.generation == generation else { return }
+                if let source, !source.data.intersection([.delete, .rename]).isEmpty {
+                    // The old descriptor no longer represents the configured location.
+                    self.folder = nil
+                    self.watch(self.locate())
+                } else { self.scheduleScan() }
+            }
+        }
         source.setCancelHandler { close(descriptor) }
         source.resume()
         folderSource = source
@@ -135,9 +149,10 @@ public final class RealScreenshotService: ScreenshotService {
     private func scheduleScan() {
         scanRequested = true
         guard scanTask == nil else { return }
+        let generation = generation
         scanTask = Task { [weak self] in
             guard let self else { return }
-            defer { self.scanTask = nil }
+            defer { if self.generation == generation { self.scanTask = nil } }
             while self.scanRequested, !Task.isCancelled {
                 self.scanRequested = false
                 let location = self.locate()
@@ -145,7 +160,8 @@ public final class RealScreenshotService: ScreenshotService {
                     self.watch(location)
                     return
                 }
-                guard let names = try? await Self.directoryNames(in: location), !Task.isCancelled else { return }
+                guard let names = try? await Self.directoryNames(in: location), !Task.isCancelled,
+                      self.generation == generation else { return }
                 self.scan(names: names, in: location)
             }
         }
@@ -263,6 +279,7 @@ public final class RealScreenshotService: ScreenshotService {
                                       startedAt as NSDate)
         query.searchScopes = [NSMetadataQueryUserHomeScope]
         query.notificationBatchingInterval = 0.2
+        let identity = ObjectIdentifier(query)
         observers.append(NotificationCenter.default.addObserver(forName: .NSMetadataQueryDidUpdate, object: query,
                                                                 queue: .main) { [weak self] note in
             let added = Self.items(note.userInfo?[NSMetadataQueryUpdateAddedItemsKey])
@@ -270,6 +287,7 @@ public final class RealScreenshotService: ScreenshotService {
             let removed = Self.items(note.userInfo?[NSMetadataQueryUpdateRemovedItemsKey])
             MainActor.assumeIsolated {
                 guard let self else { return }
+                guard self.query.map(ObjectIdentifier.init) == identity else { return }
                 added.forEach { self.observeCandidate($0.0); self.validate(url: $0.0, created: $0.1) }
                 removed.forEach { self.remove($0.0) }
                 if !added.isEmpty { self.watch(self.locate()) }
@@ -312,6 +330,7 @@ public final class RealScreenshotService: ScreenshotService {
     }
 
     private func stopObservation() {
+        generation &+= 1
         query?.stop()
         query = nil
         observers.forEach(NotificationCenter.default.removeObserver)
