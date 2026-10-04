@@ -114,7 +114,7 @@ public final class NotchShellDebugModel {
         let auxiliaryY = frame.maxY - safeAreaTop
 
         return NotchiumDisplaySnapshot(
-            id: builtInFixture.id,
+            id: liveDisplay.id,
             name: builtInFixture.name,
             frame: frame,
             visibleFrame: liveDisplay.visibleFrame,
@@ -143,7 +143,7 @@ public final class NotchShellDebugModel {
         guard let liveDisplay else { return externalFixture }
 
         return NotchiumDisplaySnapshot(
-            id: externalFixture.id,
+            id: liveDisplay.id,
             name: externalFixture.name,
             frame: liveDisplay.frame,
             visibleFrame: liveDisplay.visibleFrame,
