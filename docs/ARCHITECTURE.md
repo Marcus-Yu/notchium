@@ -1,4 +1,4 @@
-# Architecture — Stage 7 Activity Coordination and Utilities
+# Architecture — Stage 21 Display and Presentation Intelligence
 
 **Status:** Stage 11 adds native Quick Actions and Quick Reminder and removes Keyboard Lock. Stage 7 Music, Calendar, Audio, and Caffeine coordination remains intact. See [STAGE11_QUICK_ACTIONS.md](STAGE11_QUICK_ACTIONS.md). See [MEDIA_CENTER.md](MEDIA_CENTER.md), [CALENDAR_ACTIVITY.md](CALENDAR_ACTIVITY.md), and [AUDIO.md](AUDIO.md) for feature boundaries and limitations.
 
@@ -73,9 +73,15 @@ There is no global mutable event bus. Views do not construct services. The `AppE
 
 `NotchiumApplicationController` is a narrow lifecycle coordinator. It owns app-running state and delegates shell behavior to `NotchiumDisplayCoordinator`; it does not own media, calendar, shelf, clipboard, focus, or monitoring state.
 
-## Stage 2 display and presentation ownership
+Stage 22 retains these boundaries and makes resource ownership explicit: subscriber-owned native observation, preview-owned camera resources, session generations for asynchronous provider callbacks, and bounded thumbnail representations. Clipboard and Pomodoro stores serialize atomic writes on utility queues; reads and `flush()` are ordering barriers, and feature shutdown flushes before graceful relaunch. Enqueuing a save does not itself acknowledge disk durability. See [STAGE22_HARDENING.md](STAGE22_HARDENING.md) for the audit, measurements, regression evidence and remaining live-system checks.
 
-`NotchiumDisplayCoordinator` now owns display selection and one active `NotchiumPanelController`. It receives pure `NotchiumDisplaySnapshot` values from the AppKit adapter, selects only a built-in display with a verified public auxiliary-area notch gap, and otherwise hides the shell while retaining the menu-bar fallback. Domain and feature code never retain `NSScreen` or select `NSScreen.main`.
+## Stage 21 display and presentation ownership
+
+`NotchiumDisplayCoordinator` owns one `DisplayPresentationState` and one `NotchiumPanelController`. The state holds immutable descriptors for every display, the current owner, topology generation, sleep state and display-scoped presentation context. Online Core Graphics IDs route the panel; public display UUIDs invalidate a direct lease if a numeric ID is recycled for a different monitor. Domain and feature code never retain `NSScreen` or select `NSScreen.main`.
+
+Direct interaction owns its display while an open or auxiliary session remains active. Passive activity uses pointer location, then the frontmost application's on-screen window, then the surviving owner/primary display. The coordinator samples window evidence on native Space, application activation and presentation-options KVO events. A passive submission reads the pointer against cached descriptors, and re-reads window/assertion evidence only while fullscreen. One 80 ms cancellation-aware task coalesces native changes, with lifecycle and reconciliation generations rejecting obsolete work.
+
+The panel consumes the selected display's layout and stays the same window/hosting view across migration. A notchless owner uses the existing menu-bar fallback; Stage 21 adds no external island. Topology and fullscreen changes preserve pinned pages and auxiliary leases. Hover sessions close through the existing motion path on a Space change, except one held after native AirDrop returned to it; system sleep closes the session and hides the panel. Only a genuinely new open session runs automatic-page arbitration. `ActivityCoordinator` applies the environmental filter before its existing ranking, retaining quiet entries and their absolute deadlines. See [STAGE21_DISPLAY_PRESENTATION.md](STAGE21_DISPLAY_PRESENTATION.md) for detection limitations and validation.
 
 The required flow is:
 
@@ -178,7 +184,7 @@ The shell uses SwiftUI until macOS window behavior requires AppKit. `NotchiumPan
 
 `NotchiumDisplayCoordinator` requires a built-in display, nonzero public top safe-area inset, and valid `NSScreen.auxiliaryTopLeftArea` and `auxiliaryTopRightArea` values with a positive gap. Without an eligible display it hides the panel and retains the menu-bar fallback. The controller keeps one transparent fixed-size host panel top-anchored to the full screen frame. SwiftUI animates one shape and permanently excludes the hardware footprint from drawing; collapsed physical mode has an empty drawable path. Public pointer monitors drive the narrow hardware-derived hover zone. The panel uses documented Spaces and fullscreen collection behavior, never animates its frame, and never becomes key.
 
-`DynamicIslandPresentationModel` owns `collapsed`, temporarily `hovered`, and pinned `expanded` states plus transition phases. Injected clock tasks implement 120 ms hover entry and 200 ms exit grace, with cancellation and generation checks. Hover and click use the same 0.60/0.88/0.10 native spring, with a 0.18 s Reduce Motion fallback. Pinned state ignores hover exit; a second click, outside click, or Esc closes it. Space-change notifications cancel pending hover activation and close hovered or pinned states through the existing collapse path before reasserting the current panel. They never recreate or reposition it, and hover requires fresh entry to reopen. See [NOTCH_SHELL.md](NOTCH_SHELL.md) for notification timing and the pending hardware acceptance gate.
+`DynamicIslandPresentationModel` owns `collapsed`, temporarily `hovered`, and pinned `expanded` states plus transition phases. Injected clock tasks implement 120 ms hover entry and 200 ms exit grace, with cancellation and generation checks. Hover and click use the same 0.60/0.88/0.10 native spring, with a 0.18 s Reduce Motion fallback. Pinned state ignores hover exit; a second click, outside click, or Esc closes it. Stage 21 Space-change notifications cancel pending hover activation and close hover sessions through the existing collapse path while retaining pinned and auxiliary sessions. A coalesced reconciliation reasserts the same panel; display migration preserves the current page without a fresh expansion. Hover requires fresh entry to reopen. See [NOTCH_SHELL.md](NOTCH_SHELL.md) for notification timing and the pending hardware acceptance gate.
 
 ## Stage 7 activity and utility ownership
 
