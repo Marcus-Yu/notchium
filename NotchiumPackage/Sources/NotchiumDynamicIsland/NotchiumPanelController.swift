@@ -11,6 +11,13 @@ protocol NotchPanelControlling: AnyObject {
     )
     func orderFrontRegardless()
     func hide()
+    func setPresentationContext(_ context: NotchPresentationContext)
+    func setInteractionHandler(_ handler: (@MainActor (CGPoint) -> Void)?)
+}
+
+extension NotchPanelControlling {
+    func setPresentationContext(_ context: NotchPresentationContext) {}
+    func setInteractionHandler(_ handler: (@MainActor (CGPoint) -> Void)?) {}
 }
 
 private final class NotchHostingView: NSHostingView<NotchiumShellView> {
@@ -33,6 +40,8 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
     private var isFileDrag: Bool?
     private var fileDragEndTask: Task<Void, Never>?
     private var localPointerMonitor: Any?
+    private var interactionHandler: (@MainActor (CGPoint) -> Void)?
+    private var presentationContext: NotchPresentationContext = .normal
     private var positionedDisplayID: CGDirectDisplayID?
     private var positionedScreenFrame: NSRect?
 
@@ -97,6 +106,11 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
             name: NSMenu.didEndTrackingNotification, object: nil)
     }
 
+    isolated deinit {
+        hide()
+        NotificationCenter.default.removeObserver(self)
+    }
+
     @objc private func menuBegan(_ notification: Notification) {
         guard model.surfaceState != .collapsed, let menu = notification.object as? NSMenu else { return }
         model.setAuxiliaryInteractionPresented(true, source: "menu.\(ObjectIdentifier(menu))")
@@ -153,13 +167,17 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
             panel.orderOut(nil)
             return
         }
-        if positionedDisplayID != screen.notchiumDisplayID
-            || positionedScreenFrame != screen.frame {
-            positionPanel(panel, on: screen)
+        if panel.frame != layout.panelFrame {
+            // Keep one panel and one hosting view. Order out only for a display migration;
+            // geometry adjustments on the same display are immediate and never slide.
+            if positionedDisplayID != nil, positionedDisplayID != screen.notchiumDisplayID {
+                panel.orderOut(nil)
+            }
+            panel.setFrame(layout.panelFrame, display: true, animate: false)
             positionedDisplayID = screen.notchiumDisplayID
             positionedScreenFrame = screen.frame
         }
-        panel.orderFrontRegardless()
+        if presentationContext != .sleeping { panel.orderFrontRegardless() }
         #if DEBUG
         print("""
         [Notchium Actual Panel]
@@ -182,7 +200,17 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         hostingView.rootView = rootView
     }
 
+    func setInteractionHandler(_ handler: (@MainActor (CGPoint) -> Void)?) {
+        interactionHandler = handler
+    }
+
+    func setPresentationContext(_ context: NotchPresentationContext) {
+        presentationContext = context
+        panel.setPresentationContext(context)
+    }
+
     func orderFrontRegardless() {
+        guard currentLayout != nil, presentationContext != .sleeping else { return }
         panel.orderFrontRegardless()
     }
 
@@ -245,8 +273,6 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
     private func selectedScreen(for placement: NotchShellPlacement) -> NSScreen? {
         NSScreen.screens.first {
             $0.notchiumDisplayID == placement.display.id.rawValue
-        } ?? NSScreen.screens.first {
-            $0.frame == placement.display.frame
         }
     }
 
@@ -389,12 +415,13 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         print("[MediaHitTest] click=\(point) content=\(region)")
         #endif
         if NotchHoverRegion.contains(point, in: region) {
+            interactionHandler?(point)
             // The header owns pin/unpin; content clicks belong to native controls.
             if model.surfaceState == .collapsed
                 || NotchHoverRegion.contains(point, in: currentLayout.collapsedHoverFrame) {
                 model.toggleExpanded()
             }
-        } else if model.visualState == .expanded {
+        } else if model.collapsesOnOutsideClick {
             model.collapse()
         }
     }
@@ -410,7 +437,8 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         // Completion buttons remain reachable in the small banner. Only hovering the normal
         // notch activation area opens the full shell; the banner body owns its own interaction.
         let keepsCompletionCompact = model.presentedNotification?.presentationStyle == .pomodoroCompletion
-        model.setHovered(NotchHoverRegion.contains(point, in: zone) || (insideNotification && !keepsCompletionCompact))
+        let inside = NotchHoverRegion.contains(point, in: zone) || (insideNotification && !keepsCompletionCompact)
+        model.setHovered(inside)
     }
 
     private func notificationFrame(for layout: NotchPanelLayout) -> CGRect? {
