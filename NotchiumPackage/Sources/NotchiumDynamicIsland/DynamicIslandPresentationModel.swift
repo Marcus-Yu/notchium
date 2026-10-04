@@ -173,6 +173,11 @@ public final class DynamicIslandPresentationModel {
     @ObservationIgnored private var auxiliaryInteractionObservedClick = false
     @ObservationIgnored private var suppressNextAuxiliaryActionClick = false
     @ObservationIgnored private var auxiliaryReturnsToOpenSession = false
+    /// After native AirDrop closes away from the notch, the open session belongs to neither the
+    /// pointer nor a lease. It ends at the next real pointer entry (hover owns it again), an
+    /// outside click, or an explicit close. The Space change that follows the sheet's dismissal
+    /// (e.g. back to a fullscreen app) is not one of those.
+    @ObservationIgnored private(set) var isHeldAfterSystemPresentation = false
 
     private let hoverEntryDelay: Duration = .milliseconds(120)
     private let hoverExitDelay: Duration = .milliseconds(200)
@@ -205,6 +210,7 @@ public final class DynamicIslandPresentationModel {
             return
         }
         if isHovered {
+            isHeldAfterSystemPresentation = false
             scheduleHoverExpansion()
         } else {
             scheduleCollapse()
@@ -219,6 +225,7 @@ public final class DynamicIslandPresentationModel {
             auxiliaryInteractionObservedClick = false
             suppressNextAuxiliaryActionClick = false
             auxiliaryReturnsToOpenSession = false
+            isHeldAfterSystemPresentation = false
             pendingCollapseTask?.cancel()
             pendingHoverTask?.cancel()
             hoverGeneration &+= 1
@@ -238,8 +245,9 @@ public final class DynamicIslandPresentationModel {
         auxiliaryInteractionObservedClick = false
         // AirDrop returns to the existing hover/pinned session. The next actual pointer
         // boundary or outside click resumes its normal rules; lease removal is not hover exit.
-        if !pointerIsInside, !auxiliaryReturnsToOpenSession {
-            scheduleCollapse()
+        if !pointerIsInside {
+            if auxiliaryReturnsToOpenSession { isHeldAfterSystemPresentation = visualState != .collapsed }
+            else { scheduleCollapse() }
         }
         auxiliaryReturnsToOpenSession = false
     }
@@ -260,6 +268,21 @@ public final class DynamicIslandPresentationModel {
         pendingHoverTask?.cancel()
         pendingCollapseTask?.cancel()
         setExpanded(visualState != .expanded)
+    }
+
+    /// A Space change cancels queued hover work; a pinned, leased or held session keeps its page.
+    func prepareForSystemTransition() {
+        pendingHoverTask?.cancel()
+        pendingCollapseTask?.cancel()
+        hoverGeneration &+= 1
+        if visualState == .hovered, !isAuxiliaryInteractionPresented, !isHeldAfterSystemPresentation {
+            collapse()
+        }
+    }
+
+    /// Pinned and held sessions close on a click outside the shell; a hovered one follows the pointer.
+    var collapsesOnOutsideClick: Bool {
+        visualState == .expanded || isHeldAfterSystemPresentation
     }
 
     public func collapse() {
@@ -297,6 +320,7 @@ public final class DynamicIslandPresentationModel {
             transitionTask?.cancel()
             transitionGeneration &+= 1
             if state == .collapsed {
+                isHeldAfterSystemPresentation = false
                 cameraController?.closePreview()
                 pageModel.endExpansion()
             } else { pageModel.beginExpansion(default: automaticOpenPage) }
@@ -319,6 +343,7 @@ public final class DynamicIslandPresentationModel {
         auxiliaryInteractionObservedClick = false
         suppressNextAuxiliaryActionClick = false
         auxiliaryReturnsToOpenSession = false
+        isHeldAfterSystemPresentation = false
         pageModel.endExpansion()
         phase = .collapsed
     }
@@ -460,7 +485,10 @@ public final class DynamicIslandPresentationModel {
         let source = visualState
         guard source != target || phase != Self.phase(for: target) else { return }
         // The camera preview never outlives the open notch: capture stops as closing begins.
-        if target == .collapsed { cameraController?.closePreview() }
+        if target == .collapsed {
+            isHeldAfterSystemPresentation = false
+            cameraController?.closePreview()
+        }
 
         transitionTask?.cancel()
         transitionGeneration &+= 1
