@@ -132,7 +132,10 @@ public final class PomodoroModel {
         notifications.dismiss(coalescingKey: Self.activityKey)
         dismissCompletion()
         soundPlayer.stop()
+        store.flush()
     }
+
+    isolated deinit { stop() }
 
     // MARK: Controls
 
