@@ -100,15 +100,15 @@ final class TargetedPolishTests: XCTestCase {
         // and recipient UI itself still require a real session on macOS.
         let sharing = NativeFileSharing()
         guard let service = NSSharingService(named: .sendViaAirDrop) else { return }
-        sharing.begin(window: nil, interaction: model.auxiliaryInteractionHandler)
+        var session = sharing.begin(window: nil, interaction: model.auxiliaryInteractionHandler, service: service)
         XCTAssertTrue(model.isAuxiliaryInteractionPresented)
-        sharing.sharingService(service, didFailToShareItems: [], error: NSError(domain: NSCocoaErrorDomain, code: NSUserCancelledError))
+        session.sharingService(service, didFailToShareItems: [], error: NSError(domain: NSCocoaErrorDomain, code: NSUserCancelledError))
         XCTAssertFalse(model.isAuxiliaryInteractionPresented)
-        sharing.begin(window: nil, interaction: model.auxiliaryInteractionHandler)
-        sharing.sharingService(service, didShareItems: [])
+        session = sharing.begin(window: nil, interaction: model.auxiliaryInteractionHandler, service: service)
+        session.sharingService(service, didShareItems: [])
         XCTAssertFalse(model.isAuxiliaryInteractionPresented)
-        sharing.begin(window: nil, interaction: model.auxiliaryInteractionHandler)
-        sharing.sharingServicePicker(NSSharingServicePicker(items: []), didChoose: nil)
+        session = sharing.begin(window: nil, interaction: model.auxiliaryInteractionHandler, service: service)
+        session.sharingServicePicker(NSSharingServicePicker(items: []), didChoose: nil)
         XCTAssertFalse(model.isAuxiliaryInteractionPresented)
     }
 
