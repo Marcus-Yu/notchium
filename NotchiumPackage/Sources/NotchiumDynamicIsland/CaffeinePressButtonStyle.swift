@@ -9,12 +9,13 @@ struct CaffeinePressButtonStyle: PrimitiveButtonStyle {
     var selectedDuration: CaffeineDuration? = nil
     var durationAction: ((CaffeineDuration) -> Void)? = nil
     var closedLidApproval: (() -> Void)? = nil
+    var hoverAction: ((Bool) -> Void)? = nil
 
     func makeBody(configuration: Configuration) -> some View {
         PressBody(configuration: configuration, interaction: interaction,
                   allowsHold: allowsHold, holdAction: holdAction,
                   selectedDuration: selectedDuration, durationAction: durationAction,
-                  closedLidApproval: closedLidApproval)
+                  closedLidApproval: closedLidApproval, hoverAction: hoverAction)
     }
 
     private struct PressBody: View {
@@ -25,25 +26,29 @@ struct CaffeinePressButtonStyle: PrimitiveButtonStyle {
         let selectedDuration: CaffeineDuration?
         let durationAction: ((CaffeineDuration) -> Void)?
         let closedLidApproval: (() -> Void)?
+        let hoverAction: ((Bool) -> Void)?
         @Environment(\.isEnabled) private var isEnabled
 
         var body: some View {
             configuration.label
                 .overlay {
-                    Circle()
-                        .trim(from: 0, to: interaction.progress)
-                        .stroke(.orange, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
-                        .padding(1)
-                        .transaction { $0.animation = nil }
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
+                    if allowsHold, interaction.progress > 0 {
+                        Circle()
+                            .trim(from: 0, to: interaction.progress)
+                            .stroke(.orange, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                            .rotationEffect(.degrees(-90))
+                            .padding(1)
+                            .transaction { $0.animation = nil }
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
                 }
                 .overlay {
                     CaffeinePointerInput(interaction: interaction, isEnabled: isEnabled,
                                          allowsHold: allowsHold, click: configuration.trigger,
                                          hold: holdAction, selectedDuration: selectedDuration,
-                                         durationAction: durationAction, closedLidApproval: closedLidApproval)
+                                         durationAction: durationAction, closedLidApproval: closedLidApproval,
+                                         hoverAction: hoverAction)
                         .accessibilityHidden(true)
                 }
                 .sensoryFeedback(.alignment, trigger: interaction.completionCount)
@@ -65,6 +70,7 @@ struct CaffeinePointerInput: NSViewRepresentable {
     var selectedDuration: CaffeineDuration? = nil
     var durationAction: ((CaffeineDuration) -> Void)? = nil
     var closedLidApproval: (() -> Void)? = nil
+    var hoverAction: ((Bool) -> Void)? = nil
 
     func makeNSView(context: Context) -> PressView { PressView() }
     func updateNSView(_ view: PressView, context: Context) {
@@ -77,7 +83,21 @@ struct CaffeinePointerInput: NSViewRepresentable {
     final class PressView: NSView {
         var input: CaffeinePointerInput?
         private var activeInteraction: CaffeinePressInteraction?
+        private var hoverTrackingArea: NSTrackingArea?
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            guard hoverTrackingArea == nil else { return }
+            let area = NSTrackingArea(rect: .zero,
+                                      options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                      owner: self, userInfo: nil)
+            addTrackingArea(area)
+            hoverTrackingArea = area
+        }
+
+        override func mouseEntered(with event: NSEvent) { input?.hoverAction?(true) }
+        override func mouseExited(with event: NSEvent) { input?.hoverAction?(false) }
 
         override func mouseDown(with event: NSEvent) {
             guard let input, input.isEnabled else { return }
