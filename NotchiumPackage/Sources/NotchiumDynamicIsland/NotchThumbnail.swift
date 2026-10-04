@@ -9,36 +9,68 @@ import SwiftUI
 public final class NotchThumbnailCache {
     public static let shared = NotchThumbnailCache()
 
-    private let cache = NSCache<NSString, NSImage>()
-    private var inFlight: [String: Task<NSImage?, Never>] = [:]
-    /// Keys generated per file, so invalidation is exact without enumerating NSCache.
-    private var keysByPath: [String: Set<String>] = [:]
+    private struct Key: Hashable {
+        let url: URL
+        let width: CGFloat
+        let height: CGFloat
+        let scale: CGFloat
+    }
+    private struct Request {
+        let id = UUID()
+        let task: Task<NSImage?, Never>
+    }
+    // A bounded LRU includes the key bookkeeping. NSCache eviction previously left an
+    // ever-growing path index behind during long sessions.
+    private var cache: [Key: NSImage] = [:]
+    private var recency: [Key] = []
+    private var inFlight: [Key: Request] = [:]
+    private let countLimit: Int
     private let generate: @Sendable (URL, CGSize, CGFloat) async -> NSImage?
 
     init(countLimit: Int = 48,
          generate: @escaping @Sendable (URL, CGSize, CGFloat) async -> NSImage? = NotchThumbnailCache.quickLook) {
-        cache.countLimit = countLimit
+        self.countLimit = max(1, countLimit)
         self.generate = generate
     }
 
     public func image(for url: URL, size: CGSize, scale: CGFloat = 2) async -> NSImage? {
-        let key = "\(url.path)|\(Int(size.width))x\(Int(size.height))"
-        if let cached = cache.object(forKey: key as NSString) { return cached }
-        if let running = inFlight[key] { return await running.value }
-        let task = Task { [generate] in await generate(url, size, scale) }
-        inFlight[key] = task
-        let image = await task.value
+        let key = Key(url: url.standardizedFileURL, width: size.width, height: size.height, scale: scale)
+        if let cached = cache[key] {
+            touch(key)
+            return cached
+        }
+        if let running = inFlight[key] {
+            let image = await running.task.value
+            return running.task.isCancelled ? nil : image
+        }
+        let request = Request(task: Task { [generate] in await generate(url, size, scale) })
+        inFlight[key] = request
+        let image = await request.task.value
+        // Invalidation may have removed this request and started a replacement for the
+        // same path. The old callback owns neither the cache nor the replacement task.
+        guard inFlight[key]?.id == request.id, !request.task.isCancelled else { return nil }
         inFlight[key] = nil
         if let image {
-            cache.setObject(image, forKey: key as NSString)
-            keysByPath[url.path, default: []].insert(key)
+            cache[key] = image
+            touch(key)
+            while recency.count > countLimit { cache[recency.removeFirst()] = nil }
         }
         return image
     }
 
     /// Drops previews for a file that changed or went away.
     public func invalidate(_ url: URL) {
-        keysByPath.removeValue(forKey: url.path)?.forEach { cache.removeObject(forKey: $0 as NSString) }
+        let url = url.standardizedFileURL
+        for key in cache.keys.filter({ $0.url == url }) { cache[key] = nil }
+        recency.removeAll { $0.url == url }
+        for key in inFlight.keys.filter({ $0.url == url }) {
+            inFlight.removeValue(forKey: key)?.task.cancel()
+        }
+    }
+
+    private func touch(_ key: Key) {
+        recency.removeAll { $0 == key }
+        recency.append(key)
     }
 
     nonisolated static func quickLook(_ url: URL, size: CGSize, scale: CGFloat) async -> NSImage? {
@@ -92,7 +124,9 @@ public struct NotchThumbnailView: View {
         .clipShape(.rect(cornerRadius: cornerRadius, style: .continuous))
         .animation(.easeOut(duration: 0.15), value: image != nil)
         .task(id: url) {
-            image = await NotchThumbnailCache.shared.image(for: url, size: size)
+            let loaded = await NotchThumbnailCache.shared.image(for: url, size: size)
+            guard !Task.isCancelled else { return }
+            image = loaded
         }
         .accessibilityHidden(true)
     }
