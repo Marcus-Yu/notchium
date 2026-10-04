@@ -69,6 +69,7 @@ public final class FilesFeatureModel: NotchShelfRendering {
         transferTask?.cancel(); transferTask = nil
         screenshotTask?.cancel(); screenshotTask = nil
         noticeTask?.cancel(); noticeTask = nil
+        shelf.stopAccessingFiles()
         transfers.reset()
         screenshots.reset()
     }
@@ -132,6 +133,9 @@ public final class FilesFeatureModel: NotchShelfRendering {
         let chosen = selection.isEmpty ? shelf.items : shelf.items.filter { selection.contains($0.id) }
         return chosen.filter(\.isAvailable).map(\.url)
     }
+
+    /// Share and AirDrop are unavailable while a native presentation is active.
+    public var isSharing: Bool { actions.isSharing }
 
     public func airDrop(_ urls: [URL]) {
         if actions.airDrop(urls, from: sharingAnchor, interaction: sharingInteraction) == .unavailable {
