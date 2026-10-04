@@ -194,10 +194,8 @@ public final class DynamicIslandPresentationModel {
         activityCoordinator = ActivityCoordinator(clock: clock)
         pageModel = NotchPageModel()
         if phase.visualState != .collapsed { pageModel.beginExpansion(default: .home) }
-        activityObservation = activityCoordinator.$activeTransient
-            .combineLatest(activityCoordinator.$persistentActivity, activityCoordinator.$secondary,
-                           activityCoordinator.$liveActivities)
-            .sink { [weak self] _, _, _, _ in
+        activityObservation = activityCoordinator.presentationDidResolve
+            .sink { [weak self] _ in
                 self?.activityRevision &+= 1
             }
     }
