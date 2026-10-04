@@ -30,6 +30,8 @@ public struct NotchiumDisplayInsets: Equatable, Sendable {
 public struct NotchiumDisplaySnapshot: Equatable, Sendable {
     public let id: NotchiumDisplayID
     public let name: String
+    /// Public Core Graphics UUID when available; online routing still uses the live display ID.
+    public let persistentID: UUID?
     public let frame: CGRect
     public let visibleFrame: CGRect
     public let safeAreaInsets: NotchiumDisplayInsets
@@ -53,10 +55,12 @@ public struct NotchiumDisplaySnapshot: Equatable, Sendable {
         isPrimary: Bool,
         containsMousePointer: Bool = false,
         backingScaleFactor: CGFloat = 2,
-        statusBarThickness: CGFloat = 24
+        statusBarThickness: CGFloat = 24,
+        persistentID: UUID? = nil
     ) {
         self.id = id
         self.name = name
+        self.persistentID = persistentID
         self.frame = frame
         self.visibleFrame = visibleFrame ?? frame
         self.safeAreaInsets = safeAreaInsets
@@ -90,6 +94,11 @@ public struct NotchiumDisplaySnapshot: Equatable, Sendable {
             width: right.minX - left.maxX,
             height: max(left.height, right.height)
         )
+    }
+
+    /// Physical displays use the hardware center; notchless displays use their safe top edge.
+    public var topCenterAnchor: CGPoint {
+        CGPoint(x: physicalNotchGap?.midX ?? frame.midX, y: frame.maxY - safeAreaInsets.top)
     }
 
     public var menuBarHeight: CGFloat {
