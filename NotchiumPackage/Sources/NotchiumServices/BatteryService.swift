@@ -35,6 +35,8 @@ public final class RealBatteryService: BatteryService {
 
     nonisolated public init() {}
 
+    isolated deinit { stopObservation() }
+
     public func availability() async -> FeatureAvailability {
         Self.read().availability
     }
@@ -72,8 +74,14 @@ public final class RealBatteryService: BatteryService {
 
     private func remove(_ id: UUID) {
         continuations.removeValue(forKey: id)
-        guard continuations.isEmpty, let source else { return }
+        guard continuations.isEmpty else { return }
+        stopObservation()
+    }
+
+    private func stopObservation() {
+        guard let source else { return }
         CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .defaultMode)
+        CFRunLoopSourceInvalidate(source)
         self.source = nil
     }
 
