@@ -34,7 +34,7 @@ public protocol CameraService: AnyObject, Sendable {
     @MainActor var isRunning: Bool { get }
     /// A preview layer bound to the running session, or nil when stopped.
     @MainActor func makePreviewLayer() -> CALayer?
-    @MainActor func setEventHandler(_ handler: @escaping @MainActor (CameraEvent) -> Void)
+    @MainActor func setEventHandler(_ handler: (@MainActor (CameraEvent) -> Void)?)
 }
 
 public extension CameraService {
@@ -57,6 +57,11 @@ public final class RealCameraService: CameraService {
     private var observers: [NSObjectProtocol] = []
 
     public init() {}
+
+    isolated deinit {
+        stop()
+        deviceObservers.forEach(NotificationCenter.default.removeObserver)
+    }
 
     public var authorization: CameraAuthorization {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -101,6 +106,10 @@ public final class RealCameraService: CameraService {
                 continuation.resume()
             }
         }
+        // Closing or switching can happen during the blocking start. Never return the
+        // replaced session as a successful current preview.
+        try Task.checkCancellation()
+        guard self.session === session else { throw CancellationError() }
         return CameraDevice(id: device.uniqueID, name: device.localizedName)
     }
 
@@ -123,8 +132,13 @@ public final class RealCameraService: CameraService {
         return layer
     }
 
-    public func setEventHandler(_ handler: @escaping @MainActor (CameraEvent) -> Void) {
+    public func setEventHandler(_ handler: (@MainActor (CameraEvent) -> Void)?) {
         self.handler = handler
+        guard handler != nil else {
+            deviceObservers.forEach(NotificationCenter.default.removeObserver)
+            deviceObservers.removeAll()
+            return
+        }
         guard deviceObservers.isEmpty else { return }
         for name in [AVCaptureDevice.wasConnectedNotification, AVCaptureDevice.wasDisconnectedNotification] {
             deviceObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
@@ -136,9 +150,13 @@ public final class RealCameraService: CameraService {
     private var deviceObservers: [NSObjectProtocol] = []
 
     private func observe(_ session: AVCaptureSession) {
+        let identity = ObjectIdentifier(session)
         observers.append(NotificationCenter.default.addObserver(forName: AVCaptureSession.runtimeErrorNotification,
                                                                 object: session, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.handler?(.sessionFailed) }
+            MainActor.assumeIsolated {
+                guard let self, self.session.map(ObjectIdentifier.init) == identity else { return }
+                self.handler?(.sessionFailed)
+            }
         })
     }
 
@@ -200,7 +218,7 @@ public final class MockCameraService: CameraService {
 
     public func makePreviewLayer() -> CALayer? { isRunning ? CALayer() : nil }
 
-    public func setEventHandler(_ handler: @escaping @MainActor (CameraEvent) -> Void) { self.handler = handler }
+    public func setEventHandler(_ handler: (@MainActor (CameraEvent) -> Void)?) { self.handler = handler }
 
     public func disconnect(_ id: String) {
         available.removeAll { $0.id == id }
