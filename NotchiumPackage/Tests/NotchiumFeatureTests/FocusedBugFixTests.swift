@@ -14,13 +14,13 @@ final class FocusedBugFixTests: XCTestCase {
         let model = DynamicIslandPresentationModel(phase: .expanded)
         defer { model.reset() }
         let sharing = NativeFileSharing()
-        sharing.begin(window: panel, interaction: model.auxiliaryInteractionHandler)
         let airDrop = try XCTUnwrap(NSSharingService(named: .sendViaAirDrop))
         let share = NSSharingService(title: "Test Share", image: NSImage(), alternateImage: nil) {}
+        let session = sharing.begin(window: panel, interaction: model.auxiliaryInteractionHandler, service: share)
         var scope = NSSharingService.SharingContentScope.item
-        XCTAssertNil(sharing.sharingService(airDrop, sourceWindowForShareItems: [], sharingContentScope: &scope))
-        XCTAssertTrue(sharing.sharingService(share, sourceWindowForShareItems: [], sharingContentScope: &scope) === panel)
-        sharing.sharingService(share, didShareItems: [])
+        XCTAssertNil(session.sharingService(airDrop, sourceWindowForShareItems: [], sharingContentScope: &scope))
+        XCTAssertTrue(session.sharingService(share, sourceWindowForShareItems: [], sharingContentScope: &scope) === panel)
+        session.sharingService(share, didShareItems: [])
         XCTAssertEqual(panel.level, NotchPanel.restingLevel)
     }
 
@@ -31,14 +31,15 @@ final class FocusedBugFixTests: XCTestCase {
             defer { model.reset() }
             model.pageModel.selectedPage = .shelf
             let sharing = NativeFileSharing()
-            sharing.begin(window: nil, interaction: model.auxiliaryInteractionHandler, returnsToOpenSession: true)
+            let service = try XCTUnwrap(NSSharingService(named: .sendViaAirDrop))
+            let session = sharing.begin(window: nil, interaction: model.auxiliaryInteractionHandler,
+                                        returnsToOpenSession: true, service: service)
             model.setHovered(true)
             model.setHovered(false)
             // A native Cancel click is consumed synchronously before its delegate runs.
             XCTAssertTrue(model.consumePointerClickForAuxiliaryInteraction())
-            let service = try XCTUnwrap(NSSharingService(named: .sendViaAirDrop))
-            if completed { sharing.sharingService(service, didShareItems: []) }
-            else { sharing.sharingService(service, didFailToShareItems: [], error: CocoaError(.userCancelled)) }
+            if completed { session.sharingService(service, didShareItems: []) }
+            else { session.sharingService(service, didFailToShareItems: [], error: CocoaError(.userCancelled)) }
             await drainMainActorTasks()
             XCTAssertFalse(model.isAuxiliaryInteractionPresented)
             XCTAssertEqual(model.visualState, .hovered)
