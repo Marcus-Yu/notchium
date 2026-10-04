@@ -143,6 +143,7 @@ final class Stage16ClipboardTests: XCTestCase {
         first.receive(capture(.text("persisted")))
         first.receive(capture(try XCTUnwrap(ClipboardImageProcessing.content(from: pngData(width: 64, height: 64)))))
         first.togglePin(first.items[1])
+        first.stop() // A relaunch drains the previous owner's ordered disk writes.
 
         let second = ClipboardModel(service: MockClipboardService(), store: FileClipboardStore(directory: directory),
                                     preferences: defaults(), now: { [base] in base })
@@ -151,6 +152,7 @@ final class Stage16ClipboardTests: XCTestCase {
         let imageID = second.items[0].id
         XCTAssertNotNil(store.loadImage(id: imageID))
         second.delete(second.items[0])
+        second.stop()
         XCTAssertNil(store.loadImage(id: imageID), "Deleted images leave no file behind")
     }
 
