@@ -139,8 +139,10 @@ public final class RealAudioDevicesService: AudioDevicesService {
     private var previous: AudioDevicesSnapshot?
     private var cachedOutputIDs: [AudioObjectID] = []
     private var outputDetails: [AudioObjectID: OutputDetails] = [:]
+    private var generation = 0
 
     public init() {}
+    isolated deinit { stopObservation() }
     public func availability() async -> FeatureAvailability { .available }
 
     public func updates() async -> AsyncStream<AudioDevicesSnapshot> {
@@ -214,6 +216,7 @@ public final class RealAudioDevicesService: AudioDevicesService {
     }
 
     private func start() {
+        generation &+= 1
         let system = AudioObjectID(kAudioObjectSystemObject)
         addListener(system, Self.address(kAudioHardwarePropertyDevices), to: &systemListeners)
         addListener(system, Self.address(kAudioHardwarePropertyDefaultOutputDevice), to: &systemListeners)
@@ -227,6 +230,12 @@ public final class RealAudioDevicesService: AudioDevicesService {
 
     private func stopIfUnobserved() {
         guard observers.isEmpty, commandObservers.isEmpty else { return }
+        stopObservation()
+    }
+
+    private func stopObservation() {
+        generation &+= 1
+        volumeKeyMonitor.stop()
         systemListeners.forEach(Self.remove)
         outputListeners.forEach(Self.remove)
         systemListeners.removeAll()
@@ -238,6 +247,7 @@ public final class RealAudioDevicesService: AudioDevicesService {
     }
 
     private func refresh(rebuildDevices: Bool = false) {
+        guard !observers.isEmpty || !commandObservers.isEmpty else { return }
         let defaultID = defaultOutputID()
         // Hot-plug can report the new default output before the device-list change arrives.
         if rebuildDevices || cachedOutputIDs.isEmpty
@@ -277,9 +287,11 @@ public final class RealAudioDevicesService: AudioDevicesService {
     private func addListener(_ object: AudioObjectID, _ property: AudioObjectPropertyAddress,
                              to target: inout [Listener]) {
         var address = property
+        let generation = generation
         let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
             Task { @MainActor [weak self] in
-                self?.refresh(rebuildDevices: property.mSelector == kAudioHardwarePropertyDevices)
+                guard let self, self.generation == generation else { return }
+                self.refresh(rebuildDevices: property.mSelector == kAudioHardwarePropertyDevices)
             }
         }
         if AudioObjectAddPropertyListenerBlock(object, &address, .main, block) == noErr {
