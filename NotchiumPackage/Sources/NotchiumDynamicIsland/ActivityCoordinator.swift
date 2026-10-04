@@ -22,6 +22,9 @@ public final class ActivityCoordinator: ObservableObject {
     /// Live transients waiting underneath the primary.
     @Published public private(set) var queueCount = 0
     @Published public private(set) var presentationMode: NotchPresentationMode = .none
+    /// Publishes only after every presentation slot has been assigned. Individual
+    /// @Published streams emit before assignment and cannot invalidate the shell safely.
+    let presentationDidResolve = PassthroughSubject<Void, Never>()
 
     /// Focus integration: while true, routine notifications stay quiet (see `ActivityPriorityPolicy`).
     public var reducesInterruptions = false
@@ -239,23 +242,29 @@ public final class ActivityCoordinator: ObservableObject {
         let presented = primaryEntry.flatMap { $0.notification != nil || transient != nil ? $0 : nil }
         primaryKey = primaryEntry?.activity.key
 
+        let live = allRanked.filter { entries[$0.activity.key] != nil }.map(\.activity)
+        let waiting = ranked.count { !$0.activity.lifetime.isBaseline && $0.activity.key != primaryKey }
+        let media = ranked.first { $0.activity.lifetime.isBaseline && $0.activity.presentationStyle == .mediaSides }
+        let mode = Self.presentationMode(persistent: media?.activity, best: baseline?.activity,
+                                         transient: presented?.activity)
+        let changed = notifications.active != presented?.notification || liveActivities != live
+            || primary != primaryEntry?.activity || activeTransient != transient?.activity
+            || persistentActivity != baseline?.activity || secondary != secondaryEntry?.activity
+            || queueCount != waiting || presentationMode != mode
+
         // The notification slot is synchronised first so the shell never observes a
         // primary without its content (no intermediate empty frame).
         notifications.show(presented?.notification, createdAt: presented?.createdAt,
                            expiresAt: presented?.expiresAt)
         // Quiet entries keep their identity/data/deadlines, but never occupy a visible slot.
-        let live = allRanked.filter { entries[$0.activity.key] != nil }.map(\.activity)
         if liveActivities != live { liveActivities = live }
         if primary != primaryEntry?.activity { primary = primaryEntry?.activity }
         if activeTransient != transient?.activity { activeTransient = transient?.activity }
         if persistentActivity != baseline?.activity { persistentActivity = baseline?.activity }
         if secondary != secondaryEntry?.activity { secondary = secondaryEntry?.activity }
-        let waiting = ranked.count { !$0.activity.lifetime.isBaseline && $0.activity.key != primaryKey }
         if queueCount != waiting { queueCount = waiting }
-        let media = ranked.first { $0.activity.lifetime.isBaseline && $0.activity.presentationStyle == .mediaSides }
-        let mode = Self.presentationMode(persistent: media?.activity, best: baseline?.activity,
-                                         transient: presented?.activity)
         if presentationMode != mode { presentationMode = mode }
+        if changed { presentationDidResolve.send() }
     }
 
     /// `persistent`: live Music (kept under compact content); `best`: the highest baseline, which
