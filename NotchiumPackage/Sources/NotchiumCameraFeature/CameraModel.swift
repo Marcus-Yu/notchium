@@ -27,6 +27,9 @@ public final class CameraModel {
     @ObservationIgnored private let preferences: UserDefaults
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
+    @ObservationIgnored private var startTask: Task<Void, Never>?
+    @ObservationIgnored private var permissionTask: Task<Void, Never>?
+    @ObservationIgnored private var recoveringSession = false
 
     private enum Keys {
         static let mirrored = "notchium.camera.mirrored.v1"
@@ -37,6 +40,12 @@ public final class CameraModel {
         self.service = service
         self.preferences = preferences
         isMirrored = preferences.object(forKey: Keys.mirrored) as? Bool ?? true
+    }
+
+    isolated deinit { stop() }
+
+    private func observePreview() {
+        guard observers.isEmpty else { return }
         service.setEventHandler { [weak self] event in self?.handle(event) }
         observers.append(NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
@@ -46,8 +55,6 @@ public final class CameraModel {
 
     public func stop() {
         closePreview()
-        observers.forEach(NSWorkspace.shared.notificationCenter.removeObserver)
-        observers.removeAll()
     }
 
     // MARK: Preview lifecycle
@@ -58,6 +65,8 @@ public final class CameraModel {
 
     public func openPreview() {
         guard !isPreviewPresented else { return }
+        observePreview()
+        recoveringSession = false
         isPreviewPresented = true
         devices = service.devices()
         switch service.authorization {
@@ -70,7 +79,12 @@ public final class CameraModel {
     /// Stops capture immediately; safe to call repeatedly.
     public func closePreview() {
         generation &+= 1
+        startTask?.cancel(); startTask = nil
+        permissionTask?.cancel(); permissionTask = nil
         service.stop()
+        service.setEventHandler(nil)
+        observers.forEach(NSWorkspace.shared.notificationCenter.removeObserver)
+        observers.removeAll()
         isPreviewPresented = false
         activeDevice = nil
         status = .idle
@@ -78,11 +92,15 @@ public final class CameraModel {
 
     /// First use: macOS asks once; a refusal shows the Settings recovery.
     public func requestAccess(completion: @escaping @MainActor () -> Void = {}) {
+        guard permissionTask == nil, isPreviewPresented else { return }
         let current = generation
-        Task { [weak self, service] in
+        permissionTask = Task { [weak self, service] in
             let granted = await service.requestAccess()
+            // The native permission interaction lease must finish even if the preview
+            // closed while macOS was answering. Model mutation still requires identity.
             completion()
-            guard let self, current == self.generation, self.isPreviewPresented else { return }
+            guard let self, !Task.isCancelled, current == self.generation, self.isPreviewPresented else { return }
+            self.permissionTask = nil
             if granted { self.startSession() } else { self.status = .denied }
         }
     }
@@ -90,6 +108,7 @@ public final class CameraModel {
     public func select(_ device: CameraDevice) {
         preferences.set(device.id, forKey: Keys.device)
         guard isPreviewPresented, device != activeDevice else { return }
+        recoveringSession = false
         startSession()
     }
 
@@ -100,6 +119,7 @@ public final class CameraModel {
     }
 
     private func startSession() {
+        startTask?.cancel()
         generation &+= 1
         let current = generation
         devices = service.devices()
@@ -112,11 +132,12 @@ public final class CameraModel {
         let preferred = preferences.string(forKey: Keys.device)
         let target = devices.contains { $0.id == preferred } ? preferred : devices.first?.id
         status = .starting
-        Task { [weak self, service] in
+        startTask = Task { [weak self, service] in
             // Closed or restarted before this ran: never start.
-            guard let self, current == self.generation else { return }
+            guard current == self?.generation, !Task.isCancelled else { return }
             do {
                 let device = try await service.start(deviceID: target)
+                guard let self else { service.stop(); return }
                 // Closed while the session was starting: release it again. A restart's own
                 // start replaces this session.
                 guard current == self.generation, self.isPreviewPresented else {
@@ -125,8 +146,10 @@ public final class CameraModel {
                 }
                 self.activeDevice = device
                 self.status = .live
+                self.startTask = nil
             } catch {
-                guard current == self.generation else { return }
+                guard let self, !Task.isCancelled, current == self.generation else { return }
+                self.startTask = nil
                 self.status = (error as? CameraFailure) == .noCamera ? .noCamera : .failed
             }
         }
@@ -139,8 +162,20 @@ public final class CameraModel {
         case .devicesChanged:
             // The live camera went away (or a camera arrived while none was available): follow it.
             if let activeDevice, devices.contains(activeDevice) { return }
+            recoveringSession = false
             startSession()
         case .sessionFailed:
+            // One recovery per requested preview/device. A persistently busy/broken
+            // camera must not create an endless runtime-error → start loop.
+            guard !recoveringSession else {
+                generation &+= 1
+                startTask?.cancel(); startTask = nil
+                service.stop()
+                activeDevice = nil
+                status = .failed
+                return
+            }
+            recoveringSession = true
             startSession()
         }
     }
