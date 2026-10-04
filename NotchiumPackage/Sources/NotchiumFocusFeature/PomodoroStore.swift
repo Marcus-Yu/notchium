@@ -15,12 +15,17 @@ public struct PomodoroArchive: Codable, Equatable, Sendable {
 public protocol PomodoroPersisting: AnyObject, Sendable {
     func load() -> PomodoroArchive
     func save(_ archive: PomodoroArchive)
+    func flush()
 }
+
+public extension PomodoroPersisting { func flush() {} }
 
 /// One small JSON file in Application Support, written atomically on each change.
 public final class FilePomodoroStore: PomodoroPersisting, @unchecked Sendable {
     private let url: URL
-    private let lock = NSLock()
+    // Ordered atomic writes happen off MainActor with no deliberate batching delay.
+    // Reads and graceful shutdown wait for preceding writes.
+    private let queue = DispatchQueue(label: "notchium.pomodoro.store", qos: .utility)
 
     public init(url: URL? = nil) {
         self.url = url ?? Self.defaultURL
@@ -32,18 +37,22 @@ public final class FilePomodoroStore: PomodoroPersisting, @unchecked Sendable {
     }
 
     public func load() -> PomodoroArchive {
-        lock.lock(); defer { lock.unlock() }
-        guard let data = try? Data(contentsOf: url),
-              let archive = try? JSONDecoder.pomodoro.decode(PomodoroArchive.self, from: data) else { return PomodoroArchive() }
-        return archive
+        queue.sync {
+            guard let data = try? Data(contentsOf: url),
+                  let archive = try? JSONDecoder.pomodoro.decode(PomodoroArchive.self, from: data) else { return PomodoroArchive() }
+            return archive
+        }
     }
 
     public func save(_ archive: PomodoroArchive) {
-        lock.lock(); defer { lock.unlock() }
-        guard let data = try? JSONEncoder.pomodoro.encode(archive) else { return }
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: url, options: [.atomic])
+        queue.async { [url] in
+            guard let data = try? JSONEncoder.pomodoro.encode(archive) else { return }
+            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? data.write(to: url, options: [.atomic])
+        }
     }
+
+    public func flush() { queue.sync {} }
 }
 
 public final class InMemoryPomodoroStore: PomodoroPersisting, @unchecked Sendable {
