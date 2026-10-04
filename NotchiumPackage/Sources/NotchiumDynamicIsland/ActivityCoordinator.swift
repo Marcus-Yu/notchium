@@ -26,6 +26,16 @@ public final class ActivityCoordinator: ObservableObject {
     /// Focus integration: while true, routine notifications stay quiet (see `ActivityPriorityPolicy`).
     public var reducesInterruptions = false
 
+    public private(set) var presentationContext: NotchPresentationContext = .normal
+    /// Composition-owned callback resolves passive display ownership before submission.
+    var onSubmission: (@MainActor () -> Void)?
+
+    public func setPresentationContext(_ context: NotchPresentationContext) {
+        guard presentationContext != context else { return }
+        presentationContext = context
+        resolve()
+    }
+
     public var activeActivity: NotchActivity? { primary }
     public var foregroundActivity: NotchActivity? { primary }
     public var underlyingActivity: NotchActivity? { persistentActivity }
@@ -93,6 +103,7 @@ public final class ActivityCoordinator: ObservableObject {
     /// Submits or updates a generic activity. Persistent/condition activities have no deadline;
     /// transient ones expire `duration` after their latest meaningful update (never if nil).
     public func present(_ activity: NotchActivity) {
+        onSubmission?()
         upsert(activity, notification: nil, duration: activity.lifetime.isBaseline ? nil : activity.duration)
     }
 
@@ -100,6 +111,7 @@ public final class ActivityCoordinator: ObservableObject {
     /// cannot present yet stays live underneath until its own absolute deadline.
     @discardableResult
     func presentNotification(_ notification: NotchNotification, refreshingLifetime: Bool = false) -> Bool {
+        onSubmission?()
         if reducesInterruptions, ActivityPriorityPolicy.isQuietedDuringFocus(notification.kind) { return false }
         var incoming = notification
         let key = NotchActivityKey(notification.coalescingKey)
@@ -201,12 +213,16 @@ public final class ActivityCoordinator: ObservableObject {
 
     private func resolve() {
         if let key = promotedKey, entries[key] == nil { promotedKey = nil }
-        var ranked = entries.values.sorted(by: ActivityPriorityPolicy.outranks)
+        let allRanked = entries.values.sorted(by: ActivityPriorityPolicy.outranks)
+        var ranked = allRanked.filter {
+            ActivitySurfacingPolicy.shouldSurface($0.activity, notificationKind: $0.notification?.kind,
+                                                  in: presentationContext)
+        }
         let interruption = ranked.first.flatMap { $0.activity.lifetime.isBaseline ? nil : $0 }
         // An interruption ends a user promotion: afterwards the primary is re-ranked from the
         // activities that are live now, never restored from a stale choice.
         if interruption != nil { promotedKey = nil }
-        let primaryEntry = interruption ?? promotedKey.flatMap { entries[$0] } ?? ranked.first
+        let primaryEntry = interruption ?? promotedKey.flatMap { key in ranked.first { $0.activity.key == key } } ?? ranked.first
         // Replaceable feedback that does not hold the notch is dropped, never resumed later.
         let stale = ranked.filter {
             $0.activity.key != primaryEntry?.activity.key && ActivityPriorityPolicy.isReplaceable($0)
@@ -227,7 +243,8 @@ public final class ActivityCoordinator: ObservableObject {
         // primary without its content (no intermediate empty frame).
         notifications.show(presented?.notification, createdAt: presented?.createdAt,
                            expiresAt: presented?.expiresAt)
-        let live = ranked.map(\.activity)
+        // Quiet entries keep their identity/data/deadlines, but never occupy a visible slot.
+        let live = allRanked.filter { entries[$0.activity.key] != nil }.map(\.activity)
         if liveActivities != live { liveActivities = live }
         if primary != primaryEntry?.activity { primary = primaryEntry?.activity }
         if activeTransient != transient?.activity { activeTransient = transient?.activity }
