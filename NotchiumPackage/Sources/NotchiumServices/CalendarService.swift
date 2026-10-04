@@ -103,8 +103,10 @@ public final class RealCalendarService: CalendarService {
     private var changeTask: Task<Void, Never>?
     private var observers: [(NotificationCenter, NSObjectProtocol)] = []
     private var started = false
+    private var generation = 0
 
     public init() {}
+    isolated deinit { stopObservation() }
 
     public func availability() async -> FeatureAvailability {
         return switch permission {
@@ -118,11 +120,15 @@ public final class RealCalendarService: CalendarService {
     public func updates() async -> AsyncStream<CalendarSnapshot> {
         if !started { startObserving(); refreshNow() }
         let id = UUID()
-        return AsyncStream { continuation in
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             continuations[id] = continuation
             continuation.yield(latest)
             continuation.onTermination = { [weak self] _ in
-                Task { @MainActor [weak self] in self?.continuations.removeValue(forKey: id) }
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.continuations.removeValue(forKey: id)
+                    if self.continuations.isEmpty { self.stopObservation() }
+                }
             }
         }
     }
@@ -131,7 +137,9 @@ public final class RealCalendarService: CalendarService {
 
     public func requestAccess() async {
         guard permission == .notRequested else { refreshNow(); return }
+        let generation = generation
         _ = try? await store.requestFullAccessToEvents()
+        guard self.generation == generation, !Task.isCancelled else { return }
         refreshNow()
     }
 
@@ -146,6 +154,11 @@ public final class RealCalendarService: CalendarService {
     }
 
     public func stop() async {
+        stopObservation()
+    }
+
+    private func stopObservation() {
+        generation &+= 1
         boundaryTask?.cancel(); boundaryTask = nil
         changeTask?.cancel(); changeTask = nil
         for (center, token) in observers { center.removeObserver(token) }
@@ -167,15 +180,21 @@ public final class RealCalendarService: CalendarService {
     }
 
     private func startObserving() {
+        generation &+= 1
         started = true
+        let generation = generation
         let center = NotificationCenter.default
         for name in [Notification.Name.EKEventStoreChanged, .NSCalendarDayChanged,
-                     NSApplication.didBecomeActiveNotification,
+                     NSApplication.didBecomeActiveNotification, .NSSystemClockDidChange,
+                     .NSSystemTimeZoneDidChange,
                      NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification] {
             let observerCenter = (name == NSWorkspace.didWakeNotification || name == NSWorkspace.screensDidWakeNotification)
                 ? NSWorkspace.shared.notificationCenter : center
             let token = observerCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor [weak self] in self?.scheduleRefresh() }
+                Task { @MainActor [weak self] in
+                    guard let self, self.started, self.generation == generation else { return }
+                    self.scheduleRefresh()
+                }
             }
             observers.append((observerCenter, token))
         }
