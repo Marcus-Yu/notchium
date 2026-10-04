@@ -86,6 +86,7 @@ public final class RealFileTransferService: FileTransferService {
     private var subscriptions: [Any] = []
     private var tracked: [ObjectIdentifier: Tracked] = [:]
     private var continuations: [UUID: AsyncStream<TransferSnapshot>.Continuation] = [:]
+    private var subscriptionGeneration = 0
     /// Progress KVO can fire per chunk; the notch needs a few updates a second at most.
     private let flushInterval: Duration = .milliseconds(250)
 
@@ -93,6 +94,8 @@ public final class RealFileTransferService: FileTransferService {
         self.folders = folders
             ?? FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)
     }
+
+    isolated deinit { stopObservation() }
 
     private var access: FeatureAvailability = .available
 
@@ -129,14 +132,22 @@ public final class RealFileTransferService: FileTransferService {
     }
 
     private func subscribe() {
+        subscriptionGeneration &+= 1
+        let generation = subscriptionGeneration
         probeAccess()
         for folder in folders {
             // The handler runs on the main thread (verified); it is still hopped explicitly.
             let token = Progress.addSubscriber(forFileURL: folder) { [weak self] progress in
                 let box = ProgressBox(progress)
-                let id = MainActor.assumeIsolated { self?.published(box.progress) }
+                let id = MainActor.assumeIsolated {
+                    guard let self, self.subscriptionGeneration == generation else { return nil as String? }
+                    return self.published(box.progress)
+                }
                 return { [weak self] in
-                    MainActor.assumeIsolated { self?.unpublished(box.progress, id: id) }
+                    MainActor.assumeIsolated {
+                        guard let self, self.subscriptionGeneration == generation else { return }
+                        self.unpublished(box.progress, id: id)
+                    }
                 }
             }
             subscriptions.append(token)
@@ -146,6 +157,11 @@ public final class RealFileTransferService: FileTransferService {
     private func removeObserver(_ token: UUID) {
         continuations[token] = nil
         guard continuations.isEmpty else { return }
+        stopObservation()
+    }
+
+    private func stopObservation() {
+        subscriptionGeneration &+= 1
         subscriptions.forEach(Progress.removeSubscriber)
         subscriptions.removeAll()
         tracked.values.forEach {
@@ -169,7 +185,9 @@ public final class RealFileTransferService: FileTransferService {
             // The small synchronized mailbox also preserves terminal evidence if unpublish
             // reaches the main actor before this callback's queued delivery.
             let snapshot = Self.snapshot(progress, id: id, phase: Self.phase(progress), startedAt: startedAt)
-            samples.record(snapshot)
+            // At most one queued actor delivery per proxy. KVO's terminal evidence is
+            // still latched synchronously before unpublish, regardless of delivery order.
+            guard samples.record(snapshot) else { return }
             Task { @MainActor [weak self] in self?.sampleReceived(key: key, id: id) }
         }
         entry.observations = [
@@ -179,6 +197,7 @@ public final class RealFileTransferService: FileTransferService {
             progress.observe(\.isCancelled) { progress, _ in capture(progress) }
         ]
         samples.record(Self.snapshot(progress, id: id, phase: Self.phase(progress), startedAt: startedAt))
+        samples.deliveryHandled()
         send(entry, snapshot: Self.snapshot(progress, id: id,
             phase: progress.isPaused ? .paused : .active, startedAt: startedAt))
         return id
@@ -212,6 +231,7 @@ public final class RealFileTransferService: FileTransferService {
 
     private func sampleReceived(key: ObjectIdentifier, id: String) {
         guard let entry = tracked[key], entry.id == id else { return }
+        entry.samples.deliveryHandled()
         if entry.samples.latest?.phase.isTerminal == true {
             entry.flushTask?.cancel()
             entry.flushTask = nil
@@ -298,18 +318,28 @@ public final class RealFileTransferService: FileTransferService {
 
 /// A KVO callback can run before its main-actor delivery. Preserve immutable completion
 /// evidence synchronously; presentation mutation still has exactly one main-actor path.
-private final class TransferSampleBuffer: Sendable {
-    private let sample = Mutex<TransferSnapshot?>(nil)
-    var latest: TransferSnapshot? { sample.withLock { $0 } }
+final class TransferSampleBuffer: Sendable {
+    private struct State {
+        var latest: TransferSnapshot?
+        var deliveryPending = false
+    }
+    private let sample = Mutex(State())
+    var latest: TransferSnapshot? { sample.withLock { $0.latest } }
 
-    func record(_ incoming: TransferSnapshot) {
-        sample.withLock { current in
-            guard current?.phase.isTerminal != true else { return }
+    @discardableResult
+    func record(_ incoming: TransferSnapshot) -> Bool {
+        sample.withLock { state in
+            guard state.latest?.phase.isTerminal != true else { return false }
             // Terminal evidence always latches; only progress samples are ordered by time.
-            if !incoming.phase.isTerminal, let latest = current, latest.updatedAt > incoming.updatedAt { return }
-            current = incoming
+            if !incoming.phase.isTerminal, let latest = state.latest, latest.updatedAt > incoming.updatedAt { return false }
+            state.latest = incoming
+            guard !state.deliveryPending else { return false }
+            state.deliveryPending = true
+            return true
         }
     }
+
+    func deliveryHandled() { sample.withLock { $0.deliveryPending = false } }
 }
 
 extension TransferSnapshot {
