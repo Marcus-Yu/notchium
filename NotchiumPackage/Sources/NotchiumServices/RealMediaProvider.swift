@@ -60,7 +60,7 @@ public actor RealMediaProvider: MediaProviding {
     private var reconciliationRefreshTask: Task<Void, Never>?
     private var eventRefreshTask: Task<Void, Never>?
     private var pendingControls: Set<String> = []
-    private var connecting = false
+    private var connectionGeneration: Int?
     private var playbackFetchInFlight = false
     private var refreshRequested = false
     private var expandedVisible = false
@@ -112,10 +112,10 @@ public actor RealMediaProvider: MediaProviding {
         return pair.stream
     }
     public func connect() async throws {
-        guard !connected, !connecting, state.connectionState != .authorizing else { return }
-        connecting = true
-        defer { connecting = false }
+        guard !connected, connectionGeneration != generation, state.connectionState != .authorizing else { return }
         let generation = generation
+        connectionGeneration = generation
+        defer { if connectionGeneration == generation { connectionGeneration = nil } }
         if state.connectionState != .initializing {
             await publish(.init(availability: .unavailable(.permissionNotDetermined),
                           connectionState: .initializing, source: .spotify))
@@ -148,6 +148,7 @@ public actor RealMediaProvider: MediaProviding {
     }
     public func beginAuthorization(clientID: String) async throws -> URL {
         generation &+= 1
+        resetSessionRequests()
         let generation = generation
         connected = false
         pollTask?.cancel()
@@ -189,6 +190,7 @@ public actor RealMediaProvider: MediaProviding {
     public func cancelAuthorization() async {
         guard state.connectionState == .authorizing else { return }
         generation &+= 1
+        resetSessionRequests()
         connected = false
         pollTask?.cancel()
         pollTask = nil
@@ -203,6 +205,7 @@ public actor RealMediaProvider: MediaProviding {
     public func failAuthorization() async {
         guard state.connectionState == .authorizing else { return }
         generation &+= 1
+        resetSessionRequests()
         connected = false
         pollTask?.cancel()
         pollTask = nil
@@ -226,12 +229,14 @@ public actor RealMediaProvider: MediaProviding {
     }
     public func shutdown() async {
         generation &+= 1; connected = false; pollTask?.cancel(); pollTask = nil
+        resetSessionRequests()
         reconciliationRefreshTask?.cancel(); reconciliationRefreshTask = nil
         cancelEventRefresh()
         awaitingInitialPlaybackState = false
     }
     public func disconnect() async throws {
         generation &+= 1; connected = false; pollTask?.cancel(); pollTask = nil
+        resetSessionRequests()
         reconciliationRefreshTask?.cancel(); reconciliationRefreshTask = nil
         cancelEventRefresh()
         awaitingInitialPlaybackState = false
@@ -241,6 +246,16 @@ public actor RealMediaProvider: MediaProviding {
     }
     private func remove(_ id: UUID) {
         subscribers.removeValue(forKey: id)
+    }
+
+    private func resetSessionRequests() {
+        connectionGeneration = nil
+        pendingControls.removeAll()
+        playbackFetchInFlight = false
+        queueFetchInFlight = false
+        queueFetchedAt = nil
+        inputRevision &+= 1
+        observationRevision &+= 1
     }
     @discardableResult
     private func publish(_ value: MediaState) async -> Bool {
@@ -289,14 +304,16 @@ public actor RealMediaProvider: MediaProviding {
     private func poll(generation: Int) async -> Duration? {
         guard connected, self.generation == generation else { return nil }
         if let until = await api.cooldownUntil() {
+            guard connected, self.generation == generation, !Task.isCancelled else { return nil }
             await publish(state)
             return .seconds(max(0, until.timeIntervalSince(await clock.now())))
         }
+        guard connected, self.generation == generation, !Task.isCancelled else { return nil }
         guard pendingControls.isEmpty, !playbackFetchInFlight else {
             return .seconds(Self.playingPollInterval)
         }
         playbackFetchInFlight = true
-        defer { finishPlaybackFetch() }
+        defer { finishPlaybackFetch(generation: generation) }
         return .seconds(await readPlayback(reason: "poll"))
     }
 
@@ -380,13 +397,15 @@ public actor RealMediaProvider: MediaProviding {
                                    startedAt: ProcessInfo.processInfo.systemUptime)
         }
         defer {
-            pendingControls.remove(command.controlID)
-            if resumeAfterSeek { pendingControls.remove(MediaCommand.play.controlID) }
-            if connected, self.generation == generation, pendingControls.isEmpty {
-                if reconciliation != nil {
-                    scheduleReconciliationRefresh(generation: generation, action: inputRevision)
+            if self.generation == generation {
+                pendingControls.remove(command.controlID)
+                if resumeAfterSeek { pendingControls.remove(MediaCommand.play.controlID) }
+                if connected, self.generation == generation, pendingControls.isEmpty {
+                    if reconciliation != nil {
+                        scheduleReconciliationRefresh(generation: generation, action: inputRevision)
+                    }
+                    drainRequestedRefresh()
                 }
-                drainRequestedRefresh()
             }
         }
         do {
@@ -430,15 +449,19 @@ public actor RealMediaProvider: MediaProviding {
         reconciliation = .init(origin: state, target: .playing(true), startedAt: ProcessInfo.processInfo.systemUptime)
         let generation = generation
         defer {
-            pendingControls.remove(MediaCommand.play.controlID)
-            if connected, self.generation == generation, pendingControls.isEmpty {
-                if reconciliation != nil {
-                    scheduleReconciliationRefresh(generation: generation, action: inputRevision)
+            if self.generation == generation {
+                pendingControls.remove(MediaCommand.play.controlID)
+                if connected, self.generation == generation, pendingControls.isEmpty {
+                    if reconciliation != nil {
+                        scheduleReconciliationRefresh(generation: generation, action: inputRevision)
+                    }
+                    drainRequestedRefresh()
                 }
-                drainRequestedRefresh()
             }
         }
         let existingDevices = (try? await api.devices()) ?? []
+        try Task.checkCancellation()
+        guard self.generation == generation, connected else { throw CancellationError() }
         let existingIDs = Set(existingDevices.map(\.id))
         let wasRunning = await applicationLauncher.isSpotifyRunning()
         if !wasRunning {
@@ -454,6 +477,8 @@ public actor RealMediaProvider: MediaProviding {
             generation: generation
         ) else { throw MediaFailure.spotifyUnavailable }
 
+        try Task.checkCancellation()
+        guard self.generation == generation, connected else { throw CancellationError() }
         try await api.transferPlayback(to: device.id, play: true)
         guard self.generation == generation, connected else { throw CancellationError() }
         observationRevision &+= 1
@@ -471,6 +496,8 @@ public actor RealMediaProvider: MediaProviding {
             try Task.checkCancellation()
             guard self.generation == generation, connected else { throw CancellationError() }
             let devices = try await api.devices()
+            try Task.checkCancellation()
+            guard self.generation == generation, connected else { throw CancellationError() }
             let computers = devices.filter {
                 !$0.isRestricted && $0.type.caseInsensitiveCompare("computer") == .orderedSame
             }
@@ -486,17 +513,20 @@ public actor RealMediaProvider: MediaProviding {
     }
     public func refresh() async {
         guard connected else { return }
+        let generation = generation
         guard pendingControls.isEmpty, !playbackFetchInFlight else {
             refreshRequested = true
             return
         }
         playbackFetchInFlight = true
-        defer { finishPlaybackFetch() }
+        defer { finishPlaybackFetch(generation: generation) }
         if await api.cooldownUntil() != nil { return }
+        guard connected, self.generation == generation, !Task.isCancelled else { return }
         await readPlayback(reason: "refresh")
     }
 
-    private func finishPlaybackFetch() {
+    private func finishPlaybackFetch(generation: Int) {
+        guard self.generation == generation else { return }
         playbackFetchInFlight = false
         drainRequestedRefresh()
     }
@@ -590,8 +620,8 @@ public actor RealMediaProvider: MediaProviding {
         guard connected else { throw MediaFailure.disconnected }
         guard !queueFetchInFlight else { return }
         queueFetchInFlight = true
-        defer { queueFetchInFlight = false }
         let generation = generation
+        defer { if self.generation == generation { queueFetchInFlight = false } }
         // Coalesce opens/track events during a request. If its snapshot became stale,
         // fetch the latest queue once, without starting another task or timer.
         for _ in 0..<2 {
@@ -682,26 +712,36 @@ public actor RealMediaProvider: MediaProviding {
     }
     public func devices() async throws -> [SpotifyDevice] {
         guard connected else { throw MediaFailure.disconnected }
-        return try await api.devices()
+        let generation = generation
+        let devices = try await api.devices()
+        try Task.checkCancellation()
+        guard self.generation == generation, connected else { throw CancellationError() }
+        return devices
     }
     public func transferPlayback(to deviceID: String) async throws {
         guard !pendingControls.contains("transfer") else { throw MediaFailure.busy }
         guard connected else { throw MediaFailure.disconnected }
         let generation = generation
+        // Reserve before discovery's await: actor isolation alone does not prevent a
+        // second transfer from entering while the first device request is suspended.
+        pendingControls.insert("transfer")
+        defer {
+            if self.generation == generation {
+                pendingControls.remove("transfer")
+                drainRequestedRefresh()
+            }
+        }
         let available = try await api.devices()
+        try Task.checkCancellation()
         guard self.generation == generation, connected else { throw CancellationError() }
         guard let device = available.first(where: { $0.id == deviceID }), !device.isRestricted else {
             throw MediaFailure.unsupported
         }
-        pendingControls.insert("transfer")
         invalidatePlaybackReads()
-        defer {
-            pendingControls.remove("transfer")
-            drainRequestedRefresh()
-        }
         // Spotify's transfer endpoint preserves the current play state when play is omitted.
         try await api.transferPlayback(to: deviceID, play: nil)
-        guard self.generation == generation, connected else { return }
+        try Task.checkCancellation()
+        guard self.generation == generation, connected else { throw CancellationError() }
         invalidatePlaybackReads()
         reconciliation = .init(origin: state, target: .device(deviceID), startedAt: ProcessInfo.processInfo.systemUptime)
         await readPlayback(reason: "transfer-confirmation")
