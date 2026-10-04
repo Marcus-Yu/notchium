@@ -28,6 +28,14 @@ final class NotchPanel: NSPanel, NSDraggingDestination {
     static let fileDragLevel: NSWindow.Level = .popUpMenu
     private var acceptsFileDrags = false
     private var nativeShareSources: Set<String> = []
+    private var presentationContext: NotchPresentationContext = .normal
+
+    func setPresentationContext(_ context: NotchPresentationContext) {
+        presentationContext = context
+        // Fullscreen changes rederive the CURRENT owners. They never save/restore a level.
+        updateLevel()
+        if context == .sleeping { orderOut(nil) }
+    }
 
     func setAcceptsFileDrags(_ accepts: Bool) {
         acceptsFileDrags = accepts
@@ -103,7 +111,7 @@ final class NotchPanel: NSPanel, NSDraggingDestination {
 
         animationBehavior = .none
 
-        level = Self.restingLevel
+        updateLevel()
 
         collectionBehavior = [
             .canJoinAllSpaces,
