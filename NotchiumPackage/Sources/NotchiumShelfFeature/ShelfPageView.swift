@@ -77,8 +77,9 @@ struct ShelfPageView: View {
             ShelfToolButton(symbol: "plus", label: "Add Files…", action: model.addChosenFiles)
             ShelfToolButton(symbol: "dot.radiowaves.left.and.right", label: "AirDrop",
                             image: NativeFileActions.airDropImage) { model.airDrop(targets) }
-                .disabled(targets.isEmpty)
+                .disabled(targets.isEmpty || model.isSharing)
             ShelfToolButton(symbol: "square.and.arrow.up", label: "Share") { model.share(targets) }
+                .disabled(model.isSharing)
                 .background { FileSharingAnchor(model: model) }
                 .disabled(targets.isEmpty)
                 .help("Share")
@@ -187,8 +188,8 @@ struct ShelfPageView: View {
         Button("Show in Finder") { model.actions.reveal(urls) }
         Button("Copy") { model.actions.copyFiles(urls) }
         Button("Copy Path") { model.actions.copyPaths(urls) }
-        Button("Share…") { model.share(urls) }
-        Button("AirDrop") { model.airDrop(urls) }
+        Button("Share…") { model.share(urls) }.disabled(model.isSharing)
+        Button("AirDrop") { model.airDrop(urls) }.disabled(model.isSharing)
     }
 
     private func toggle(_ id: ShelfModel.Item.ID) {
