@@ -5,7 +5,13 @@ import OSLog
 struct SpotifyPlayback: Decodable {
     struct Artist: Decodable { let name: String }
     struct Artwork: Decodable { let url: URL; let width: Int? }
-    struct Album: Decodable { let images: [Artwork] }
+    struct Album: Decodable {
+        let images: [Artwork]
+        /// The image closest to 300 px wide; sizes absent from the payload count as 300.
+        var preferredArtworkURL: URL? {
+            images.min { abs(($0.width ?? 300) - 300) < abs(($1.width ?? 300) - 300) }?.url
+        }
+    }
     struct Track: Decodable {
         let id: String?
         let uri: String?
@@ -47,9 +53,7 @@ struct SpotifyPlayback: Decodable {
                      trackID: item.id, activeDeviceID: device?.id,
                      activeDeviceName: device?.name, activeDeviceType: device?.type,
                      volumePercent: device?.volume_percent,
-                     artwork: item.album?.images.min {
-                         abs(($0.width ?? 300) - 300) < abs(($1.width ?? 300) - 300)
-                     }?.url, source: .spotify,
+                     artwork: item.album?.preferredArtworkURL, source: .spotify,
                      capabilities: .init(canPlayPause: allows(is_playing ? "pausing" : "resuming"),
                                          canSkipForward: allows("skipping_next"), canSkipBackward: allows("skipping_prev"),
                                          canSeek: allows("seeking"), canShuffle: allows("toggling_shuffle"),
@@ -144,10 +148,7 @@ actor SpotifyPlaybackAPI {
         return try JSONDecoder().decode(SpotifyPlayback.self, from: response.data).mediaState()
     }
     func queue() async throws -> [QueueTrack] {
-        struct Queue: Decodable {
-            let currently_playing: SpotifyPlayback.Track?
-            let queue: [SpotifyPlayback.Track]
-        }
+        struct Queue: Decodable { let queue: [SpotifyPlayback.Track] }
         let response = try await request(path: "/queue", reason: "queue")
         let payload = try JSONDecoder().decode(Queue.self, from: response.data)
         var occurrences: [String: Int] = [:]
@@ -158,9 +159,7 @@ actor SpotifyPlaybackAPI {
             occurrences[identity] = occurrence + 1
             return .init(id: "\(identity):\(occurrence)", uri: uri, title: track.name,
                          artist: track.artists?.map(\.name).joined(separator: ", ") ?? "",
-                         artworkURL: track.album?.images.min {
-                             abs(($0.width ?? 300) - 300) < abs(($1.width ?? 300) - 300)
-                         }?.url,
+                         artworkURL: track.album?.preferredArtworkURL,
                          duration: max(0, (track.duration_ms ?? 0) / 1000))
         }
     }
