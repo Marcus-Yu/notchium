@@ -27,7 +27,7 @@ struct NotchActivityDeveloperControls: View {
             Section("Live state") {
                 LabeledContent("Primary", value: coordinator.primary.map { "\($0.key)" } ?? "None")
                 LabeledContent("Secondary", value: coordinator.secondary.map { "\($0.key)" } ?? "None")
-                LabeledContent("Priority", value: coordinator.activeActivity.map { String(describing: $0.priority) } ?? "—")
+                LabeledContent("Priority", value: coordinator.primary.map { String(describing: $0.priority) } ?? "—")
                 LabeledContent("Queue Count", value: String(coordinator.queueCount))
                 Text(coordinator.debugSummary)
                     .font(.caption.monospaced())
