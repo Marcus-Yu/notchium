@@ -44,10 +44,10 @@ struct HomeMediaView: View {
     private var information: some View {
         Button(action: openMusic) {
             HStack(spacing: compact ? ExpandedPageStyle.Space.sm : ExpandedPageStyle.groupGap) {
-                MediaArtwork(url: model.state.artwork, size: compact ? 44 : 64)
+                MediaArtwork(url: model.state.artwork, size: compact ? 56 : 72)
                 VStack(alignment: .leading, spacing: compact ? 3 : 5) {
-                    Text(model.state.title ?? "").font(.system(size: compact ? 12 : 13, weight: .semibold)).lineLimit(2)
-                    Text(model.state.artist ?? "").font(.system(size: compact ? 10 : 11))
+                    Text(model.state.title ?? "").font(.system(size: compact ? 14 : 15, weight: .semibold)).lineLimit(2)
+                    Text(model.state.artist ?? "").font(.system(size: compact ? 12 : 13))
                         .foregroundStyle(ExpandedPageStyle.secondary).lineLimit(1)
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
