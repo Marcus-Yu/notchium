@@ -4,7 +4,7 @@ set -eu
 helper_dir="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Library/HelperTools"
 plist_dir="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Library/LaunchDaemons"
 case " ${SWIFT_ACTIVE_COMPILATION_CONDITIONS:-} " in
-  *NOTCH_APP_STORE*)
+  *NOTCH_APP_STORE*|*NOTCH_FREE_DISTRIBUTION*)
     rm -f "$helper_dir/NotchiumLidAwake" "$plist_dir/com.marcusyu.notchium.lid-awake.plist"
     exit 0 ;;
 esac
