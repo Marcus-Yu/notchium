@@ -87,7 +87,7 @@ public struct NotchiumSettingsView: View {
             case .calendar: calendarModel != nil
             case .clipboard: environment.featureFlags[.clipboard] && clipboardModel != nil
             case .focus: environment.featureFlags[.focus] && focusModeModel != nil && pomodoroModel != nil
-            case .caffeine: environment.distributionProfile == .developerID && caffeineModel != nil
+            case .caffeine: environment.distributionProfile != .appStoreSandboxed && caffeineModel != nil
             }
         }
     }
