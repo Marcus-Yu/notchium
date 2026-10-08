@@ -6,6 +6,7 @@ struct CalendarJoinButtonStyle: ButtonStyle {
     var height: CGFloat = 28
 
     @NotchReducedMotion private var reduceMotion
+    @Environment(\.isEnabled) private var isEnabled
     @State private var isHovered = false
 
     func makeBody(configuration: Configuration) -> some View {
@@ -14,11 +15,12 @@ struct CalendarJoinButtonStyle: ButtonStyle {
             .foregroundStyle(Color.black)
             .padding(.horizontal, 12)
             .frame(height: height)
-            .background(Color.white, in: Capsule())
+            .background(Color.white.opacity(isEnabled && configuration.isPressed ? 0.78
+                                            : (isEnabled && isHovered ? 0.9 : 1)), in: Capsule())
             .fixedSize()
-            .scaleEffect(reduceMotion ? 1 : (configuration.isPressed ? 0.96 : (isHovered ? 1.03 : 1)))
+            .scaleEffect(reduceMotion || !isEnabled ? 1 : (configuration.isPressed ? 0.96 : (isHovered ? 1.03 : 1)))
             .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
             .animation(.easeOut(duration: 0.16), value: isHovered)
-            .onHover { isHovered = $0 }
+            .onHover { isHovered = $0 && isEnabled }
     }
 }
