@@ -127,7 +127,6 @@ public actor SpotifyAuthorization {
         Self.logger.info("[Spotify] OAuth callback received")
         let generation = generation
         guard let attempt else { throw MediaFailure.authorization }
-        self.attempt = nil
         guard Date().timeIntervalSince(attempt.started) < 300,
               let components = URLComponents(url: callback, resolvingAgainstBaseURL: false),
               components.scheme == "http", components.host == "127.0.0.1",
@@ -141,6 +140,9 @@ public actor SpotifyAuthorization {
               items.filter({ $0.name == "code" }).count == 1,
               let code = items.first(where: { $0.name == "code" })?.value, !code.isEmpty,
               !items.contains(where: { $0.name == "error" }) else { throw MediaFailure.authorization }
+        // An unrelated or malformed loopback request must not consume the user's attempt.
+        // A validated callback is still single-use, including when exchange fails.
+        self.attempt = nil
         Self.logger.info("[Spotify] Authorization code accepted")
         let token = try await exchange([
             "client_id": attempt.clientID, "grant_type": "authorization_code", "code": code,
