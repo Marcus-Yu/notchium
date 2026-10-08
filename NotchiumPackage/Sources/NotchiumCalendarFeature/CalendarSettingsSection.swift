@@ -20,25 +20,31 @@ public struct CalendarSettingsSection: View {
                 }
                 Button("Check Again") { model.refresh() }
             case .granted:
-                if model.snapshot.calendars.isEmpty {
+                if case .unavailable = model.snapshot.availability {
+                    Text("Calendar is unavailable right now. Try again to reload your calendars.")
+                        .foregroundStyle(.secondary)
+                    Button("Try Again") { model.refresh() }
+                } else if model.snapshot.calendars.isEmpty {
                     Text("No calendars are configured in Apple Calendar.")
                         .foregroundStyle(.secondary)
                 }
-                ForEach(model.snapshot.calendars) { calendar in
-                    Toggle(isOn: Binding(
-                        get: { calendar.isSelected },
-                        set: { model.setCalendarSelected(calendar.id, selected: $0) }
-                    )) {
-                        HStack(spacing: 8) {
-                            Circle().fill(Color(red: calendar.color.red, green: calendar.color.green,
-                                                blue: calendar.color.blue))
-                                .frame(width: 9, height: 9)
-                            Text(calendar.name)
+                if model.snapshot.availability.isUsable {
+                    ForEach(model.snapshot.calendars) { calendar in
+                        Toggle(isOn: Binding(
+                            get: { calendar.isSelected },
+                            set: { model.setCalendarSelected(calendar.id, selected: $0) }
+                        )) {
+                            HStack(spacing: 8) {
+                                Circle().fill(Color(red: calendar.color.red, green: calendar.color.green,
+                                                    blue: calendar.color.blue))
+                                    .frame(width: 9, height: 9)
+                                Text(calendar.name)
+                            }
                         }
                     }
+                    Text("Only selected calendars appear in the notch. Event details stay on this Mac.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
-                Text("Only selected calendars appear in the notch. Event details stay on this Mac.")
-                    .font(.caption).foregroundStyle(.secondary)
             }
         }
     }
