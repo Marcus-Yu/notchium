@@ -165,8 +165,12 @@ final class CaffeineTimedControlTests: XCTestCase {
         defer { model.stop() }
         model.keepAwake(for: .thirtyMinutes)
         await clock.waitForPendingSleeps()
-        let host = NSHostingView(rootView: NotchCaffeineButton(controller: model)
-            .frame(width: 200, height: 90, alignment: .top).background(.black))
+        func button(enabled: Bool) -> some View {
+            NotchCaffeineButton(controller: model)
+                .frame(width: 200, height: 90, alignment: .top).background(.black)
+                .disabled(!enabled)
+        }
+        let host = NSHostingView(rootView: button(enabled: true))
         let window = NSWindow(contentRect: CGRect(x: -10000, y: -10000, width: 200, height: 90),
                               styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -188,6 +192,20 @@ final class CaffeineTimedControlTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(100))
         XCTAssertGreaterThan(try countdownInk(in: host, name: "hovered"), 30,
                              "The native pointer event must display readable countdown text below the cup")
+
+        host.rootView = button(enabled: false)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(try countdownInk(in: host, name: "disabled"), 0,
+                       "Disabling while hovered must remove hover-only countdown text")
+        XCTAssertTrue(pointerView(in: host) === input)
+        XCTAssertEqual(input.convert(input.bounds, to: host), initialFrame)
+        host.rootView = button(enabled: true)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(try countdownInk(in: host, name: "reenabled"), 0,
+                       "Re-enabling must not restore stale hover feedback")
+        input.mouseEntered(with: entered)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertGreaterThan(try countdownInk(in: host, name: "hovered-again"), 30)
 
         let exited = try XCTUnwrap(NSEvent.enterExitEvent(with: .mouseExited, location: .zero,
             modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
