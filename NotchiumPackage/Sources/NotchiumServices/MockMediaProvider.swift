@@ -1,3 +1,4 @@
+#if DEBUG
 import Foundation
 import NotchiumCore
 
@@ -168,3 +169,4 @@ public actor MockMediaProvider: MediaProviding {
         Array(((1...5).map { Self.tracks[(trackIndex + $0) % Self.tracks.count] } + addedTracks).prefix(20))
     }
 }
+#endif
