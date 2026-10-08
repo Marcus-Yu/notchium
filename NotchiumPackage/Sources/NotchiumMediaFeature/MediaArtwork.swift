@@ -68,16 +68,7 @@ public struct MediaArtwork: View {
     public var body: some View {
         ZStack {
             if let image { Image(nsImage: image).resizable().scaledToFill().id(image).transition(.opacity) }
-            else if url?.scheme == "notchium-fixture" {
-                // Local, deterministic fixture artwork; no external requests in mocks.
-                Color(red: 0.15, green: 0.25, blue: 0.32)
-                Circle().fill(.orange.opacity(0.8)).frame(width: size * 0.45)
-                    .offset(x: size * 0.12, y: -size * 0.12)
-                Rectangle().fill(.black.opacity(0.6)).frame(height: size * 0.35).offset(y: size * 0.35)
-            } else {
-                Color(white: 0.12)
-                Image(systemName: "music.note").font(.system(size: size * 0.4)).foregroundStyle(.gray)
-            }
+            else { placeholder }
         }
         .frame(width: size, height: size)
         .clipShape(.rect(cornerRadius: size > 24 ? 13 : 4))
@@ -91,6 +82,27 @@ public struct MediaArtwork: View {
             guard !Task.isCancelled else { return }
             withAnimation(.easeInOut(duration: 0.18)) { image = loaded?.image }
         }
+    }
+
+    @ViewBuilder private var placeholder: some View {
+#if DEBUG
+        if url?.scheme == "notchium-fixture" {
+            // Local, deterministic fixture artwork; no external requests in mocks.
+            Color(red: 0.15, green: 0.25, blue: 0.32)
+            Circle().fill(.orange.opacity(0.8)).frame(width: size * 0.45)
+                .offset(x: size * 0.12, y: -size * 0.12)
+            Rectangle().fill(.black.opacity(0.6)).frame(height: size * 0.35).offset(y: size * 0.35)
+        } else {
+            defaultArtwork
+        }
+#else
+        defaultArtwork
+#endif
+    }
+
+    @ViewBuilder private var defaultArtwork: some View {
+        Color(white: 0.12)
+        Image(systemName: "music.note").font(.system(size: size * 0.4)).foregroundStyle(.gray)
     }
 }
 
