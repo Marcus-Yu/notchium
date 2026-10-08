@@ -12,8 +12,11 @@ public struct LidAwakeSettingsSection: View {
                 get: { controller.isEnabled },
                 set: { if $0 { controller.enable() } else { controller.disable() } }
             ))
-            Text("Applies to indefinite and timed Caffeine sessions. Requires administrator approval. Temporarily disables system sleep, including manual Sleep; the built-in display still turns off when closed. Keep the Mac ventilated. Stops below 15% battery or under high thermal pressure.")
-                .font(.caption).foregroundStyle(.secondary)
+            .disabled(!controller.isAvailableInThisBuild)
+            if controller.isAvailableInThisBuild {
+                Text("Applies to indefinite and timed Caffeine sessions. Requires administrator approval. Temporarily disables system sleep, including manual Sleep; the built-in display still turns off when closed. Keep the Mac ventilated. Stops below 15% battery or under high thermal pressure.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Text(controller.message).font(.caption)
             if controller.needsApproval {
                 Button("Open Login Items & Extensions", action: controller.openApprovalSettings)
@@ -21,6 +24,7 @@ public struct LidAwakeSettingsSection: View {
             Button("Remove Closed-Lid Helper") {
                 Task { await controller.removeHelper() }
             }
+            .disabled(!controller.isAvailableInThisBuild)
         }
     }
 }
