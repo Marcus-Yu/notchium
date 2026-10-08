@@ -6,7 +6,7 @@
 
 **Language mode:** Swift 6 with complete strict-concurrency checking
 
-**Canonical distribution:** notarized Developer ID direct distribution
+**Canonical distribution:** Stage 24 zero-cost GitHub Release; local ad-hoc signature, no Apple-trusted identity. See [RELEASING.md](RELEASING.md).
 
 This document explains the Stage 1 production architecture and the Stage 2 shell implementation built on it. It is subordinate to [PRODUCT_SPEC.md](PRODUCT_SPEC.md), [FEASIBILITY.md](FEASIBILITY.md), [ENGINEERING_RULES.md](ENGINEERING_RULES.md), and [PERMISSIONS.md](PERMISSIONS.md). The detailed shell contract is in [NOTCH_SHELL.md](NOTCH_SHELL.md).
 
@@ -49,7 +49,7 @@ The Xcode application target knows only the `NotchiumFeature` package product. F
 | `NotchiumDesignSystem` | Shared system-native measurements and surface treatment. | Feature state or system services. |
 | `NotchiumDynamicIsland` | Public display projection and selection, physical/virtual shell geometry, one-panel lifecycle, three-level interaction state, Liquid Glass shell views, and DEBUG fixtures. | Product-feature state, Ambient Edge/Snap overlays, or private display APIs. |
 | `Notchium*Feature` | A separately compiled declaration of one product feature and its requirements. | Other features' state or direct platform API construction. |
-| `NotchiumDebug` | Debug-only provider modes, simulated permissions, synthetic activities, capability inspection, and cleanup controls. | Production feature flags or sensitive logs. |
+| `NotchiumDebug` | Debug-only provider modes, simulated permissions, capability inspection, and cleanup controls. Synthetic activities are submitted to the live `ActivityCoordinator` by the composition-owned Activities tab. | Production feature flags or sensitive logs. |
 | `NotchiumFeature` | Root composition, lifecycle coordination, feature catalog, menu fallback, and architecture-only settings. | Feature business logic or an all-purpose app view model. |
 | `NotchiumTestFixtures` | Deterministic dates, mock snapshots, registries, clocks, loggers, and stores. | Production code paths. |
 
@@ -171,7 +171,7 @@ The package and Xcode targets use Swift 6.0 language mode and complete strict-co
 
 ## Feature flags and distribution
 
-`FeatureFlags.stageTwoShell` enables only the Stage 2 notch shell and retains `stageOne` for historical fixtures. Every product feature and the Spotify audio-derived waveform flag is off. Runtime debug controls cannot override these production values.
+`FeatureFlags` holds only flags that gate runtime behavior; the shell itself is always composed. Production uses `stageNineteenUtilities`, which enables every flag. Fixtures default to `stageFifteenFiles`, which omits Clipboard, Camera and Focus. Earlier per-stage presets were removed once no code path read them. Runtime debug controls cannot override production values.
 
 `DistributionProfile.current` is selected at compile time:
 
@@ -217,7 +217,7 @@ The logger cannot accept clipboard payloads, event titles, meeting URLs, OAuth t
 
 - selecting a provider scenario per service;
 - simulating every permission state;
-- creating typed synthetic activity events;
+- submitting synthetic activities to the live coordinator (Activities tab, composed in `NotchiumFeature`);
 - inspecting service capabilities;
 - running retention cleanup through the injected store;
 - observing only redacted state counts.
@@ -228,7 +228,7 @@ The current provider-mode selection is session-local architecture state. Stage 2
 
 The `NotchiumFeatureTests` unit-test target covers:
 
-- Stage 1 feature-flag defaults;
+- production and fixture feature-flag sets;
 - fail-closed real providers;
 - injectable available mocks;
 - deterministic fake-clock behavior;
@@ -238,7 +238,7 @@ The `NotchiumFeatureTests` unit-test target covers:
 - Caffeine click/timed expiry transitions, native duration menu input, and shutdown state;
 - root dependency replacement;
 - delayed/cancelled collapsed, hovered, expanded, and transitioning behavior;
-- display selection, hot-plug fallback, and zero-display behavior;
+- display ownership, hot-plug fallback, and zero-display behavior (`DisplayPresentationState`);
 - physical and virtual geometry, fixed host-panel placement, hover boundaries, and accessibility configuration;
 - panel reconciliation, focus-loss, Escape, and deterministic UI fixtures.
 
