@@ -1,3 +1,4 @@
+import NotchiumDesignSystem
 import NotchiumDynamicIsland
 import SwiftUI
 
@@ -62,7 +63,7 @@ struct CalendarReminderView: View {
 
 private struct NotificationJoinButtonStyle: ButtonStyle {
     let prominent: Bool
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @NotchReducedTransparency private var reduceTransparency
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
