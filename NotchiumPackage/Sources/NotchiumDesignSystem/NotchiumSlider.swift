@@ -11,10 +11,13 @@ public struct NotchiumSlider: View {
     private let accessibilityValue: (Double) -> String
     private let onEditingChanged: (Bool) -> Void
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @NotchReducedMotion private var reduceMotion
+    @NotchReducedTransparency private var reduceTransparency
+    @NotchIncreasedContrast private var increaseContrast
     @Environment(\.isEnabled) private var isEnabled
     @State private var isHovered = false
     @State private var isDragging = false
+    @FocusState private var hasKeyboardFocus: Bool
 
     public init(
         value: Binding<Double>,
@@ -43,7 +46,7 @@ public struct NotchiumSlider: View {
             ZStack(alignment: .leading) {
                 ZStack(alignment: .leading) {
                     Capsule()
-                        .fill(.white.opacity(active ? 0.24 : 0.16))
+                        .fill(.white.opacity(unfilledTrackOpacity(active: active)))
                         .frame(width: trackWidth, height: active ? 3 : 2)
 
                     Capsule()
@@ -52,9 +55,9 @@ public struct NotchiumSlider: View {
                         .animation(nil, value: value)
 
                     Circle()
-                        .fill(.white.opacity(isEnabled ? 1 : 0.55))
+                        .fill(.white.opacity(isEnabled ? 1 : 0.65))
                         .frame(width: thumbSize, height: thumbSize)
-                        .glassEffect(.clear, in: .circle)
+                        .modifier(SliderThumbMaterial(reduceTransparency: reduceTransparency))
                         .shadow(color: .black.opacity(active ? 0.35 : 0.2), radius: active ? 2 : 1, y: 1)
                         .opacity(active ? 1 : 0.55)
                         .offset(x: trackWidth * fraction - thumbSize / 2)
@@ -65,6 +68,15 @@ public struct NotchiumSlider: View {
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
             .animation(interactionAnimation, value: active)
+            .overlay {
+                if hasKeyboardFocus {
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .stroke(.white.opacity(increaseContrast ? 0.95 : 0.8), lineWidth: 1)
+                        .padding(.horizontal, 1)
+                        .padding(.vertical, 2)
+                        .accessibilityHidden(true)
+                }
+            }
             .contentShape(.rect)
             .overlay {
                 SliderPointerInput(isEnabled: isEnabled, editing: { editing in
@@ -83,6 +95,7 @@ public struct NotchiumSlider: View {
             isHovered = isEnabled && hovering
         }
         .focusable(isEnabled)
+        .focused($hasKeyboardFocus)
         .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow]) { press in
             guard isEnabled else { return .ignored }
             adjust(by: press.key == .rightArrow || press.key == .upArrow ? accessibilityStep : -accessibilityStep)
@@ -122,6 +135,12 @@ public struct NotchiumSlider: View {
         reduceMotion ? .easeOut(duration: 0.1) : .smooth(duration: 0.16)
     }
 
+    private func unfilledTrackOpacity(active: Bool) -> Double {
+        if increaseContrast { return active ? 0.68 : 0.52 }
+        if reduceTransparency { return active ? 0.48 : 0.36 }
+        return active ? 0.24 : 0.16
+    }
+
     private func updateValue(at location: CGFloat, width: CGFloat, inset: CGFloat) {
         let usableWidth = max(1, width - inset * 2)
         let fraction = min(max((location - inset) / usableWidth, 0), 1)
@@ -130,6 +149,19 @@ public struct NotchiumSlider: View {
 
     private func clamp(_ candidate: Double) -> Double {
         min(max(candidate, bounds.lowerBound), bounds.upperBound)
+    }
+}
+
+private struct SliderThumbMaterial: ViewModifier {
+    let reduceTransparency: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if reduceTransparency {
+            content
+        } else {
+            content.glassEffect(.clear, in: .circle)
+        }
     }
 }
 
