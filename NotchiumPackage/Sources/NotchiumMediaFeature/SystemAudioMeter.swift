@@ -1,37 +1,38 @@
 import Foundation
-import Combine
+import Observation
 import CoreGraphics
 import NotchiumCore
 
 /// Owned by the app's media session, never by a view or a Space.
 @MainActor
-public final class SystemAudioMeter: ObservableObject {
+@Observable
+public final class SystemAudioMeter {
     public enum Status: Equatable { case idle, starting, capturing, permissionRequired, unavailable }
     public static let staticLevels = [CGFloat](repeating: 0.12, count: 7)
     private static let activityThreshold = AudioSpectrumAnalyzer.minimum + 0.02
     // Keep artwork and waveform visible through short silent gaps between Spotify tracks.
     // Explicit pause, device changes, and capture failures still clear activity immediately.
     private static let activityTimeout: Duration = .milliseconds(1_500)
-    @Published public private(set) var waveformLevels = staticLevels
-    @Published public private(set) var status: Status = .idle
-    @Published public private(set) var isAudioActive = false
+    public private(set) var waveformLevels = staticLevels
+    public private(set) var status: Status = .idle
+    public private(set) var isAudioActive = false
     private let capture: any SystemAudioCapturing
     private let captureEnabled: Bool
     private let permissionGranted: @MainActor () -> Bool
     private let activityClock: any AppClock
-    private var wantsCapture = false
-    private var monitorsPlaybackActivity = false
-    private var isPlaying = false
-    private var waveformPresentationEnabled = true
-    private var captureStarted = false
-    private var captureFailed = false
-    private var lifecycleTask: Task<Void, Never>?
-    private var inactivityTask: Task<Void, Never>?
-    private var playbackActivityHandler: (@MainActor @Sendable () -> Void)?
-    private var localAudioActivityHandler: (@MainActor @Sendable (Bool) -> Void)?
+    @ObservationIgnored private var wantsCapture = false
+    @ObservationIgnored private var monitorsPlaybackActivity = false
+    @ObservationIgnored private var isPlaying = false
+    @ObservationIgnored private var waveformPresentationEnabled = true
+    @ObservationIgnored private var captureStarted = false
+    @ObservationIgnored private var captureFailed = false
+    @ObservationIgnored private var lifecycleTask: Task<Void, Never>?
+    @ObservationIgnored private var inactivityTask: Task<Void, Never>?
+    @ObservationIgnored private var playbackActivityHandler: (@MainActor @Sendable () -> Void)?
+    @ObservationIgnored private var localAudioActivityHandler: (@MainActor @Sendable (Bool) -> Void)?
     public var isRunning: Bool { status == .capturing }
-    private var generation = 0
-    private var activityGeneration = 0
+    @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var activityGeneration = 0
 
     public convenience init(
         captureEnabled: Bool = true,
