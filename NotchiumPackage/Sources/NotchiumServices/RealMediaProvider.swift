@@ -147,16 +147,8 @@ public actor RealMediaProvider: MediaProviding {
         }
     }
     public func beginAuthorization(clientID: String) async throws -> URL {
-        generation &+= 1
-        resetSessionRequests()
+        endSession()
         let generation = generation
-        connected = false
-        pollTask?.cancel()
-        pollTask = nil
-        reconciliationRefreshTask?.cancel()
-        reconciliationRefreshTask = nil
-        cancelEventRefresh()
-        awaitingInitialPlaybackState = false
         await publish(.init(availability: .unavailable(.permissionNotDetermined),
                       connectionState: .authorizing, source: .spotify))
         do {
@@ -189,28 +181,14 @@ public actor RealMediaProvider: MediaProviding {
     }
     public func cancelAuthorization() async {
         guard state.connectionState == .authorizing else { return }
-        generation &+= 1
-        resetSessionRequests()
-        connected = false
-        pollTask?.cancel()
-        pollTask = nil
-        reconciliationRefreshTask?.cancel()
-        reconciliationRefreshTask = nil
-        cancelEventRefresh()
-        awaitingInitialPlaybackState = false
+        endSession()
         await authorization.cancelAuthorizationAttempt()
         await publish(.init(availability: .unavailable(.permissionNotDetermined),
                       connectionState: .unauthenticated, source: .spotify))
     }
     public func failAuthorization() async {
         guard state.connectionState == .authorizing else { return }
-        generation &+= 1
-        resetSessionRequests()
-        connected = false
-        pollTask?.cancel()
-        pollTask = nil
-        cancelEventRefresh()
-        awaitingInitialPlaybackState = false
+        endSession()
         await authorization.cancelAuthorizationAttempt()
         await publish(.init(availability: .unavailable(.temporarilyUnavailable),
                       connectionState: .error, source: .spotify,
@@ -228,18 +206,10 @@ public actor RealMediaProvider: MediaProviding {
         startPolling()
     }
     public func shutdown() async {
-        generation &+= 1; connected = false; pollTask?.cancel(); pollTask = nil
-        resetSessionRequests()
-        reconciliationRefreshTask?.cancel(); reconciliationRefreshTask = nil
-        cancelEventRefresh()
-        awaitingInitialPlaybackState = false
+        endSession()
     }
     public func disconnect() async throws {
-        generation &+= 1; connected = false; pollTask?.cancel(); pollTask = nil
-        resetSessionRequests()
-        reconciliationRefreshTask?.cancel(); reconciliationRefreshTask = nil
-        cancelEventRefresh()
-        awaitingInitialPlaybackState = false
+        endSession()
         await publish(.init(availability: .unavailable(.permissionNotDetermined),
                       connectionState: .unauthenticated, source: .spotify))
         try await authorization.disconnect()
@@ -248,7 +218,12 @@ public actor RealMediaProvider: MediaProviding {
         subscribers.removeValue(forKey: id)
     }
 
-    private func resetSessionRequests() {
+    /// Invalidates the current session generation and every request, poll and refresh it owns.
+    private func endSession() {
+        generation &+= 1
+        connected = false
+        pollTask?.cancel()
+        pollTask = nil
         connectionGeneration = nil
         pendingControls.removeAll()
         playbackFetchInFlight = false
@@ -256,7 +231,10 @@ public actor RealMediaProvider: MediaProviding {
         queueFetchedAt = nil
         inputRevision &+= 1
         observationRevision &+= 1
+        cancelEventRefresh()
+        awaitingInitialPlaybackState = false
     }
+
     @discardableResult
     private func publish(_ value: MediaState) async -> Bool {
         let generation = generation
