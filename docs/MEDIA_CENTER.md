@@ -5,6 +5,31 @@ Current expanded-page layout: [shared composition and visual review](EXPANDED_PA
 The current playback architecture is documented in [Spotify playback pipeline](SPOTIFY_PLAYBACK_PIPELINE.md).
 It supersedes the historical command-specific reconciliation notes below.
 
+## Media page views and source link
+
+The page header offers **Currently Playing** and **Up Next** as explicit white system-font
+buttons with 32 pt hit targets, independent of macOS appearance. Currently Playing retains the
+existing player and Spotify Connect controls. Up Next displays the provider’s full queue
+(up to 20 songs) in a scrollable list with artwork, title, artist, and duration. The queue
+uses the full content height without a source-logo footer. Its 20 pt trailing content margin
+keeps durations clear of the native scrollbar, which requests visible indicators and uses
+dark appearance for contrast against the black page. The indicator briefly appears on
+queue opening and otherwise follows the user’s macOS scroll-bar preferences. Queue order
+and duplicate-track identities come from the existing Spotify adapter. The existing
+visibility-owned refresh stops when the user switches views, leaves Media, or collapses
+the notch; closing the notch resets Media to Currently Playing for the next opening.
+The outer notch geometry is unchanged.
+
+The Spotify icon sits above the current Spotify Connect device, below the playback
+time labels, with its artwork aligned to the page’s right content edge. Its 24 pt artwork
+has 10 pt padding on every side and a 44 pt hit target extending into the page gutter.
+The icon appears on Currently Playing and opens the installed Spotify app through SwiftUI’s injected
+`openURL` action, falling back to Spotify’s download page if the app URL cannot be opened.
+It is also available in connection and inactive states. `MediaSourceDestination` keeps
+branding and destinations together so future sources can supply their own logo and link.
+The bundled icon is Spotify’s unmodified green asset from its
+[official logo download](https://developer.spotify.com/images/guidelines/design/2024-spotify-logo-icon.zip).
+
 Media uses the existing Stage 1 service boundary. `MediaProviding` is the canonical protocol; `MediaService`, `MediaSnapshot`, `RealMediaService`, and `MockMediaService` remain compatibility aliases. `MediaProvider` remains its previous alias. No parallel manager is introduced.
 
 `RealMediaProvider` / `MockMediaProvider` → `MediaState` → `MediaSessionController` (`MediaFeatureModel` compatibility alias) → `ActivityCoordinator` (priority 20) → shell content.
