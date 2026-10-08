@@ -33,10 +33,26 @@ extension NotchiumApplicationController {
             services = .mock(media: media, audioDevices: MockAudioDevicesService(snapshot:
                 .init(availability: .available, outputs: [.init(id: "audit", name: "Audit Speakers",
                     isDefaultOutput: true, volume: 0.5, isMuted: false, canSetVolume: true, canSetMute: true)])))
+        } else if CommandLine.arguments.contains("--notchium-media-settings-fixture") {
+            let transport = SettingsFixtureTransport()
+            let authorization = SpotifyAuthorization(store: SettingsFixtureTokenStore(), transport: transport)
+            services = .mock(media: RealMediaProvider(authorization: authorization, transport: transport))
         } else { services = .mock() }
         return NotchiumApplicationController(environment: .mock(clock: ContinuousAppClock(), services: services,
             featureFlags: qualityFixture ? .stageNineteenUtilities : .stageFifteenFiles),
             reminderService: reminders, shortcutService: MockShortcutService(shortcuts: [shortcut]), actionStore: store)
     }
+}
+
+/// Settings UI tests retain the real connection controls without reading user credentials
+/// or making network requests. Authorization writes fail rather than pretending to save.
+private struct SettingsFixtureTokenStore: SpotifyTokenStoring {
+    func read() throws -> Data? { nil }
+    func write(_ data: Data) throws { throw MediaFailure.keychain }
+    func remove() throws {}
+}
+
+private struct SettingsFixtureTransport: MediaHTTPTransport {
+    func send(_ request: URLRequest) async throws -> MediaHTTPResponse { .init(status: 503) }
 }
 #endif
