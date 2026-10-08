@@ -18,6 +18,8 @@ enum NotchFileDrop {
 
 final class NotchPanel: NSPanel, NSDraggingDestination {
     weak var fileDropHandler: (any NotchFileDropHandling)?
+    /// Keyboard eligibility follows the presented surface; passive hover never takes focus.
+    var allowsKeyboardFocus = false
 
     /// Above the menu bar and full-screen content at rest.
     static let restingLevel: NSWindow.Level = .screenSaver
@@ -85,7 +87,7 @@ final class NotchPanel: NSPanel, NSDraggingDestination {
     }
 
     override var canBecomeKey: Bool {
-        false
+        allowsKeyboardFocus
     }
 
     override var canBecomeMain: Bool {
