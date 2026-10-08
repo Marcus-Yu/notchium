@@ -21,7 +21,10 @@ extension NotchiumApplicationController {
         let reminders = MockReminderService()
         if CommandLine.arguments.contains("--notchium-reminders-denied") { reminders.authorization = .denied }
         let services: ServiceRegistry
-        if CommandLine.arguments.contains("--notchium-stability-fixture") {
+        let qualityFixture = CommandLine.arguments.contains("--notchium-quality-fixture")
+        if qualityFixture {
+            services = qualityServices()
+        } else if CommandLine.arguments.contains("--notchium-stability-fixture") {
             let media = MockMediaProvider(snapshot: .init(playbackState: .paused,
                 title: "Audit Track", artist: "Fixture", elapsed: 30, duration: 180, trackID: "audit",
                 volumePercent: 50, source: .spotify, capabilities: .init(canPlayPause: true, canSkipForward: true,
@@ -31,7 +34,8 @@ extension NotchiumApplicationController {
                 .init(availability: .available, outputs: [.init(id: "audit", name: "Audit Speakers",
                     isDefaultOutput: true, volume: 0.5, isMuted: false, canSetVolume: true, canSetMute: true)])))
         } else { services = .mock() }
-        return NotchiumApplicationController(environment: .mock(clock: ContinuousAppClock(), services: services),
+        return NotchiumApplicationController(environment: .mock(clock: ContinuousAppClock(), services: services,
+            featureFlags: qualityFixture ? .stageNineteenUtilities : .stageFifteenFiles),
             reminderService: reminders, shortcutService: MockShortcutService(shortcuts: [shortcut]), actionStore: store)
     }
 }
