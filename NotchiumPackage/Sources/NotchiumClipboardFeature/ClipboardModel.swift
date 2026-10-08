@@ -134,7 +134,7 @@ public final class ClipboardModel {
     // MARK: History
 
     func receive(_ capture: ClipboardCapture) {
-        guard captureEnabled else { return }
+        guard captureEnabled, store.state == .available else { return }
         let fingerprint = capture.content.fingerprint
         if let index = items.firstIndex(where: { $0.fingerprint == fingerprint }) {
             // Copying the same thing again moves it forward instead of duplicating it.
@@ -179,6 +179,7 @@ public final class ClipboardModel {
 
     /// Puts the item back on the clipboard and moves it to the front.
     public func copy(_ item: ClipboardItem) {
+        guard store.state == .available else { return }
         guard let content = content(of: item) else { return }
         Task { [service] in await service.write(content) }
         if let index = items.firstIndex(where: { $0.id == item.id }) {
@@ -199,6 +200,7 @@ public final class ClipboardModel {
     public var canPin: Bool { items.count { $0.isPinned } < Self.maximumPinned }
 
     public func togglePin(_ item: ClipboardItem) {
+        guard store.state == .available else { return }
         guard let index = items.firstIndex(where: { $0.id == item.id }) else { return }
         guard items[index].isPinned || canPin else { return }
         items[index].isPinned.toggle()
@@ -206,12 +208,14 @@ public final class ClipboardModel {
     }
 
     public func delete(_ item: ClipboardItem) {
+        guard store.state == .available else { return }
         items.removeAll { $0.id == item.id }
         persist()
     }
 
     /// Clears history; pinned items stay unless `includingPinned`.
     public func clear(includingPinned: Bool = false) {
+        guard store.state == .available else { return }
         items.removeAll { includingPinned || !$0.isPinned }
         persist()
     }
@@ -226,8 +230,23 @@ public final class ClipboardModel {
     }
 
     public func setVisible(_ visible: Bool) {
+        let becameVisible = visible && !isVisible
         isVisible = visible
+        if becameVisible { retryStorage() }
         if visible { enforceBounds(at: currentDate()) }
+    }
+
+    /// Retry only on deliberate access. Reload committed history before allowing new
+    /// mutations; merging unsaved captures could resurrect deleted or unpinned entries.
+    public func retryStorage() {
+        guard store.state != .available else { return }
+        let restored = store.loadItems()
+        storageState = store.state
+        guard storageState == .available else { return }
+        items = restored
+        persistedItems = restored
+        persistedImageIDs = nil
+        enforceBounds(at: currentDate())
     }
 
     func content(of item: ClipboardItem) -> ClipboardContent? {
