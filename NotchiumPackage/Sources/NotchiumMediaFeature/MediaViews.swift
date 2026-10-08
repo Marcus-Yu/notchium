@@ -70,6 +70,13 @@ public struct CollapsedMediaView: View {
 private enum MusicPlayerSpacing {
     static let artworkSize: CGFloat = 76
     static let deviceColumnWidth: CGFloat = 144
+    static let metadataGap: CGFloat = 6
+    static let metadataToProgress: CGFloat = 5
+    static let progressToTransport: CGFloat = 6
+    static let transportToOutput: CGFloat = 6
+    static let outputRowHeight: CGFloat = 26
+    static let selectorTopInset: CGFloat = 5
+    static let bottomInset: CGFloat = 4
 }
 
 public struct MediaPageView: View {
@@ -101,8 +108,8 @@ public struct MediaPageView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .padding(.horizontal, ExpandedPageStyle.outerInset)
-                .padding(.top, ExpandedPageStyle.Space.xs)
-                .padding(.bottom, ExpandedPageStyle.Space.sm)
+                .padding(.top, MusicPlayerSpacing.selectorTopInset)
+                .padding(.bottom, MusicPlayerSpacing.bottomInset)
                 .animation(MediaMotion.surface(reduceMotion: reduceMotion), value: selectedSurface)
             case .initializing:
                 statusView(title: "Spotify", message: "Restoring your Spotify session…", showsProgress: true)
@@ -190,12 +197,12 @@ public struct MediaPageView: View {
     private var player: some View {
         let trackIdentity = model.state.trackID ?? model.state.title ?? "unknown-track"
         return ZStack(alignment: .bottomTrailing) {
-            VStack(spacing: 0) {
+            VStack(spacing: MusicPlayerSpacing.progressToTransport) {
                 HStack(alignment: .top, spacing: ExpandedPageStyle.Space.lg) {
                     MediaArtworkSlot(url: model.state.artwork, size: MusicPlayerSpacing.artworkSize, expanded: true)
-                    VStack(alignment: .leading, spacing: ExpandedPageStyle.Space.xs) {
+                    VStack(alignment: .leading, spacing: MusicPlayerSpacing.metadataToProgress) {
                         HStack(alignment: .center, spacing: ExpandedPageStyle.Space.sm) {
-                            VStack(alignment: .leading, spacing: ExpandedPageStyle.Space.xs) {
+                            VStack(alignment: .leading, spacing: MusicPlayerSpacing.metadataGap) {
                                 Text(model.state.title ?? "")
                                     .font(ExpandedPageStyle.title)
                                     .lineLimit(1).truncationMode(.tail)
@@ -219,18 +226,21 @@ public struct MediaPageView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(height: MusicPlayerSpacing.artworkSize, alignment: .top)
-                controls
-                    .overlay(alignment: .trailing) {
-                        MediaSourceButton(source: model.state.source ?? .spotify)
-                            // Align the artwork while retaining the button’s padded hit target.
-                            .padding(.trailing, -MediaSourceButton.contentInset)
-                    }
-                    .padding(.top, ExpandedPageStyle.controlGap)
-                SpotifySecondaryControls(model: model, showsDevices: $showsDevices)
-                    .padding(.top, ExpandedPageStyle.Space.sm)
+                .frame(minHeight: MusicPlayerSpacing.artworkSize, alignment: .top)
+                VStack(spacing: MusicPlayerSpacing.transportToOutput) {
+                    controls
+                        .overlay(alignment: .trailing) {
+                            MediaSourceButton(source: model.state.source ?? .spotify)
+                                // Align the artwork while retaining the button’s padded hit target.
+                                .padding(.trailing, -MediaSourceButton.contentInset)
+                        }
+                    SpotifySecondaryControls(model: model, showsDevices: $showsDevices)
+                }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            // Preserve the single-line groups' intrinsic height and put the fixed
+            // shell's spare space between the selector and the whole track region.
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
 
             if showsDevices {
                 Button {
@@ -388,7 +398,7 @@ private struct SpotifySecondaryControls: View {
             .accessibilityLabel("Spotify Connect device, \(model.state.activeDeviceName ?? "unknown")")
             .accessibilityIdentifier("notchium.media.devices.button")
         }
-        .frame(height: 28)
+        .frame(height: MusicPlayerSpacing.outputRowHeight)
         .animation(MediaMotion.control(reduceMotion: reduceMotion), value: isAdjustingVolume)
         .onAppear { syncVolume() }
         .onChange(of: model.state.volumePercent) { _, _ in
