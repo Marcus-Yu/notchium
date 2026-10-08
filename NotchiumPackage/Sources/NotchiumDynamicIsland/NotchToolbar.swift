@@ -1,3 +1,4 @@
+import NotchiumDesignSystem
 import AppKit
 import SwiftUI
 
@@ -55,7 +56,7 @@ public struct NotchToolbarLabel: View {
 public struct NotchToolbarButtonStyle: ButtonStyle {
     @State private var isHovered = false
     @Environment(\.isEnabled) private var isEnabled
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @NotchReducedMotion private var reduceMotion
 
     public init() {}
 
