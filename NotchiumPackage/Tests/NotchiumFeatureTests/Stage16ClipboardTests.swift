@@ -136,16 +136,17 @@ final class Stage16ClipboardTests: XCTestCase {
     }
 
     func testHistorySurvivesRestartAndImageFilesFollowTheList() throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("clipboard-\(UUID().uuidString)")
+        let directory = URL(fileURLWithPath: "/private/tmp").appendingPathComponent("clipboard-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
-        let store = FileClipboardStore(directory: directory)
+        let keys = TestClipboardKeyStore()
+        let store = FileClipboardStore(directory: directory, keyStore: keys)
         let first = ClipboardModel(service: MockClipboardService(), store: store, preferences: defaults(), now: { [base] in base })
         first.receive(capture(.text("persisted")))
         first.receive(capture(try XCTUnwrap(ClipboardImageProcessing.content(from: pngData(width: 64, height: 64)))))
         first.togglePin(first.items[1])
         first.stop() // A relaunch drains the previous owner's ordered disk writes.
 
-        let second = ClipboardModel(service: MockClipboardService(), store: FileClipboardStore(directory: directory),
+        let second = ClipboardModel(service: MockClipboardService(), store: FileClipboardStore(directory: directory, keyStore: keys),
                                     preferences: defaults(), now: { [base] in base })
         XCTAssertEqual(second.items.map(\.kind), [.image, .text])
         XCTAssertTrue(second.items[1].isPinned)
