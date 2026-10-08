@@ -93,7 +93,7 @@ public actor TestAppClock: AppClock {
     }
 }
 
-private extension Duration {
+public extension Duration {
     var timeInterval: TimeInterval {
         let components = self.components
         return TimeInterval(components.seconds)
