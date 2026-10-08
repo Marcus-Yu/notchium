@@ -194,8 +194,7 @@ import Observation
         case .denied: "denied"
         case .restricted: "restricted"
         }
-        let time = draft.dueComponents(timeZone: calendar.timeZone)
-        logger.debug("authorization=\(authorization, privacy: .public) rawTitle=\(self.draft.title, privacy: .private) effectiveTitle=\(self.effectiveTitle, privacy: .private) dueDate=\(self.draft.date.description, privacy: .private) atTime=\(self.draft.includesTime) time=\(String(describing: time.hour), privacy: .private):\(String(describing: time.minute), privacy: .private) writableLists.count=\(self.lists.count) selectedList=\(self.selectedList?.id ?? "none", privacy: .private) isSaving=\(self.isBusy) canSaveReminder=\(self.canSaveReminder) disableReason=\(self.disableReason ?? "none", privacy: .public)")
+        logger.debug("authorization=\(authorization, privacy: .public) writableLists.count=\(self.lists.count) isSaving=\(self.isBusy) canSaveReminder=\(self.canSaveReminder) disableReason=\(self.disableReason ?? "none", privacy: .public)")
         #endif
     }
 
