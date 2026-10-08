@@ -92,7 +92,6 @@ public final class CalendarActivityModel: NotchCalendarRendering {
     public func refresh() { Task { [service] in try? await service.refresh() } }
 
     public func dismissReminder() { reminders.dismiss() }
-    public func setReminderHovered(_ hovered: Bool) { reminders.setHovered(hovered) }
     public func joinReminder() {
         guard let url = reminders.current?.event.meetingURL else { return }
         openMeeting(url)
