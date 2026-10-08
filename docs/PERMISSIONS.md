@@ -4,7 +4,7 @@
 
 **Target:** macOS 26 and later
 
-**Canonical distribution:** Developer ID, hardened runtime, notarized direct download
+**Canonical distribution:** Stage 24 zero-cost GitHub Release; local ad-hoc signature, no Apple-trusted identity. See [RELEASING.md](RELEASING.md).
 
 **Last reviewed:** 2026-08-28
 
@@ -125,9 +125,9 @@ Stage 1 must add exact localized strings and review them against the final behav
 
 ## 8. Distribution checklist
 
-### Direct profile
+### Historical Developer ID profile (deferred)
 
-- Developer ID application signing, hardened runtime, secure timestamp, and notarization are mandatory.
+- A future trusted-signing edition would require Developer ID signing, hardened runtime, secure timestamp, and notarization. Stage 24's free edition instead follows [RELEASING.md](RELEASING.md), keeps Focus unavailable, and omits the team-authenticated closed-lid helper.
 - TCC, extension, provider, pasteboard, and protected-folder consent still apply; direct distribution is not a privacy bypass.
 - No Full Disk Access, root helper, HID event tap, private entitlement, or disabling library validation is authorized by this contract.
 - OAuth callbacks, browser native-host manifests, launch-at-login registration, and Keychain continuity must be tested across updates.
