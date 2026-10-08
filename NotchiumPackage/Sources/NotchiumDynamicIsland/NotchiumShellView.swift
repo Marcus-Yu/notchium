@@ -1,4 +1,5 @@
 import SwiftUI
+import NotchiumDesignSystem
 
 enum NotchMotion {
     // Symmetric, lightly damped motion requested for the black shell only.
@@ -62,6 +63,9 @@ public struct NotchiumShellView: View {
         }
         .preferredColorScheme(renderConfiguration.appearance.colorScheme)
         .environment(\.notchAuxiliaryInteraction, model.auxiliaryInteractionHandler)
+        .environment(\.notchReduceMotionOverride, accessibility.reduceMotion)
+        .environment(\.notchReduceTransparencyOverride, accessibility.reduceTransparency)
+        .environment(\.notchIncreaseContrastOverride, accessibility.increaseContrast)
         .onAppear {
             model.setReduceMotion(accessibility.reduceMotion)
         }
@@ -206,6 +210,7 @@ private struct NotchShellOuterSurface: View {
                 .frame(width: layout.expandedSize.width, height: layout.expandedSize.height, alignment: .top)
                 .modifier(NotchPresentationClip(visible: phase == .expanded))
                 .allowsHitTesting(model.surfaceState != .collapsed)
+                .accessibilityElement(children: model.surfaceState == .collapsed ? .ignore : .contain)
                 .accessibilityHidden(model.surfaceState == .collapsed)
                 .zIndex(10)
 
