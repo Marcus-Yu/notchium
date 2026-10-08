@@ -80,17 +80,6 @@ import Observation
         if enabled { next.enabledSections.append(id.rawValue) }
         try commit(next)
     }
-    public func moveSection(from source: IndexSet, to destination: Int) throws {
-        var sections = configuration.orderedSections
-        guard source.allSatisfy({ sections.indices.contains($0) }), (0...sections.count).contains(destination) else { return }
-        let moving = source.sorted().map { sections[$0] }
-        for index in source.sorted(by: >) { sections.remove(at: index) }
-        sections.insert(contentsOf: moving, at: destination - source.filter { $0 < destination }.count)
-        var next = configuration
-        let unknown = next.sectionOrder.filter { HomeSectionID(rawValue: $0) == nil }
-        next.sectionOrder = sections.map(\.rawValue) + unknown
-        try commit(next)
-    }
     public func resetHomeLayout() throws {
         var next = configuration
         next.resetLayout()
