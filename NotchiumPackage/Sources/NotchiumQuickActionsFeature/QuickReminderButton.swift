@@ -1,3 +1,4 @@
+import NotchiumDesignSystem
 import AppKit
 import SwiftUI
 import NotchiumDynamicIsland
@@ -6,7 +7,7 @@ struct QuickReminderButton: View {
     let model: QuickReminderModel
     @State private var presented = false
     @State private var isHovered = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @NotchReducedMotion private var reduceMotion
     @Environment(\.notchAuxiliaryInteraction) private var interaction
 
     var body: some View {
