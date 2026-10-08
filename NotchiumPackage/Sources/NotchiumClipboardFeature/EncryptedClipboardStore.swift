@@ -186,7 +186,7 @@ public final class FileClipboardStore: ClipboardStoring, @unchecked Sendable {
         handler?(value)
     }
     private func record(_ error: any Error) {
-        setState((error as? ClipboardStorageFailure) == .keyUnavailable ? .locked : .unreadable)
+        setState((error as? ClipboardStorageFailure)?.state ?? .unreadable)
         key = nil
         initialized = false
     }
