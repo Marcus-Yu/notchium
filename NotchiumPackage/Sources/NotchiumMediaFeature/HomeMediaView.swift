@@ -74,7 +74,7 @@ struct HomeMediaView: View {
             Image(systemName: symbol).font(.system(size: command == .playPause ? 15 : 12, weight: .semibold))
                 .frame(width: 34, height: 32).contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(MediaControlButtonStyle())
         .disabled(!enabled || model.isPending(command))
         .help(model.errorMessage ?? title)
         .accessibilityLabel(title)
