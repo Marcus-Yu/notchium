@@ -103,7 +103,8 @@ public final class NotchiumApplicationController {
         let presentation = displayCoordinator.presentationModel
         // Stores default to memory so tests and fixtures never touch the user's history.
         clipboardModel = ClipboardModel(service: environment.services.clipboard,
-                                        store: clipboardStore ?? InMemoryClipboardStore())
+                                         store: clipboardStore ?? InMemoryClipboardStore(),
+                                         captureEnabledByDefault: environment.services.clipboard is MockClipboardService)
         cameraModel = CameraModel(service: environment.services.camera)
         focusModeModel = FocusModeModel(service: environment.services.focus,
                                         activities: presentation.activityCoordinator, shortcuts: shortcutService)
