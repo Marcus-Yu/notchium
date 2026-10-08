@@ -46,7 +46,7 @@ public struct SystemFileSystem: FileSystemAccessing {
 
 public actor MockFileSystem: FileSystemAccessing {
     private let temporaryURL: URL
-    private var existingURLs: Set<URL>
+    private let existingURLs: Set<URL>
 
     public init(temporaryURL: URL, existingURLs: Set<URL> = []) {
         self.temporaryURL = temporaryURL
@@ -59,14 +59,6 @@ public actor MockFileSystem: FileSystemAccessing {
 
     public func fileExists(at url: URL) -> Bool {
         existingURLs.contains(url)
-    }
-
-    public func setExists(_ exists: Bool, at url: URL) {
-        if exists {
-            existingURLs.insert(url)
-        } else {
-            existingURLs.remove(url)
-        }
     }
 }
 
