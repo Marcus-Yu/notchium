@@ -7,7 +7,7 @@ import SwiftUI
 public struct CalendarActivityView: View {
     @Bindable var model: CalendarActivityModel
     @Environment(\.notchCalendarPageVisible) private var isPageVisible
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @NotchReducedMotion private var reduceMotion
     public init(model: CalendarActivityModel) { self.model = model }
 
     public var body: some View {
@@ -25,7 +25,12 @@ public struct CalendarActivityView: View {
                     }.buttonStyle(.glass)
                 }
             case .granted:
-                if let event = model.snapshot.nextEvent {
+                if case .unavailable = model.snapshot.availability {
+                    permissionView("Calendar unavailable", detail: "Notchium can’t read your calendars right now.") {
+                        Button("Try Again") { model.refresh() }
+                            .buttonStyle(.glass)
+                    }
+                } else if let event = model.snapshot.nextEvent {
                     eventContent(event)
                 } else {
                     permissionView("Nothing coming up", detail: model.snapshot.calendars.contains(where: \.isSelected)
