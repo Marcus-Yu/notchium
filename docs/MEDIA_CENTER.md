@@ -54,7 +54,7 @@ branding and destinations together so future sources can supply their own logo a
 The bundled icon is Spotify’s unmodified green asset from its
 [official logo download](https://developer.spotify.com/images/guidelines/design/2024-spotify-logo-icon.zip).
 
-Media uses the existing Stage 1 service boundary. `MediaProviding` is the canonical protocol; `MediaService`, `MediaSnapshot`, `RealMediaService`, and `MockMediaService` remain compatibility aliases. `MediaProvider` remains its previous alias. No parallel manager is introduced.
+Media uses the existing Stage 1 service boundary. `MediaProviding` is the canonical protocol and `MediaState` the sole snapshot type; `MediaService`, `RealMediaService`, and `MockMediaService` remain compatibility aliases. `MediaProvider` remains its previous alias. No parallel manager is introduced.
 
 `RealMediaProvider` / `MockMediaProvider` → `MediaState` → `MediaSessionController` (`MediaFeatureModel` compatibility alias) → `ActivityCoordinator` (priority 20) → shell content.
 
@@ -259,3 +259,11 @@ changes after either Previous operation without opening the notch or issuing an 
 ## Stage 5 top-level navigation
 
 Music and Calendar now share a dedicated icon-and-label page strip. Player and Up Next remain Music-only sub-navigation. The media view stays mounted while Calendar is selected, so its sub-selection and local UI state survive switching pages; visibility-driven queue and expanded-state work pauses while Music is hidden. The expanded surface is 560 × 302 points inside a 740 × 322 host panel. Settings and Close remain separate header utilities, and collapsed media geometry is unchanged.
+
+## Compact Media spacing (2026-10-08)
+
+The current 524 × 266 point shell and 740 × 322 host remain unchanged. The Media selector retains its 32 point height, with horizontal label padding increased from 12 to 22 points and button separation from 4 to 10 points. The original 48–52 point height and larger vertical gap targets cannot all fit this shell; preserving shell size takes priority.
+
+The player uses the track region's intrinsic height, with a 76 point minimum matching the unchanged artwork, rather than forcing metadata and progress into a 76 point row. Local spacing values keep title/artist at 6 points, metadata/progress at 5, progress/transport at 6, and transport/output at 6. The output row is 26 points high, matching the existing device button, with a 4 point bottom inset. The padded Spotify button retains clearance from the progress and device controls.
+
+Bottom alignment assigns remaining height to the gap below the selector while moving artwork and metadata together. The selector's 5 point top inset moves it 1 point down from the initial spacing pass. With a 32 point hardware region, the visible utility-to-selector gap is about 7 points and selector-to-title gap about 14 points, matching the requested 1:2 rhythm. With a 38 point hardware region, the smaller available space takes priority: artwork clearance remains 5 points and all controls stay inside the unchanged shell. Single-line long titles and artists, missing artwork, and paused playback retain the same control positions. The seek input, timestamps, controls, provider behavior, page ownership, and waveform logic are unchanged; no new geometry reader or layout-dependent state is introduced.
