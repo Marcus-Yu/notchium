@@ -280,6 +280,7 @@ private struct FileTile<Menu: View>: View {
 private struct TransferRow: View {
     let transfer: TransferSnapshot
     let model: FilesFeatureModel
+    @NotchReducedMotion private var reduceMotion
 
     var body: some View {
         HStack(spacing: 8) {
@@ -301,7 +302,7 @@ private struct TransferRow: View {
                         }
                     }
                     .frame(width: 110, height: 4)
-                    .animation(.smooth(duration: 0.25), value: fraction)
+                    .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: fraction)
             }
             Text(status)
                 .font(.system(size: 11).monospacedDigit())
