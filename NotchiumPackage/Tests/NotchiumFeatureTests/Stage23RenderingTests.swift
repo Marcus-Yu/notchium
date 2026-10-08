@@ -66,9 +66,15 @@ final class Stage23RenderingTests: XCTestCase {
             MediaWaveform(isPlaying: true, meter: meter)
                 .environment(\.notchReduceMotionOverride, true),
             size: CGSize(width: 24, height: 16))
+        let hidden = try render(
+            MediaWaveform(isPlaying: true, meter: meter, isPresented: false)
+                .environment(\.notchReduceMotionOverride, false),
+            size: CGSize(width: 24, height: 16))
 
         XCTAssertGreaterThan(whitePixelCount(in: ordinary), 20, "The active waveform is visible normally")
         XCTAssertEqual(whitePixelCount(in: reduced), 0, "The inherited override suppresses waveform motion")
+        XCTAssertEqual(whitePixelCount(in: hidden), 0, "A hidden page does not render the active waveform")
+        XCTAssertTrue(meter.isRunning, "Presentation visibility must not stop local playback detection")
     }
 
     func testReduceTransparencyOverrideChangesTheCalendarJoinMaterial() async throws {
