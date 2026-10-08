@@ -7,7 +7,7 @@ import NotchiumDynamicIsland
 public struct MediaWaveform: View {
     public let isPlaying: Bool
     @ObservedObject private var meter: SystemAudioMeter
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @NotchReducedMotion private var reduceMotion
     public init(isPlaying: Bool, meter: SystemAudioMeter) {
         self.isPlaying = isPlaying; self.meter = meter
     }
@@ -24,7 +24,7 @@ public struct MediaWaveform: View {
                 }
                 .frame(width: 24, height: 16)
                 .transition(.opacity.combined(with: .scale(scale: 0.86)))
-                .accessibilityLabel("Local Spotify audio waveform")
+                .accessibilityHidden(true)
             }
         }
         .animation(MediaMotion.waveform(reduceMotion: reduceMotion), value: isVisible)
@@ -53,9 +53,8 @@ public struct CollapsedMediaView: View {
 }
 
 private enum MusicPlayerSpacing {
-    static let surfacePickerHeight: CGFloat = 20
     static let artworkSize: CGFloat = 76
-    static let surfacePickerWidth: CGFloat = 132
+    static let deviceColumnWidth: CGFloat = 144
 }
 
 public struct MediaPageView: View {
@@ -66,14 +65,14 @@ public struct MediaPageView: View {
     @Environment(\.notchMediaExpanded) private var isExpanded
     @Environment(\.notchMediaPageVisible) private var isPageVisible
     @Environment(\.openSettings) private var openSettings
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @NotchReducedMotion private var reduceMotion
     public init(model: MediaFeatureModel) { self.model = model }
     public var body: some View {
         Group {
             switch model.state.experienceState {
             case .playing, .paused:
                 VStack(spacing: 0) {
-                    MediaSurfacePicker(selection: $selectedSurface)
+                    MediaPageHeader(selection: $selectedSurface)
                     Group {
                         switch selectedSurface {
                         case .player:
@@ -87,8 +86,8 @@ public struct MediaPageView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .padding(.horizontal, ExpandedPageStyle.outerInset)
-                .padding(.top, ExpandedPageStyle.topInset)
-                .padding(.bottom, ExpandedPageStyle.bottomInset)
+                .padding(.top, ExpandedPageStyle.Space.xs)
+                .padding(.bottom, ExpandedPageStyle.Space.sm)
                 .animation(MediaMotion.surface(reduceMotion: reduceMotion), value: selectedSurface)
             case .initializing:
                 statusView(title: "Spotify", message: "Restoring your Spotify session…", showsProgress: true)
@@ -117,6 +116,7 @@ public struct MediaPageView: View {
         .onChange(of: isExpanded) { _, expanded in
             if !expanded {
                 showsDevices = false
+                selectedSurface = .player
             }
         }
         .onChange(of: selectedSurface) { _, _ in
@@ -164,6 +164,11 @@ public struct MediaPageView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.horizontal, 32)
+        .overlay(alignment: .bottomTrailing) {
+            MediaSourceButton(source: model.state.source ?? .spotify)
+                .padding(.trailing, ExpandedPageStyle.outerInset - MediaSourceButton.contentInset)
+                .padding(.bottom, ExpandedPageStyle.bottomInset)
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("notchium.media.status.\(model.state.experienceState.rawValue)")
     }
@@ -199,9 +204,15 @@ public struct MediaPageView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(height: MusicPlayerSpacing.artworkSize, alignment: .top)
-                controls.padding(.top, ExpandedPageStyle.controlGap)
+                controls
+                    .overlay(alignment: .trailing) {
+                        MediaSourceButton(source: model.state.source ?? .spotify)
+                            // Align the artwork while retaining the button’s padded hit target.
+                            .padding(.trailing, -MediaSourceButton.contentInset)
+                    }
+                    .padding(.top, ExpandedPageStyle.controlGap)
                 SpotifySecondaryControls(model: model, showsDevices: $showsDevices)
-                    .padding(.top, ExpandedPageStyle.groupGap)
+                    .padding(.top, ExpandedPageStyle.Space.sm)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
@@ -234,7 +245,8 @@ public struct MediaPageView: View {
     private var controls: some View {
         HStack(spacing: ExpandedPageStyle.Space.lg) {
             control("Shuffle", symbol: "shuffle", command: .setShuffle(model.state.shuffle != true),
-                    enabled: model.state.canShuffle, active: model.state.shuffle == true, inactiveOpacity: 0.65)
+                    enabled: model.state.canShuffle, active: model.state.shuffle == true, inactiveOpacity: 0.65,
+                    value: model.state.shuffle.map { $0 ? "On" : "Off" } ?? "Unavailable")
             control("Previous Track", symbol: "backward.fill", command: .previous,
                     enabled: model.state.canSkipBackward, pending: model.isPreviousPending)
             control(model.state.isPlaying ? "Pause" : "Play", symbol: model.state.isPlaying ? "pause.fill" : "play.fill",
@@ -243,7 +255,7 @@ public struct MediaPageView: View {
             control("Repeat", symbol: model.state.repeatMode == .track ? "repeat.1" : "repeat",
                     command: .setRepeatMode(model.state.repeatMode == .off ? .context : model.state.repeatMode == .context ? .track : .off),
                     enabled: model.state.canRepeat, active: model.state.repeatMode != nil && model.state.repeatMode != .off,
-                    inactiveOpacity: 0.65)
+                    inactiveOpacity: 0.65, value: repeatModeValue)
         }
         .buttonStyle(MediaControlButtonStyle())
         .frame(maxWidth: .infinity)
@@ -251,7 +263,8 @@ public struct MediaPageView: View {
         .accessibilityLabel("Playback controls")
     }
     private func control(_ label: String, symbol: String, command: MediaCommand, enabled: Bool,
-                         active: Bool = false, pending: Bool? = nil, inactiveOpacity: Double = 1) -> some View {
+                         active: Bool = false, pending: Bool? = nil, inactiveOpacity: Double = 1,
+                         value: String? = nil) -> some View {
         let isAvailable = enabled && !(pending ?? model.isPending(command))
         let foregroundOpacity = isAvailable ? (active ? 1 : inactiveOpacity) : 0.45
         return Button {
@@ -274,6 +287,17 @@ public struct MediaPageView: View {
             .animation(MediaMotion.control(reduceMotion: reduceMotion), value: active)
             .accessibilityRespondsToUserInteraction(isAvailable)
             .help(label).accessibilityLabel(label)
+            .accessibilityValue(value ?? "")
+            .accessibilityAddTraits(active ? .isSelected : [])
+    }
+
+    private var repeatModeValue: String {
+        switch model.state.repeatMode {
+        case .off: "Off"
+        case .context: "All tracks"
+        case .track: "One track"
+        case nil: "Unavailable"
+        }
     }
 }
 
@@ -282,7 +306,7 @@ private struct SpotifySecondaryControls: View {
     @Binding var showsDevices: Bool
     @State private var isAdjustingVolume = false
     @State private var volume = 0.5
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @NotchReducedMotion private var reduceMotion
 
     var body: some View {
         HStack(spacing: 10) {
@@ -340,7 +364,7 @@ private struct SpotifySecondaryControls: View {
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.white.opacity(0.75))
                 .padding(.horizontal, 9)
-                .frame(height: 26)
+                .frame(width: MusicPlayerSpacing.deviceColumnWidth, height: 26)
                 .background(.white.opacity(0.06), in: .rect(cornerRadius: ExpandedPageStyle.controlRadius))
             }
             .buttonStyle(MediaControlButtonStyle())
@@ -470,90 +494,7 @@ private func deviceSymbol(_ type: String?) -> String {
     }
 }
 
-private enum MediaSurface: String, CaseIterable, Identifiable {
-    case player = "Player"
-    case upNext = "Up Next"
-    var id: Self { self }
-}
-
-private struct MediaSurfacePicker: View {
-    @Binding var selection: MediaSurface
-
-    var body: some View {
-        Picker("Media view", selection: $selection) {
-            ForEach(MediaSurface.allCases) { surface in
-                Text(surface.rawValue).tag(surface)
-            }
-        }
-        .pickerStyle(.segmented)
-        .controlSize(.mini)
-        .labelsHidden()
-        .frame(width: MusicPlayerSpacing.surfacePickerWidth, height: MusicPlayerSpacing.surfacePickerHeight)
-        .frame(maxWidth: .infinity, alignment: .trailing)
-        .help("Choose Player or Up Next")
-        .accessibilityLabel("Media view")
-    }
-}
-
-struct UpNextView: View {
-    let state: MediaState
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: ExpandedPageStyle.Space.sm) {
-            Text("Up Next")
-                .font(.system(size: 13, weight: .semibold))
-            if state.queueIssue != nil {
-                queueMessage("Unavailable")
-            } else if state.queue.isEmpty {
-                queueMessage("Nothing queued")
-            } else {
-                ForEach(state.queue.prefix(3)) { track in
-                    QueueTrackRow(track: track)
-                        .transition(.opacity)
-                }
-            }
-        }
-        .animation(MediaMotion.surface(reduceMotion: reduceMotion), value: state.queue.map(\.id))
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .foregroundStyle(.white)
-        .accessibilityIdentifier("notchium.media.up-next")
-    }
-
-    private func queueMessage(_ message: String) -> some View {
-        Text(message)
-            .font(.system(size: 12))
-            .foregroundStyle(.gray)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-    }
-}
-
-private struct QueueTrackRow: View {
-    let track: QueueTrack
-
-    var body: some View {
-        HStack(spacing: 8) {
-            MediaArtwork(url: track.artworkURL, size: 28)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(track.title)
-                    .font(.system(size: 12, weight: .medium))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Text(track.artist)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.gray)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .frame(height: 28)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(track.title), \(track.artist)")
-    }
-}
-
-private struct MediaControlButtonStyle: ButtonStyle {
+struct MediaControlButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         MediaControlFeedback(configuration: configuration)
@@ -562,7 +503,7 @@ private struct MediaControlButtonStyle: ButtonStyle {
 
 private struct MediaControlFeedback: View {
     let configuration: ButtonStyleConfiguration
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @NotchReducedMotion private var reduceMotion
     @Environment(\.isEnabled) private var isEnabled
     @State private var isHovered = false
 
