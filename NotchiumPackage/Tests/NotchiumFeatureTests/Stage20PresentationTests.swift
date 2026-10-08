@@ -32,7 +32,9 @@ import NotchiumPersistence
         let calendar = CalendarActivityModel(service: MockCalendarService(), coordinator: presentation.activityCoordinator)
         calendar.receive(.init(availability: .available, upcomingEvents: [
             .init(id: UUID(), title: "Design review with the product team", startDate: Date().addingTimeInterval(3600),
-                  endDate: Date().addingTimeInterval(7200))
+                  endDate: Date().addingTimeInterval(7200)),
+            .init(id: UUID(), title: "Weekly planning", startDate: Date().addingTimeInterval(10800),
+                  endDate: Date().addingTimeInterval(14400))
         ], permission: .granted))
         defer { runner.stop(); media.stop(); calendar.stop(); presentation.reset() }
         presentation.pageModel.selectedPage = .home
