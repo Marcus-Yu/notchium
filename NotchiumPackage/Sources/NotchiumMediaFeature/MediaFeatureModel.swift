@@ -18,6 +18,7 @@ public final class MediaSessionController {
     private static let volumeThrottleInterval = Duration.milliseconds(120)
 
     public let audioMeter: SystemAudioMeter
+    public let waveformAppearance: WaveformAppearanceModel
     public private(set) var collapsedMediaVisible = false
     public private(set) var isShowingCachedTrack = false
     /// Connection truth stays separate from the cached paused presentation.
@@ -76,10 +77,12 @@ public final class MediaSessionController {
         controlClock: any AppClock = ContinuousAppClock(),
         snapshotStore: any MediaSnapshotStoring = NoopMediaSnapshotStore(),
         audioMeter: SystemAudioMeter = SystemAudioMeter(captureEnabled: false),
+        waveformAppearance: WaveformAppearanceModel = WaveformAppearanceModel(),
         localDeviceNames: Set<String> = SystemSpotifyApplicationLauncher().localDeviceNames()
     ) {
         self.localDeviceNames = localDeviceNames
         self.audioMeter = audioMeter
+        self.waveformAppearance = waveformAppearance
         self.provider = provider
         self.coordinator = coordinator
         self.visibilityClock = visibilityClock
@@ -117,6 +120,7 @@ public final class MediaSessionController {
     }
     public func stop() {
         audioMeter.stop()
+        waveformAppearance.setArtwork(nil)
         collapsedMediaVisible = false
         generation &+= 1; observation?.cancel(); observation = nil
         commandTasks.values.forEach { $0.cancel() }; commandTasks.removeAll(); pendingControls.removeAll()
@@ -265,6 +269,7 @@ public final class MediaSessionController {
             audioMeter.resetLocalAudioActivity()
         }
         if state != next { state = next }
+        waveformAppearance.setArtwork(next.artwork)
         if let showingCachedTrack, isShowingCachedTrack != showingCachedTrack {
             isShowingCachedTrack = showingCachedTrack
         }
