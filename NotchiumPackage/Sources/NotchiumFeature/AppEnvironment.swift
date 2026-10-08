@@ -51,6 +51,7 @@ public struct AppEnvironment: Sendable {
         )
     }
 
+#if DEBUG
     public static func mock(
         clock: any AppClock,
         logger: any AppLogging = MockAppLogger(),
@@ -73,4 +74,5 @@ public struct AppEnvironment: Sendable {
             distributionProfile: .developerID
         )
     }
+#endif
 }
