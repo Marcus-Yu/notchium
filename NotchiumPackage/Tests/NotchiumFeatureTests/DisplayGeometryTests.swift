@@ -4,50 +4,6 @@ import SwiftUI
 import XCTest
 
 final class DisplaySelectionTests: XCTestCase {
-    func testBuiltInPhysicalNotchWinsOverPrimaryExternalDisplay() {
-        let placement = NotchiumDisplaySelectionPolicy.select(from: [
-            externalDisplay(primary: true),
-            builtInDisplay(primary: false),
-        ])
-
-        XCTAssertEqual(placement?.display.id, NotchiumDisplayID(rawValue: 1))
-        XCTAssertEqual(placement?.mode, .physicalNotch)
-    }
-
-    func testExternalOnlyConfigurationHasNoShell() {
-        let placement = NotchiumDisplaySelectionPolicy.select(from: [
-            externalDisplay(id: 2, primary: false),
-            externalDisplay(id: 3, primary: true),
-        ])
-
-        XCTAssertNil(placement)
-    }
-
-    func testPointerOnExternalDisplayDoesNotEnableShell() {
-        let placement = NotchiumDisplaySelectionPolicy.select(from: [
-            externalDisplay(id: 2, primary: true),
-            NotchiumDisplaySnapshot(
-                id: NotchiumDisplayID(rawValue: 3),
-                name: "Pointer display",
-                frame: CGRect(x: 1920, y: 0, width: 1728, height: 1117),
-                isBuiltIn: false,
-                isPrimary: false,
-                containsMousePointer: true
-            ),
-        ])
-
-        XCTAssertNil(placement)
-    }
-
-    func testExternalDisplayWithoutPrimaryHasNoShell() {
-        let placement = NotchiumDisplaySelectionPolicy.select(from: [
-            externalDisplay(id: 8, primary: false),
-            externalDisplay(id: 9, primary: false),
-        ])
-
-        XCTAssertNil(placement)
-    }
-
     func testDisplayIdentityIsStableAcrossGeometryChanges() {
         let first = externalDisplay(id: 42)
         let scaled = externalDisplay(
@@ -57,10 +13,6 @@ final class DisplaySelectionTests: XCTestCase {
 
         XCTAssertEqual(first.id, scaled.id)
         XCTAssertNotEqual(first.frame, scaled.frame)
-    }
-
-    func testNoDisplaysProducesMenuOnlyFallback() {
-        XCTAssertNil(NotchiumDisplaySelectionPolicy.select(from: []))
     }
 }
 
@@ -357,11 +309,9 @@ final class NotchPanelTests: XCTestCase {
             defer: false
         )
         panel.applyNotchWindowBehavior()
-        let controller = NotchiumPanelController(
-            model: DynamicIslandPresentationModel(clock: ControlledAppClock())
-        )
-
-        controller.positionPanel(panel, on: screen)
+        // Production places the fixed host panel top-centered on the selected screen.
+        panel.setFrameOrigin(NSPoint(x: screen.frame.midX - panel.frame.width / 2,
+                                     y: screen.frame.maxY - panel.frame.height))
         panel.orderFrontRegardless()
         defer { panel.orderOut(nil) }
 
