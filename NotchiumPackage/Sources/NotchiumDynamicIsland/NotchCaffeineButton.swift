@@ -87,12 +87,23 @@ struct CaffeineShortcutLabel: View {
     let isActive: Bool
     let isHovered: Bool
     let progress: Double?
+    @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
     private let activeColor = Color(red: 1, green: 172.0 / 255.0, blue: 28.0 / 255.0)
 
     var body: some View {
         NotchUtilityLabel(symbol: "cup.and.saucer.fill", isHovered: isHovered,
                           foreground: isActive ? activeColor : nil)
             .symbolRenderingMode(.monochrome)
+            .overlay(alignment: .bottomTrailing) {
+                if isActive && differentiateWithoutColor {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(2)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
             .overlay {
                 if isActive, let progress {
                     Circle()
