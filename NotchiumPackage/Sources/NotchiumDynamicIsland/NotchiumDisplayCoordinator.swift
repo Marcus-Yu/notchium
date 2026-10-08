@@ -10,10 +10,6 @@ public final class NotchiumDisplayCoordinator: NSObject {
     public private(set) var displayState = DisplayPresentationState()
     public private(set) var shellPlacement: NotchShellPlacement?
 
-    public var hasBuiltInNotch: Bool {
-        shellPlacement?.mode == .physicalNotch
-    }
-
     @ObservationIgnored private let clock: any AppClock
     @ObservationIgnored private let environmentSource: any DisplayEnvironmentReading
     @ObservationIgnored private var evidence = DisplayInteractionEvidence()
