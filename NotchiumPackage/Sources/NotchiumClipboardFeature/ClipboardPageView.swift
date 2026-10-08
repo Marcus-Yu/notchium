@@ -15,7 +15,14 @@ struct ClipboardPageView: View {
         let items = model.visibleItems
         VStack(alignment: .leading, spacing: NotchToolbarMetrics.sectionGap) {
             toolbar
-            if items.isEmpty {
+            if let message = model.storageState.message {
+                VStack(spacing: 6) {
+                    Image(systemName: "lock.fill").font(.system(size: 16, weight: .light)).foregroundStyle(.white.opacity(0.45))
+                    Text(message).font(.system(size: 11)).foregroundStyle(.white.opacity(0.65)).multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityElement(children: .combine)
+            } else if items.isEmpty {
                 empty
             } else {
                 ScrollViewReader { proxy in
@@ -24,7 +31,7 @@ struct ClipboardPageView: View {
                             ForEach(items) { item in
                                 ClipboardRow(item: item, isSelected: selection == item.id,
                                              copied: model.lastCopiedID == item.id, canPin: model.canPin,
-                                             copy: { model.copy(item) }, pin: { model.togglePin(item) },
+                                             copy: { selection = item.id; model.copy(item) }, pin: { model.togglePin(item) },
                                              delete: { model.delete(item) })
                                     .id(item.id)
                             }
@@ -43,6 +50,7 @@ struct ClipboardPageView: View {
                     .onKeyPress(.downArrow) { move(1, in: items, proxy: proxy) }
                     .onKeyPress(.upArrow) { move(-1, in: items, proxy: proxy) }
                     .onKeyPress(.return) { act(on: items) { model.copy($0) } }
+                    .onKeyPress(.space) { act(on: items) { model.copy($0) } }
                     .onKeyPress(.delete) { act(on: items) { model.delete($0) } }
                 }
             }
@@ -112,17 +120,36 @@ private struct ClipboardRow: View {
     let pin: () -> Void
     let delete: () -> Void
     @State private var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 9) {
-            ClipboardItemIcon(item: item, copied: copied)
-                .frame(width: 20, height: 20)
-            Text(item.preview)
-                .font(.system(size: 12))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .foregroundStyle(.white.opacity(0.92))
-            Spacer(minLength: 6)
+            Button(action: copy) {
+                HStack(spacing: 9) {
+                    ClipboardItemIcon(item: item, copied: copied, reduceMotion: reduceMotion)
+                        .frame(width: 20, height: 20)
+                    Text(item.preview)
+                        .font(.system(size: 12))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .foregroundStyle(.white.opacity(0.92))
+                    Spacer(minLength: 6)
+                    if !isHovered && !isSelected {
+                        Text(copied ? "Copied" : item.capturedAt.formatted(.relative(presentation: .numeric, unitsStyle: .narrow)))
+                            .font(.system(size: 10).monospacedDigit())
+                            .foregroundStyle(.white.opacity(copied ? 0.85 : 0.4))
+                            .lineLimit(1)
+                    }
+                }
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(item.kind.spokenName): \(item.preview)")
+            .accessibilityValue(item.isPinned ? "Pinned" : (copied ? "Copied" : ""))
+            .accessibilityHint("Copies it to the clipboard")
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
+            .accessibilityAction(named: item.isPinned ? "Unpin" : "Pin", pin)
+            .accessibilityAction(named: "Delete", delete)
             if isHovered || isSelected {
                 ClipboardIconButton(symbol: item.isPinned ? "pin.slash" : "pin", compact: true,
                                     label: item.isPinned ? "Unpin" : "Pin", action: pin)
@@ -132,10 +159,6 @@ private struct ClipboardRow: View {
                 if item.isPinned {
                     Image(systemName: "pin.fill").font(.system(size: 9)).foregroundStyle(.white.opacity(0.5))
                 }
-                Text(copied ? "Copied" : item.capturedAt.formatted(.relative(presentation: .numeric, unitsStyle: .narrow)))
-                    .font(.system(size: 10).monospacedDigit())
-                    .foregroundStyle(.white.opacity(copied ? 0.85 : 0.4))
-                    .lineLimit(1)
             }
         }
         .padding(.horizontal, 8)
@@ -143,30 +166,23 @@ private struct ClipboardRow: View {
         .background(.white.opacity(isSelected ? 0.12 : (isHovered ? 0.07 : 0)),
                     in: .rect(cornerRadius: ExpandedPageStyle.selectionRadius, style: .continuous))
         .contentShape(.rect)
-        .onTapGesture(perform: copy)
         .onHover { isHovered = $0 }
-        .animation(.easeOut(duration: 0.12), value: isHovered)
-        .animation(.smooth(duration: 0.18), value: copied)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(item.kind.spokenName): \(item.preview)")
-        .accessibilityValue(item.isPinned ? "Pinned" : "")
-        .accessibilityAddTraits(.isButton)
-        .accessibilityHint("Copies it to the clipboard")
-        .accessibilityAction(named: item.isPinned ? "Unpin" : "Pin", pin)
-        .accessibilityAction(named: "Delete", delete)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: isHovered)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.18), value: copied)
     }
 }
 
 private struct ClipboardItemIcon: View {
     let item: ClipboardItem
     let copied: Bool
+    let reduceMotion: Bool
 
     var body: some View {
         ZStack {
             if copied {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 13, weight: .semibold))
-                    .transition(.scale(scale: 0.6).combined(with: .opacity))
+                    .transition(reduceMotion ? .opacity : .scale(scale: 0.6).combined(with: .opacity))
             } else {
                 content
             }
