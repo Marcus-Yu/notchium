@@ -5,9 +5,10 @@ import NotchiumFeature
 @MainActor
 final class NotchiumAppDelegate: NSObject, NSApplicationDelegate {
     let controller = NotchiumApplicationController.production()
+    private var isSettingsWindowOpen = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApplication.shared.setActivationPolicy(.accessory)
+        NSApplication.shared.setActivationPolicy(isSettingsWindowOpen ? .regular : .accessory)
 #if DEBUG
         print("Notchium launched; bundle=\(Bundle.main.bundleIdentifier ?? "unknown"); macOS=\(ProcessInfo.processInfo.operatingSystemVersionString); activationPolicy=\(NSApp.activationPolicy().rawValue); LSUIElement=\(String(describing: Bundle.main.object(forInfoDictionaryKey: "LSUIElement")))")
         // Diagnostic evidence only. Never overwrite macOS-owned visibility preferences.
@@ -16,6 +17,15 @@ final class NotchiumAppDelegate: NSObject, NSApplicationDelegate {
         print("Saved status-item visibility: \(statusPreferences)")
 #endif
         controller.start()
+    }
+
+    func settingsWindowOpenChanged(_ isOpen: Bool) {
+        isSettingsWindowOpen = isOpen
+        let application = NSApplication.shared
+        let policy: NSApplication.ActivationPolicy = isOpen ? .regular : .accessory
+        guard application.activationPolicy() != policy,
+              application.setActivationPolicy(policy) else { return }
+        if isOpen { application.activate() }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -64,6 +74,10 @@ struct NotchiumApp: App {
                                  clipboardModel: appDelegate.controller.clipboardModel,
                                  focusModeModel: appDelegate.controller.focusModeModel,
                                  pomodoroModel: appDelegate.controller.pomodoroModel)
+                .background {
+                    SettingsWindowLifecycle(onOpenChanged: appDelegate.settingsWindowOpenChanged)
+                        .frame(width: 0, height: 0)
+                }
         }
 
 #if DEBUG
