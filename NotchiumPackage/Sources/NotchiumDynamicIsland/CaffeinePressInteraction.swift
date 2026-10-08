@@ -37,6 +37,7 @@ struct CaffeinePressState {
 @MainActor
 @Observable
 public final class CaffeinePressInteraction {
+    public private(set) var isPressed = false
     public private(set) var progress = 0.0
     public private(set) var completionCount = 0
     @ObservationIgnored private var state = CaffeinePressState()
@@ -51,6 +52,7 @@ public final class CaffeinePressInteraction {
                at start: ContinuousClock.Instant = .now) {
         guard state.startedAt == nil else { return }
         state.begin(at: start)
+        isPressed = true
         clickAction = click
         holdAction = allowsHold ? hold : nil
         guard allowsHold else { return }
@@ -85,6 +87,7 @@ public final class CaffeinePressInteraction {
 
     public func cancel() {
         state.cancel()
+        isPressed = false
         task?.cancel()
         task = nil
         holdAction = nil
