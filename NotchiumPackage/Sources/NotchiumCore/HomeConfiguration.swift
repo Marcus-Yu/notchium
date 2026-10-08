@@ -23,10 +23,6 @@ public struct HomeConfiguration: Codable, Equatable, Sendable {
     private var retainedShortcuts: [HomeJSONValue] = []
 
     public init() {}
-    public var orderedSections: [HomeSectionID] { sectionOrder.compactMap(HomeSectionID.init(rawValue:)) }
-    public var visibleSections: [HomeSectionID] {
-        orderedSections.filter { enabledSections.contains($0.rawValue) }
-    }
     /// Home has fixed primary regions; legacy section order remains losslessly persisted.
     public var primarySections: [HomeSectionID] {
         [.media, .calendar].filter { enabledSections.contains($0.rawValue) }
