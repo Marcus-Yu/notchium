@@ -5,6 +5,30 @@ Current expanded-page layout: [shared composition and visual review](EXPANDED_PA
 The current playback architecture is documented in [Spotify playback pipeline](SPOTIFY_PLAYBACK_PIPELINE.md).
 It supersedes the historical command-specific reconciliation notes below.
 
+## Waveform colour
+
+Settings → Media includes a Waveform colour section with Static and Adaptive modes. Static defaults
+to white and offers white, blue, green and black presets, the native colour picker, and
+3- or 6-digit RGB hex input (with or without `#`). Apply or Return commits a valid hex
+colour; invalid input leaves the current colour unchanged. Mode and static colour persist
+locally across launches, and switching to Adaptive retains the user's static selection.
+
+Both modes brighten dark colours toward white until the displayed colour reaches at least
+4.5:1 contrast against the black notch. Bright colours stay unchanged; black displays as
+visible grey. The saved hex value and sampled artwork colour stay unchanged; only the
+rendered waveform colour is lifted.
+The expanded player uses the same full-opacity waveform as the collapsed surfaces.
+
+`WaveformAppearanceModel` owns the appearance shared by the collapsed notch, expanded
+player and timer's media waveform. The media controller supplies the presented artwork URL.
+Adaptive samples the largest colour cluster in a 32 × 32 sRGB rendering of the existing
+160px thumbnail, once per cache entry; artwork rendering and palette extraction share the
+same in-flight Spotify artwork request and eight-entry memory cache. Track changes cancel
+the previous colour consumer and reject late results. The waveform keeps the previous album's
+colour while the next palette loads, then updates directly to the new colour. First use,
+missing artwork, and confirmed failed or transparent artwork use white. No new service, dependency, polling or audio
+analysis is introduced, and the existing waveform visibility and Reduce Motion rules apply.
+
 ## Media page views and source link
 
 The page header offers **Currently Playing** and **Up Next** as explicit white system-font
