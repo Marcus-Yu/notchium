@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 public struct AudioMeterPermissionView: View {
-    @ObservedObject private var meter: SystemAudioMeter
+    private let meter: SystemAudioMeter
     public init(meter: SystemAudioMeter) { self.meter = meter }
     public var body: some View {
         Section("Audio waveform") {
