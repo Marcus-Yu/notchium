@@ -7,30 +7,13 @@ import XCTest
 
 @MainActor
 final class ArchitectureTests: XCTestCase {
-    func testProductionFlagsExposeOnlyTheShell() {
-        let flags = FeatureFlags.stageOne
-
-        XCTAssertTrue(flags[.notchShell])
-        XCTAssertFalse(flags[.media])
-        XCTAssertFalse(flags[.calendar])
-    }
-
-    func testStageSixEnablesAudioAlongsideMusicAndCalendar() {
-        let flags = FeatureFlags.stageSixAudio
-        XCTAssertTrue(flags[.notchShell])
-        XCTAssertTrue(flags[.media])
-        XCTAssertTrue(flags[.calendar])
-        XCTAssertTrue(flags[.audioDevices])
-    }
-
-    func testStageSevenEnablesCoordinatorAndHeaderUtilities() {
-        let flags = FeatureFlags.stageSevenActivities
-        XCTAssertTrue(flags[.notchShell])
-        XCTAssertTrue(flags[.media])
-        XCTAssertTrue(flags[.calendar])
-        XCTAssertTrue(flags[.audioDevices])
-        XCTAssertTrue(flags[.activities])
-        XCTAssertTrue(flags[.caffeine])
+    func testProductionEnablesEveryRuntimeFlagAndFixturesOmitTheStageNineteenUtilities() {
+        let production = FeatureFlags.stageNineteenUtilities
+        for flag in FeatureFlag.allCases {
+            XCTAssertTrue(production[flag], "\(flag)")
+            XCTAssertEqual(FeatureFlags.stageFifteenFiles[flag], ![.clipboard, .camera, .focus].contains(flag), "\(flag)")
+        }
+        XCTAssertFalse(FeatureFlags(values: [:])[.media])
     }
 
     func testUnimplementedRealProvidersFailClosedAndMediaRequiresConnection() async {
@@ -116,7 +99,7 @@ final class ArchitectureTests: XCTestCase {
                 temporaryURL: URL(fileURLWithPath: "/private/tmp/notchium-tests")
             ),
             logger: FixtureFactory.logger(),
-            featureFlags: .stageOne,
+            featureFlags: FeatureFlags(values: [:]),
             distributionProfile: .developerID
         )
 
