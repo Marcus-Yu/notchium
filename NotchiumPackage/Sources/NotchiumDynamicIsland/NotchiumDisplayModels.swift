@@ -132,12 +132,3 @@ public struct NotchShellPlacement: Equatable, Sendable {
         self.mode = mode
     }
 }
-
-public enum NotchiumDisplaySelectionPolicy {
-    public static func select(from displays: [NotchiumDisplaySnapshot]) -> NotchShellPlacement? {
-        guard let display = displays.first(where: {
-            $0.isBuiltIn && $0.isEligiblePhysicalNotchDisplay && $0.physicalNotchGap != nil
-        }) else { return nil }
-        return NotchShellPlacement(display: display, mode: .physicalNotch)
-    }
-}
