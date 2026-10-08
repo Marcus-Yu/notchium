@@ -1,30 +1,30 @@
 import SwiftUI
 import NotchiumDesignSystem
+import NotchiumDynamicIsland
 import NotchiumServices
 
 /// Date-dependent projection only; EventKit ownership stays in CalendarService.
 struct HomeCalendarSummary {
-    let nextEvent: CalendarEventSummary?
-    let hasEventsToday: Bool
+    let nextEvents: [CalendarEventSummary]
 
-    init(events: [CalendarEventSummary], at date: Date, calendar: Calendar = .current) {
-        let remaining = events.filter { $0.endDate > date }
-        nextEvent = remaining.min { $0.startDate < $1.startDate }
-        let today = calendar.dateInterval(of: .day, for: date)
-        hasEventsToday = remaining.contains { event in
-            guard let today else { return false }
-            return event.startDate < today.end && event.endDate > today.start
-        }
+    init(events: [CalendarEventSummary], at date: Date) {
+        nextEvents = Array(events.filter { $0.endDate > date }
+            .sorted { $0.startDate < $1.startDate }.prefix(2))
     }
 }
 
 struct HomeCalendarView: View {
     let model: CalendarActivityModel
     let openCalendar: @MainActor () -> Void
+    @Environment(\.notchHomePageVisible) private var isVisible
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 60)) { timeline in
-            HomeCalendarContent(snapshot: model.snapshot, date: timeline.date, openCalendar: openCalendar)
+        if isVisible {
+            TimelineView(.periodic(from: .now, by: 60)) { timeline in
+                HomeCalendarContent(snapshot: model.snapshot, date: timeline.date, openCalendar: openCalendar)
+            }
+        } else {
+            HomeCalendarContent(snapshot: model.snapshot, date: .now, openCalendar: openCalendar)
         }
     }
 }
@@ -52,13 +52,23 @@ struct HomeCalendarContent: View {
                     status("Set up Calendar", detail: "Open Calendar to get started.")
                 } else if snapshot.availability != .available {
                     status("Calendar unavailable", detail: "Open Calendar to check access.")
-                } else if let event = summary.nextEvent {
-                    Text(summary.hasEventsToday ? "Next event" : "No events today")
+                } else if !summary.nextEvents.isEmpty {
+                    Text("Next events")
                         .font(compact ? .system(size: 10) : ExpandedPageStyle.caption)
                         .foregroundStyle(ExpandedPageStyle.secondary).lineLimit(1)
-                    Text(event.title).font(.system(size: compact ? 11 : 12, weight: .medium)).lineLimit(2).padding(.top, compact ? 3 : 5)
-                    Text(eventTime(event)).font(.system(size: 10)).foregroundStyle(ExpandedPageStyle.secondary)
-                        .lineLimit(1).padding(.top, compact ? 2 : 4)
+                    VStack(alignment: .leading, spacing: compact ? 5 : 6) {
+                        ForEach(summary.nextEvents) { event in
+                            VStack(alignment: .leading, spacing: compact ? 2 : 4) {
+                                Text(event.title).font(.system(size: compact ? 11 : 12, weight: .medium))
+                                    .lineLimit(summary.nextEvents.count > 1 ? 1 : 2)
+                                    .help(event.title)
+                                Text(eventTime(event)).font(.system(size: 10))
+                                    .foregroundStyle(ExpandedPageStyle.secondary).lineLimit(1)
+                            }
+                            .accessibilityElement(children: .combine)
+                        }
+                    }
+                    .padding(.top, compact ? 3 : 5)
                 } else {
                     status("No events today", detail: "Enjoy your free time.")
                 }
