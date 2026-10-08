@@ -8,7 +8,7 @@ import SwiftUI
 /// check needs: camera, mirror orientation, close.
 struct CameraPreviewPanel: View {
     let model: CameraModel
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @NotchReducedMotion private var reduceMotion
     /// The system permission alert takes the pointer away; the notch stays open for its answer.
     @Environment(\.notchAuxiliaryInteraction) private var auxiliaryInteraction
 
@@ -102,13 +102,17 @@ struct CameraPreviewPanel: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Mirror").font(.system(size: 13, weight: .semibold))
             if model.devices.count > 1 {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(model.devices.prefix(4)) { device in
-                        CameraChoiceRow(title: device.name, selected: device.id == model.activeDevice?.id) {
-                            model.select(device)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(model.devices) { device in
+                            CameraChoiceRow(title: device.name, selected: device.id == model.activeDevice?.id) {
+                                model.select(device)
+                            }
                         }
                     }
                 }
+                .frame(maxHeight: 72)
+                .scrollIndicators(.visible)
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("Camera")
             } else if let device = model.activeDevice ?? model.devices.first {
