@@ -38,11 +38,16 @@ public protocol ClipboardEncryptionKeyStoring: Sendable {
 public struct KeychainClipboardEncryptionKeyStore: ClipboardEncryptionKeyStoring {
     public init() {}
     private var query: [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword,
+        var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
          kSecAttrService as String: "Notchium.Clipboard",
          kSecAttrAccount as String: "payload-key.v1",
-         kSecUseDataProtectionKeychain as String: true,
          kSecAttrSynchronizable as String: false]
+#if !NOTCH_FREE_DISTRIBUTION || NOTCH_APP_STORE
+        // Data Protection Keychain requires a provisioned access group. Free
+        // builds use the local login Keychain; payload encryption is unchanged.
+        query[kSecUseDataProtectionKeychain as String] = true
+#endif
+        return query
     }
 
     public func read() throws -> Data? {
