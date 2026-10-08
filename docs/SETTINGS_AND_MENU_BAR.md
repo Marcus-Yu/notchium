@@ -3,7 +3,8 @@
 ## Architecture
 
 - `NotchiumApp` owns the single `MenuBarExtra` insertion binding and existing `Settings` scene.
-- `NotchiumAppDelegate` starts the application controller as an accessory application.
+- `NotchiumAppDelegate` starts the application controller as an accessory application and owns its activation policy.
+- `SettingsWindowLifecycle` observes the native Settings window without replacing SwiftUI's delegate. Opening Settings temporarily selects the regular activation policy, showing the app icon in the Dock and app switcher. Closing Settings restores accessory mode; minimizing it or switching focus leaves the icon present. The same observer handles reopening SwiftUI's cached window.
 - `NotchiumDisplayCoordinator` owns `NotchiumPanelController`, which manually hosts `NotchiumShellView` in `NotchPanel` using `NSHostingView`.
 - `NotchShellOuterSurface` composes collapsed media and expanded content. `ExpandedTopSurface` defines the shape, not header controls.
 - `NotchSettingsButton` occupies the expanded header's right wing, above the content and outside the hardware-notch click region. It does not change shell dimensions or the playback-control layout.
@@ -13,6 +14,11 @@ The gear and menu Settings button both activate the app and invoke SwiftUI's `op
 Stage 23 adds **Open Notchium** to the existing menu. This deliberately expands and focuses the panel for keyboard use; passive presentation does not take focus. Expanded controls follow native keyboard navigation behavior. Technical shell-stage and distribution labels were removed from the menu/Settings, while debug controls remain available in DEBUG builds. Clipboard capture has its own default-off production toggle and storage failures are visible in Settings.
 
 The external Settings window uses a native two-column sidebar. General contains app-wide settings; Home Page, Media, Audio, Calendar, Clipboard, Focus and Caffeine contain their existing feature controls. Categories follow the injected models, feature flags and distribution profile. Home layout and shortcut controls are shared with the standalone Home editor, and a shortcut edit request selects Home Page. Navigation state belongs to the Settings view; feature preferences remain owned by their existing models.
+
+The Dock lifecycle was validated on macOS 27.0.1 with Xcode 27: Debug and Release
+builds passed, and the focused Settings UI test passed. It checks accessory mode
+at launch, regular mode while Settings is open or minimized, restoring the
+existing minimized window, closing back to accessory mode, and reopening it.
 
 Media contains Spotify connection and waveform colour controls. Audio contains system-audio
 recording permission controls. Waveform colours are automatically brightened when needed
