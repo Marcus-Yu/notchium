@@ -95,9 +95,9 @@ final class Stage23ClipboardSecurityTests: XCTestCase {
 
         let locked = FileClipboardStore(directory: directory, keyStore: MissingClipboardKeyStore())
         XCTAssertTrue(locked.loadItems().isEmpty)
-        XCTAssertEqual(locked.state, .locked)
-        XCTAssertTrue(ClipboardStorageState.locked.message?.contains("reopen Notchium") == true)
-        XCTAssertTrue(ClipboardStorageState.locked.message?.contains("Recent changes may not be saved") == true)
+        XCTAssertEqual(locked.state, .keyUnavailable)
+        XCTAssertTrue(ClipboardStorageState.keyUnavailable.message?.contains("preserved") == true)
+        XCTAssertFalse(ClipboardStorageState.keyUnavailable.message?.contains("Unlock your Mac") == true)
         locked.saveItems([])
         locked.removeImages(except: [])
         locked.flush()
