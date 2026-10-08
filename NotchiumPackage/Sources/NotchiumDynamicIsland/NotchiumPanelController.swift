@@ -13,11 +13,13 @@ protocol NotchPanelControlling: AnyObject {
     func hide()
     func setPresentationContext(_ context: NotchPresentationContext)
     func setInteractionHandler(_ handler: (@MainActor (CGPoint) -> Void)?)
+    func focusExpandedPanel()
 }
 
 extension NotchPanelControlling {
     func setPresentationContext(_ context: NotchPresentationContext) {}
     func setInteractionHandler(_ handler: (@MainActor (CGPoint) -> Void)?) {}
+    func focusExpandedPanel() {}
 }
 
 private final class NotchHostingView: NSHostingView<NotchiumShellView> {
@@ -155,8 +157,10 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         installPointerMonitorsIfNeeded()
 
         if model.visualState == .expanded {
+            panel.allowsKeyboardFocus = true
             installEscapeMonitorIfNeeded()
         } else {
+            panel.allowsKeyboardFocus = false
             removeEscapeMonitor()
             if panel.isKeyWindow {
                 panel.resignKey()
@@ -214,7 +218,16 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         panel.orderFrontRegardless()
     }
 
+    func focusExpandedPanel() {
+        guard currentLayout != nil, model.visualState == .expanded,
+              presentationContext != .sleeping else { return }
+        panel.allowsKeyboardFocus = true
+        panel.makeKeyAndOrderFront(nil)
+        panel.selectNextKeyView(nil)
+    }
+
     func hide() {
+        panel.allowsKeyboardFocus = false
         fileDragEndTask?.cancel()
         fileDragEndTask = nil
         panel.setAcceptsFileDrags(false)
