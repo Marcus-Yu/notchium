@@ -57,11 +57,6 @@ public final class TransferActivityModel {
         publish()
     }
 
-    public func clearRecent() {
-        recent.removeAll()
-        finishedFiles.removeAll()
-    }
-
     /// Completed transfers can hand off their UI representation without touching the file
     /// or interrupting another running transfer's stable activity identity.
     func consumeReference(to url: URL) {
