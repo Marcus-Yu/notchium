@@ -35,7 +35,7 @@ Reviewed collapsed shell, expansion, activity routing, takeovers and minor HUDs;
 
 Activity ranking, manual page ownership, stable transfer identity and terminal monotonicity, timer grace/expiry, paused seek, Home composition, Shelf move/Option-copy and no-alias behavior, auxiliary session ownership, display generation/panel ownership, and Stage 22 caches/scopes/cancellation/coalescing remain the governing contracts. Source views derive presentation state; feature models/providers remain authoritative.
 
-Clipboard recovery limitation: if Keychain access is locked, the UI asks the user to unlock the Mac and reopen Notchium. It does not merge in-memory history with a later disk reload because that could resurrect entries the user deleted or undo pin changes. Captures made while storage is unavailable may not have been saved and can be lost when the app closes; recopy them after reopening.
+Clipboard recovery: the app’s private Keychain access group is declared in both entitlement profiles. Without it, the data-protection Keychain cannot supply the clipboard key even on an unlocked Mac. Keychain interaction errors are distinguished from missing keys, entitlement failures and corrupt files. Opening Clipboard after failure or selecting **Try Again** reloads authenticated, committed history before capture and edits resume. Captures and edits are ignored while storage is unavailable; pending changes that failed to save are never merged into restored history because that could resurrect deleted entries or undo pin changes. Existing ciphertext is preserved and missing keys never cause replacement keys to be generated.
 
 ## Skills loaded and applied
 
@@ -70,7 +70,7 @@ Independent `review-animations` review approved the scoped diff with no source-c
 
 ## 23D — UX and copy
 
-The menu's stage/status jargon and Settings' distribution enum were removed. Focus capability copy states what the user can expect. Focus Timer steppers reuse the configuration's supported ranges. Audio now distinguishes unavailable per-app mixing from an empty app list; Calendar distinguishes unavailable data from no events and exposes retry. Clipboard has an independent capture toggle, a visible storage error and honest sensitivity/exclusion wording. Locked-history recovery explicitly says unlock/reopen and warns that recent changes may not have saved.
+The menu's stage/status jargon and Settings' distribution enum were removed. Focus capability copy states what the user can expect. Focus Timer steppers reuse the configuration's supported ranges. Audio now distinguishes unavailable per-app mixing from an empty app list; Calendar distinguishes unavailable data from no events and exposes retry. Clipboard has an independent capture toggle, a visible storage error and honest sensitivity/exclusion wording. Locked-history recovery offers retry after unlock and warns that recent changes may not have saved.
 
 ## 23E — Security and privacy
 
@@ -86,7 +86,7 @@ Concrete fixes:
 
 STRIDE cross-check: OAuth state/identity handles spoofing; authenticated payloads and constrained file operations handle tampering; coarse diagnostics avoid logging payloads; local encryption/opt-in address information disclosure; input/time bounds and preference validation address denial of service; existing permission and signing boundaries remain the privilege boundary. These controls do not prevent a compromised process running as the same user from reading live clipboard memory or invoking the app's Keychain identity.
 
-Residual risks: best-effort source attribution/secret exclusion; lost keys make encrypted history unrecoverable; in-memory captures during storage failure may not survive reopen; no new reset-encrypted-data flow was added. Existing Downloads/Desktop screenshot observation still has no independent opt-in matching the broader permissions ledger; changing those previously approved feature contracts was not silently folded into Clipboard polish. Real signing/Keychain/TCC revoke flows still need native validation.
+Residual risks: best-effort source attribution/secret exclusion; lost keys make encrypted history unrecoverable; pending changes that fail to save may be lost on recovery; no new reset-encrypted-data flow was added. Existing Downloads/Desktop screenshot observation still has no independent opt-in matching the broader permissions ledger; changing those previously approved feature contracts was not silently folded into Clipboard polish. Real signing/Keychain/TCC revoke flows still need native validation.
 
 ## 23F — Swift and architecture
 
