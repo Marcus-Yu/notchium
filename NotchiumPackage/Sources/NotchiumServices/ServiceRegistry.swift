@@ -83,6 +83,7 @@ public struct ServiceRegistry: Sendable {
         )
     }
 
+#if DEBUG
     public static func mock(media: any MediaService = MockMediaService(),
                             audioDevices: any AudioDevicesService = MockAudioDevicesService(),
                             calendar: any CalendarService = MockCalendarService(),
@@ -108,6 +109,7 @@ public struct ServiceRegistry: Sendable {
             browserActivity: MockBrowserActivityProvider()
         )
     }
+#endif
 
     public func availability(for service: ServiceKind) async -> FeatureAvailability {
         switch service {
