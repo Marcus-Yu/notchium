@@ -4,8 +4,7 @@
 
 `RealMediaProvider` owns playback observations. There is exactly one playback GET and ingestion
 function, `readPlayback(reason:)`, used by polling, explicit refresh, command completion,
-Spotify Desktop notifications, resume, and Connect transfer. `MediaState` (also named
-`PlaybackSnapshot`) carries track ID, title, artist, artwork URL, duration, elapsed baseline,
+Spotify Desktop notifications, resume, and Connect transfer. `MediaState` carries track ID, title, artist, artwork URL, duration, elapsed baseline,
 rate, device, wall-clock observation time, monotonic sample time, and request start time.
 
 ```mermaid
@@ -16,7 +15,7 @@ flowchart TD
     Transport --> Refresh
     Poll[Adaptive fallback polling / Connect changes] --> Read[readPlayback]
     Refresh --> Read
-    Read --> Snapshot[One accepted PlaybackSnapshot]
+    Read --> Snapshot[One accepted MediaState]
     Snapshot --> Presentation[MediaSessionController: immediate feedback and cached presentation]
     Presentation --> UI[Notch UI]
 ```
