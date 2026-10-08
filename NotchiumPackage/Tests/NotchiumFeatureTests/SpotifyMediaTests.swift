@@ -405,6 +405,23 @@ private actor EventPlaybackTransport: MediaHTTPTransport {
         XCTAssertTrue(body.contains("code_verifier=")); XCTAssertFalse(body.contains("client_secret"))
         try await auth.disconnect(); XCTAssertNil(store.read())
     }
+    func testInvalidCallbackDoesNotConsumeCurrentAuthorizationAttempt() async throws {
+        let store = MemorySpotifyStore()
+        let transport = ScriptedMediaTransport([.init(data: Data(#"{"access_token":"fixture","refresh_token":"refresh","expires_in":3600}"#.utf8), status: 200)])
+        let auth = SpotifyAuthorization(store: store, transport: transport)
+        let url = try await auth.begin(clientID: String(repeating: "a", count: 32))
+        let state = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "state" }?.value)
+        do {
+            try await auth.complete(callback: URL(string: SpotifyAuthorization.redirectURI + "?code=untrusted&state=wrong")!)
+            XCTFail("Untrusted state was accepted")
+        } catch { XCTAssertEqual(error as? MediaFailure, .authorization) }
+        XCTAssertNil(store.read())
+        try await auth.complete(callback: URL(string: SpotifyAuthorization.redirectURI + "?code=fixture&state=" + state)!)
+        XCTAssertNotNil(store.read())
+        let requests = await transport.requests
+        XCTAssertEqual(requests.count, 1)
+    }
+
     func testFreshAuthorizationInstanceRestoresPersistedSession() async throws {
         let store = authorizedStore()
         let transport = ScriptedMediaTransport([])
@@ -1092,6 +1109,52 @@ private actor EventPlaybackTransport: MediaHTTPTransport {
         XCTAssertEqual(received, callback)
         await receiver.cancel()
     }
+
+    func testLoopbackCallbackParserRejectsMalformedAndAmbiguousRequests() {
+        let expectedState = "expected-state"
+        let cases = [
+            ("malformed request line", "not an HTTP request\r\n\r\n"),
+            ("mismatching state", "GET /callback?code=fixture&state=wrong HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"),
+            ("duplicate state", "GET /callback?code=fixture&state=expected-state&state=other HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"),
+            ("duplicate code", "GET /callback?code=fixture&code=other&state=expected-state HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"),
+            ("wrong callback path", "GET /other?code=fixture&state=expected-state HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"),
+        ]
+
+        for (name, request) in cases {
+            XCTAssertNil(SpotifyLoopbackCallback.callbackURL(request: request, expectedState: expectedState), name)
+        }
+    }
+
+    func testLoopbackRejectsWrongStateThenAcceptsValidAuthorizationCallback() async throws {
+        let store = MemorySpotifyStore()
+        let transport = ScriptedMediaTransport([
+            .init(data: Data(#"{"access_token":"fixture","refresh_token":"refresh","expires_in":3600}"#.utf8), status: 200)
+        ])
+        let authorization = SpotifyAuthorization(store: store, transport: transport)
+        let authorizationURL = try await authorization.begin(clientID: String(repeating: "a", count: 32))
+        let state = try XCTUnwrap(URLComponents(url: authorizationURL, resolvingAgainstBaseURL: false)?.queryItems?
+            .first(where: { $0.name == "state" })?.value)
+        let wrongStateURL = URL(string: SpotifyAuthorization.redirectURI + "?code=untrusted&state=wrong")!
+        let validCallbackURL = URL(string: SpotifyAuthorization.redirectURI + "?code=fixture&state=" + state)!
+        let receiver = SpotifyLoopbackCallback()
+
+        let callback = try await receiver.receive(expectedState: state) {
+            Task {
+                do { _ = try await URLSession.shared.data(from: wrongStateURL) }
+                catch { /* The receiver closes mismatching callback connections. */ }
+                do { _ = try await URLSession.shared.data(from: validCallbackURL) }
+                catch { await receiver.cancel() }
+            }
+        }
+
+        XCTAssertEqual(callback, validCallbackURL)
+        try await authorization.complete(callback: callback)
+        XCTAssertNotNil(store.read())
+        let requests = await transport.requests
+        XCTAssertEqual(requests.count, 1)
+        await receiver.cancel()
+    }
+
     func testNoDeviceAndErrorsNeverFakePlayback() async throws {
         let transport = ScriptedMediaTransport([.init(status: 204)])
         let api = SpotifyPlaybackAPI(authorization: .init(store: authorizedStore(), transport: transport), transport: transport)
