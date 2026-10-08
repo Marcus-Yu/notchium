@@ -125,8 +125,11 @@ public struct NotchToolbarSearchField: View {
             if !text.isEmpty {
                 Button { text = "" } label: {
                     Image(systemName: "xmark.circle.fill").font(.system(size: 11)).foregroundStyle(.white.opacity(0.5))
+                        .frame(width: 24, height: 24)
+                        .contentShape(.circle)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(NotchToolbarClearButtonStyle())
+                .help("Clear search")
                 .accessibilityLabel("Clear search")
             }
         }
@@ -142,5 +145,17 @@ public struct NotchToolbarSearchField: View {
         .animation(.easeOut(duration: 0.12), value: focused)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(prompt)
+    }
+}
+
+private struct NotchToolbarClearButtonStyle: ButtonStyle {
+    @State private var isHovered = false
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(.white.opacity(isEnabled && isHovered ? 0.08 : 0), in: .circle)
+            .opacity(isEnabled && configuration.isPressed ? 0.65 : 1)
+            .onHover { isHovered = $0 && isEnabled }
     }
 }
