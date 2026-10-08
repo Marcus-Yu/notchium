@@ -60,24 +60,23 @@ import NotchiumServices
         media.stop(); presentation.reset()
     }
 
-    func testCalendarSummarySelectsRelevantEventAndTodayState() throws {
+    func testCalendarSummarySelectsTheNextTwoUnexpiredEvents() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
         let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 9, day: 25, hour: 12)))
         let expired = CalendarEventSummary(id: UUID(), title: "Ended", startDate: now.addingTimeInterval(-3600), endDate: now)
         let today = CalendarEventSummary(id: UUID(), title: "Today", startDate: now.addingTimeInterval(60), endDate: now.addingTimeInterval(3600))
         let tomorrow = CalendarEventSummary(id: UUID(), title: "Tomorrow", startDate: now.addingTimeInterval(86400), endDate: now.addingTimeInterval(90000))
-        let summary = HomeCalendarSummary(events: [tomorrow, expired, today], at: now, calendar: calendar)
-        XCTAssertEqual(summary.nextEvent?.id, today.id)
-        XCTAssertTrue(summary.hasEventsToday)
-        let nextDay = HomeCalendarSummary(events: [expired, tomorrow], at: now, calendar: calendar)
-        XCTAssertEqual(nextDay.nextEvent?.id, tomorrow.id)
-        XCTAssertFalse(nextDay.hasEventsToday)
-        let empty = HomeCalendarSummary(events: [expired], at: now, calendar: calendar)
-        XCTAssertNil(empty.nextEvent)
-        XCTAssertFalse(empty.hasEventsToday)
+        let later = CalendarEventSummary(id: UUID(), title: "Later", startDate: now.addingTimeInterval(172800), endDate: now.addingTimeInterval(176400))
+        let summary = HomeCalendarSummary(events: [tomorrow, expired, later, today], at: now)
+        XCTAssertEqual(summary.nextEvents.map(\.id), [today.id, tomorrow.id])
+        let nextDay = HomeCalendarSummary(events: [expired, tomorrow], at: now)
+        XCTAssertEqual(nextDay.nextEvents.map(\.id), [tomorrow.id])
+        let empty = HomeCalendarSummary(events: [expired], at: now)
+        XCTAssertTrue(empty.nextEvents.isEmpty)
         let ongoing = CalendarEventSummary(id: UUID(), title: "All day", startDate: now.addingTimeInterval(-86400), endDate: now.addingTimeInterval(3600), isAllDay: true)
-        XCTAssertTrue(HomeCalendarSummary(events: [ongoing], at: now, calendar: calendar).hasEventsToday)
+        XCTAssertEqual(HomeCalendarSummary(events: [tomorrow, ongoing, today], at: now).nextEvents.map(\.id),
+                       [ongoing.id, today.id], "An ongoing event remains relevant until it ends")
     }
 
     func testRenderFixedHomeWithPopulatedLongAndEmptyStates() throws {
@@ -126,4 +125,3 @@ import NotchiumServices
         XCTFail("Media command did not finish")
     }
 }
-
