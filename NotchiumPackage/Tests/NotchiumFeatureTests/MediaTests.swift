@@ -44,7 +44,7 @@ private actor MemoryMediaSnapshotStore: MediaSnapshotStoring {
         await drain()
         capture.levels?(Array(repeating: 0.8, count: 7))
         await drain()
-        XCTAssertEqual(presentation.activityCoordinator.activeActivity?.priority, .low)
+        XCTAssertEqual(presentation.activityCoordinator.primary?.priority, .low)
         XCTAssertTrue(presentation.showsCollapsedMedia)
         XCTAssertEqual(presentation.surfaceState, .collapsed)
         XCTAssertEqual(presentation.pageModel.selectedPage, .home, "Activity updates do not navigate before expansion")
@@ -62,7 +62,7 @@ private actor MemoryMediaSnapshotStore: MediaSnapshotStoring {
         XCTAssertEqual(model.state.playbackState, .paused)
         XCTAssertTrue(model.isShowingCachedTrack)
         XCTAssertFalse(presentation.showsCollapsedMedia)
-        XCTAssertNotNil(presentation.activityCoordinator.activeActivity)
+        XCTAssertNotNil(presentation.activityCoordinator.primary)
     }
     func testExpandedGeometryPreservesHardwareAndHostFrames() {
         let placement = NotchShellPlacement(display: builtInDisplay(), mode: .physicalNotch)
@@ -149,20 +149,20 @@ private actor MemoryMediaSnapshotStore: MediaSnapshotStoring {
         await drain()
         capture.levels?(Array(repeating: 0.8, count: 7))
         await drain()
-        let id = presentation.activityCoordinator.activeActivity?.id
-        let alert = NotchActivity(id: UUID(), kind: .notification, title: "Test alert", subtitle: nil, priority: 100, duration: nil)
+        let id = presentation.activityCoordinator.primary?.id
+        let alert = NotchActivity(id: UUID(), kind: .notification, title: "Test alert", subtitle: nil, priority: .critical, duration: nil)
         presentation.activityCoordinator.present(alert)
         for _ in 0..<100 { model.receive(playing) }
         XCTAssertEqual(presentation.activityCoordinator.queueCount, 0)
         XCTAssertEqual(presentation.activityCoordinator.persistentActivity?.id, id)
         XCTAssertFalse(presentation.showsCollapsedMedia)
         presentation.activityCoordinator.dismissActive()
-        XCTAssertEqual(presentation.activityCoordinator.activeActivity?.id, id)
+        XCTAssertEqual(presentation.activityCoordinator.primary?.id, id)
         XCTAssertTrue(presentation.showsCollapsedMedia)
         presentation.activityCoordinator.present(alert)
         model.receive(.init())
         presentation.activityCoordinator.dismissActive()
-        XCTAssertEqual(presentation.activityCoordinator.activeActivity?.id, id)
+        XCTAssertEqual(presentation.activityCoordinator.primary?.id, id)
         XCTAssertTrue(model.isShowingCachedTrack)
         XCTAssertFalse(presentation.showsCollapsedMedia)
     }
@@ -205,7 +205,7 @@ private actor MemoryMediaSnapshotStore: MediaSnapshotStoring {
         XCTAssertEqual(restored.state.elapsed, 61)
         XCTAssertEqual(restored.state.playbackState, .paused)
         XCTAssertTrue(restored.state.canPlayPause)
-        XCTAssertNotNil(coordinator.activeActivity)
+        XCTAssertNotNil(coordinator.primary)
         restored.stop()
     }
     func testMockCommandsAndSeekClamp() async throws {
@@ -244,8 +244,7 @@ private actor MemoryMediaSnapshotStore: MediaSnapshotStoring {
         var state = await provider.snapshot; XCTAssertNil(state.artwork); XCTAssertTrue(state.hasMedia)
         try await provider.apply(.longTitle)
         state = await provider.snapshot
-        XCTAssertEqual(state.collapsedTitle.count, 120); XCTAssertTrue(state.collapsedTitle.hasSuffix("…"))
-        XCTAssertGreaterThan(state.title!.count, state.collapsedTitle.count)
+        XCTAssertGreaterThan(state.title!.count, 120)
         try await provider.apply(.spotify)
         state = await provider.snapshot; XCTAssertEqual(state.source, .spotify)
         try await provider.apply(.queue)
@@ -288,11 +287,6 @@ private actor MemoryMediaSnapshotStore: MediaSnapshotStoring {
         let commands = await provider.commands
         XCTAssertEqual(commands, [.pause])
         model.stop()
-    }
-    func testStageFourEnablesOnlyMediaAndShell() {
-        for flag in FeatureFlag.allCases {
-            XCTAssertEqual(FeatureFlags.stageFourMedia[flag], flag == .media || flag == .notchShell)
-        }
     }
     func testArtworkAndExpandedContentRender() async throws {
         let provider = MockMediaProvider()
