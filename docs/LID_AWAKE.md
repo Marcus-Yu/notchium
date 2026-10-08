@@ -1,5 +1,10 @@
 # Closed-lid keep-awake (experimental, direct distribution)
 
+**Stage 24 free release:** The helper is omitted and its controls report unavailable.
+Its Apple-anchored XPC requirements cannot authenticate an ad-hoc build. Ordinary
+Caffeine remains available. The architecture below is preserved for an edition
+with an appropriate trusted signing identity; its requirements are not weakened.
+
 Ordinary Caffeine uses public idle-sleep assertions; those do not override lid-close sleep. In the direct-download app, clicking Caffeine turns its shortcut orange and keeps the Mac and display awake indefinitely; the native right-click menu offers 15/30/60/120 minutes. Activation also requests the existing separate `SMAppService` launch daemon. First-time administrator approval in Login Items & Extensions is required: the app opens those settings, and the Caffeine menu offers an approval shortcut while pending. After approval, toggle Caffeine off/on again to acquire the lease. Settings → Closed-lid keep-awake also remains available. The helper defaults inactive at launch and is never registered by mocked services. Turning Caffeine off, timed expiry, or app shutdown releases the lease. The built-in panel still turns off when the lid closes.
 
 ## Privilege boundary
