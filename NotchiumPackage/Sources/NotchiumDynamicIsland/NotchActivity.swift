@@ -7,15 +7,6 @@ public enum NotchActivityPriority: Int, CaseIterable, Comparable, Sendable {
     case critical = 400
 
     public static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
-
-    init(legacyValue: Int) {
-        switch legacyValue {
-        case ..<25: self = .low
-        case 25..<60: self = .medium
-        case 60..<100: self = .high
-        default: self = .critical
-        }
-    }
 }
 
 public enum NotchActivityFamily: Hashable, Sendable {
@@ -140,13 +131,6 @@ public struct NotchActivity: Identifiable, Equatable, Sendable {
             && presentationStyle == other.presentationStyle && lifetime == other.lifetime
             && isDismissible == other.isDismissible && destination == other.destination
             && duration == other.duration && payload == other.payload && minimal == other.minimal
-    }
-
-    /// Keeps older fixtures source-compatible while production uses typed priorities.
-    public init(id: UUID, kind: NotchActivityKind, title: String,
-                subtitle: String?, priority: Int, duration: Duration?) {
-        self.init(id: id, kind: kind, title: title, subtitle: subtitle,
-                  priority: NotchActivityPriority(legacyValue: priority), duration: duration)
     }
 
     private static func defaultDestination(for kind: NotchActivityKind) -> NotchActivityDestination? {
