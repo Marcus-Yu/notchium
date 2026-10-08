@@ -8,7 +8,7 @@ struct HomeDashboardView: View {
     let media: (any NotchMediaRendering)?
     let calendar: (any NotchCalendarRendering)?
     var quickActions: (any NotchQuickActionsRendering)?
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @NotchReducedMotion private var reduceMotion
 
     var body: some View {
         let sections = [HomeSectionID.media, .calendar].filter { (quickActions?.homeSections ?? [.media, .calendar]).contains($0) }
