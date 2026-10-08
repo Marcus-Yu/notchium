@@ -7,7 +7,7 @@ struct PomodoroPageView: View {
     let model: PomodoroModel
     @State private var showsHistory = false
     @Environment(\.notchPomodoroPageVisible) private var isVisible
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @NotchReducedMotion private var reduceMotion
 
     var body: some View {
         ZStack {
@@ -24,6 +24,13 @@ struct PomodoroPageView: View {
         .padding(.top, ExpandedPageStyle.topInset)
         .padding(.bottom, ExpandedPageStyle.bottomInset)
         .foregroundStyle(.white)
+        .onChange(of: isVisible) {
+            if !isVisible {
+                var transaction = Transaction(animation: nil)
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { showsHistory = false }
+            }
+        }
     }
 
     private var timerPage: some View {
@@ -69,6 +76,7 @@ enum PomodoroStyle {
 private struct PomodoroTimerColumn: View {
     let model: PomodoroModel
     let isVisible: Bool
+    @NotchReducedMotion private var reduceMotion
 
     var body: some View {
         let state = model.state
@@ -88,7 +96,7 @@ private struct PomodoroTimerColumn: View {
                                  centersPrimary: state.phase == .focus && state.controls.contains(.resume))
             cycleDots(state)
         }
-        .animation(.smooth(duration: 0.3), value: state.phase)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: state.phase)
     }
 
     private func phaseChip(_ state: PomodoroState, accent: Color) -> some View {
@@ -111,7 +119,7 @@ private struct PomodoroTimerColumn: View {
             Text(NotchCountdown.label(remaining))
                 .font(PomodoroStyle.rounded(48, .semibold))
                 .foregroundStyle(.white.opacity(paused ? 0.5 : 1))
-                .contentTransition(.numericText(countsDown: true))
+                .contentTransition(reduceMotion ? .identity : .numericText(countsDown: true))
                 .accessibilityLabel(NotchCountdown.spokenLabel(remaining))
                 .accessibilityValue(countdown.isRunning ? "" : (model.state.isActive ? "Paused" : "Ready"))
             GeometryReader { proxy in
@@ -249,6 +257,8 @@ struct PomodoroHistoryView: View {
 private struct PomodoroMonthBars: View {
     let days: [PomodoroStatistics.Day]
     let calendar: Calendar
+    @State private var hoveredDayID: Date?
+    @State private var hoverLocation = CGPoint.zero
 
     var body: some View {
         let peak = max(days.map(\.focus).max() ?? 0, 3600)
@@ -260,11 +270,28 @@ private struct PomodoroMonthBars: View {
                         Spacer(minLength: 0)
                         RoundedRectangle(cornerRadius: 3, style: .continuous)
                             .fill(day.focus > 0 ? PomodoroStyle.focus.opacity(isToday ? 1 : 0.85) : .white.opacity(0.10))
+                            .overlay {
+                                if hoveredDayID == day.id {
+                                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                        .strokeBorder(.white.opacity(0.65), lineWidth: 1)
+                                        .shadow(color: PomodoroStyle.focus.opacity(0.55), radius: 3)
+                                        .allowsHitTesting(false)
+                                }
+                            }
                             .frame(height: day.focus > 0 ? max(5, 92 * day.focus / peak) : 4)
                     }
                     .frame(width: 9)
+                    .contentShape(.rect)
+                    .onContinuousHover(coordinateSpace: .named("pomodoro.history.bars")) { phase in
+                        switch phase {
+                        case let .active(location):
+                            hoveredDayID = day.id
+                            hoverLocation = location
+                        case .ended:
+                            if hoveredDayID == day.id { hoveredDayID = nil }
+                        }
+                    }
                     .padding(.leading, index == 0 ? 0 : (startsWeek(day.date) ? 7 : 3.5))
-                    .help(description(day))
                     .accessibilityElement()
                     .accessibilityLabel(description(day))
                 }
@@ -284,6 +311,31 @@ private struct PomodoroMonthBars: View {
             }
             .accessibilityHidden(true)
         }
+        .coordinateSpace(.named("pomodoro.history.bars"))
+        .overlay(alignment: .topLeading) {
+            GeometryReader { geometry in
+                if let day = days.first(where: { $0.id == hoveredDayID }) {
+                    Text("\(PomodoroStatistics.duration(day.focus)) focus")
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(.white)
+                        .frame(width: 112, height: 24)
+                        .padding(.horizontal, 8)
+                        .background(Color(white: 0.16), in: .rect(cornerRadius: 6))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 6)
+                                .strokeBorder(.white.opacity(0.16), lineWidth: 1)
+                        }
+                        // Stay beside the pointer while keeping the peek inside the chart.
+                        .offset(x: min(max(0, hoverLocation.x + 12), max(0, geometry.size.width - 128)),
+                                y: hoverLocation.y > 36 ? hoverLocation.y - 32 : hoverLocation.y + 12)
+                }
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .transaction { $0.animation = nil; $0.disablesAnimations = true }
+        }
+        .onDisappear { hoveredDayID = nil }
     }
 
     private func startsWeek(_ date: Date) -> Bool {
