@@ -5,7 +5,6 @@ enum NotchMotion {
     // Symmetric, lightly damped motion requested for the black shell only.
     static let shell = Animation.interactiveSpring(response: 0.40, dampingFraction: 0.80, blendDuration: 0)
 
-    static func morph(opening: Bool) -> Animation { shell }
     static func duration(opening: Bool) -> Duration { .milliseconds(400) }
 
     static let notificationIn = Animation.interactiveSpring(response: 0.26, dampingFraction: 1.0, blendDuration: 0)
@@ -233,26 +232,19 @@ private struct NotchShellOuterSurface: View {
 
     private var shellContent: some View {
         Group {
-            ZStack {
-                NotchPagesView(model: pageModel,
-                               mediaRenderer: model.mediaRenderer,
-                               calendarRenderer: model.calendarRenderer,
-                               audioRenderer: model.audioRenderer,
-                               isExpanded: model.surfaceState != .collapsed,
-                               auxiliaryInteractionPresented: model.isAuxiliaryInteractionPresented,
-                               caffeine: model.caffeineController,
-                               quickActions: model.quickActionsRenderer,
-                               shelfRenderer: model.shelfRenderer,
-                               pomodoroRenderer: model.pomodoroRenderer,
-                               clipboardRenderer: model.clipboardRenderer,
-                               camera: model.cameraController,
-                               close: model.collapse)
-                if model.presentationState == .activity,
-                   let activity = model.activityCoordinator.activeTransient,
-                   activity.kind != .media && activity.kind != .calendar {
-                    NotchActivityView(activity: activity)
-                }
-            }
+            NotchPagesView(model: pageModel,
+                           mediaRenderer: model.mediaRenderer,
+                           calendarRenderer: model.calendarRenderer,
+                           audioRenderer: model.audioRenderer,
+                           isExpanded: model.surfaceState != .collapsed,
+                           auxiliaryInteractionPresented: model.isAuxiliaryInteractionPresented,
+                           caffeine: model.caffeineController,
+                           quickActions: model.quickActionsRenderer,
+                           shelfRenderer: model.shelfRenderer,
+                           pomodoroRenderer: model.pomodoroRenderer,
+                           clipboardRenderer: model.clipboardRenderer,
+                           camera: model.cameraController,
+                           close: model.collapse)
             .padding(.top, layout.collapsedVisibleFrame.height)
             .overlay(alignment: .bottom) {
                 // A successful composer save must remain visible without closing
