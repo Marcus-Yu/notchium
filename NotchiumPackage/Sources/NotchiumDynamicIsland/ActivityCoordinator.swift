@@ -39,11 +39,6 @@ public final class ActivityCoordinator: ObservableObject {
         resolve()
     }
 
-    public var activeActivity: NotchActivity? { primary }
-    public var foregroundActivity: NotchActivity? { primary }
-    public var underlyingActivity: NotchActivity? { persistentActivity }
-    public var transientActivity: NotchActivity? { activeTransient }
-
     /// Presentation compatibility is independent of which transient wins priority.
     public var retainsMediaPresentation: Bool { mediaBaseline != nil }
 
@@ -347,12 +342,4 @@ public final class ActivityCoordinator: ObservableObject {
 
 extension NotchActivity {
     var family: NotchActivityFamily { kind.family }
-}
-
-extension Duration {
-    var timeInterval: TimeInterval {
-        let components = self.components
-        return TimeInterval(components.seconds)
-            + TimeInterval(components.attoseconds) / 1_000_000_000_000_000_000
-    }
 }
