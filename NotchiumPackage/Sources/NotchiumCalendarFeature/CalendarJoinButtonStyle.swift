@@ -1,10 +1,11 @@
+import NotchiumDesignSystem
 import SwiftUI
 
 /// Opaque at rest, independent of the system's dark glass appearance.
 struct CalendarJoinButtonStyle: ButtonStyle {
     var height: CGFloat = 28
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @NotchReducedMotion private var reduceMotion
     @State private var isHovered = false
 
     func makeBody(configuration: Configuration) -> some View {
