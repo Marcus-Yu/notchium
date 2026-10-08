@@ -4,7 +4,6 @@ import SwiftUI
 @MainActor public protocol NotchCalendarRendering: AnyObject {
     var reminderVisible: Bool { get }
     func reminderBanner(action: @escaping @MainActor () -> Void) -> AnyView
-    func setReminderHovered(_ hovered: Bool)
     func homeCalendar(openCalendar: @escaping @MainActor () -> Void) -> AnyView
     func expandedCalendar() -> AnyView
 }
