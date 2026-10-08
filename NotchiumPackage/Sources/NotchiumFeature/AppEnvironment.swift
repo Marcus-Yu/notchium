@@ -54,7 +54,8 @@ public struct AppEnvironment: Sendable {
     public static func mock(
         clock: any AppClock,
         logger: any AppLogging = MockAppLogger(),
-        services: ServiceRegistry = .mock()
+        services: ServiceRegistry = .mock(),
+        featureFlags: FeatureFlags = .stageFifteenFiles
     ) -> AppEnvironment {
         AppEnvironment(
             services: services,
@@ -68,7 +69,7 @@ public struct AppEnvironment: Sendable {
                 temporaryURL: URL(fileURLWithPath: "/private/tmp/notchium-tests")
             ),
             logger: logger,
-            featureFlags: .stageFifteenFiles,
+            featureFlags: featureFlags,
             distributionProfile: .developerID
         )
     }
