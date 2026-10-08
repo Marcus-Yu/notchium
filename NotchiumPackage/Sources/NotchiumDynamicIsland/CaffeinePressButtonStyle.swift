@@ -33,6 +33,7 @@ struct CaffeinePressButtonStyle: PrimitiveButtonStyle {
 
         var body: some View {
             configuration.label
+                .opacity(isEnabled && interaction.isPressed ? 0.78 : 1)
                 .overlay {
                     if allowsHold, interaction.progress > 0 {
                         Circle()
@@ -64,6 +65,9 @@ struct CaffeinePressButtonStyle: PrimitiveButtonStyle {
                 .focusable(isEnabled)
                 .focused($isFocused)
                 .focusEffectDisabled()
+                .onChange(of: isEnabled) { _, enabled in
+                    if !enabled { hoverAction?(false) }
+                }
                 .onKeyPress(keys: [.space, .return], phases: .down) { _ in
                     guard isEnabled else { return .ignored }
                     configuration.trigger()
@@ -138,7 +142,10 @@ struct CaffeinePointerInput: NSViewRepresentable {
             hoverTrackingArea = area
         }
 
-        override func mouseEntered(with event: NSEvent) { input?.hoverAction?(true) }
+        override func mouseEntered(with event: NSEvent) {
+            guard let input, input.isEnabled else { return }
+            input.hoverAction?(true)
+        }
         override func mouseExited(with event: NSEvent) { input?.hoverAction?(false) }
 
         override func mouseDown(with event: NSEvent) {
