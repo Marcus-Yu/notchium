@@ -76,7 +76,8 @@ public final class NotchiumApplicationController {
                                        coordinator: displayCoordinator.presentationModel.activityCoordinator,
                                        visibilityClock: environment.clock,
                                        snapshotStore: environment.persistence,
-                                       audioMeter: SystemAudioMeter(activityClock: environment.clock))
+                                       audioMeter: SystemAudioMeter(activityClock: environment.clock),
+                                       waveformAppearance: WaveformAppearanceModel(preferences: .standard))
         calendarModel = CalendarActivityModel(service: environment.services.calendar,
             coordinator: displayCoordinator.presentationModel.activityCoordinator,
             clock: environment.clock)
