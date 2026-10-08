@@ -10,7 +10,7 @@ The previous Music layout gave five transport buttons equal glass weight and con
 
 ## Page compositions
 
-- Music: compact native segmented picker at upper right; 76 pt artwork next to title/artist and progress; a reserved quiet waveform position; centered transport with Play/Pause emphasized; 12 pt separation before a full-width volume/output row. Long titles retain native help text. Shuffle/repeat retain their controls and gain a non-color active dot. Track and subpage changes crossfade without content scaling.
+- Music: white system-font Currently Playing / Up Next buttons with 32 pt hit targets at upper right; 76 pt artwork next to title/artist and progress; a reserved quiet waveform position; centered transport with Play/Pause emphasized; a padded Spotify source link below the time labels and above the device in the full-width volume/output row. Long titles retain native help text. Shuffle/repeat retain their controls and gain a non-color active dot. Track and subpage changes crossfade without content scaling.
 - Home: retains the 62/38 split and single screen. Removes the Music card, aligns content with common gutters, improves secondary text, and uses natural-case Calendar labels.
 - Calendar: retains 54/46 columns with a 24 pt gutter. Removes the main glass card and idle row fills; separators and proximity group upcoming events. Expanded selection retains a subtle fill. Join remains a distinct sibling action.
 - Audio: current output sits directly on the shell; the system slider has a fixed 20 pt row. Device selection retains its subtle fill; mixer rows use separators. Mixer rows are 52 pt with a 4 pt gap, preserving the prior minimum target density. App mute/menu targets are 24 pt. Lists remain scrollable.
