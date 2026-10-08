@@ -28,6 +28,8 @@ struct CaffeinePressButtonStyle: PrimitiveButtonStyle {
         let closedLidApproval: (() -> Void)?
         let hoverAction: ((Bool) -> Void)?
         @Environment(\.isEnabled) private var isEnabled
+        @FocusState private var isFocused: Bool
+        @State private var keyboardMenuRequest = 0
 
         var body: some View {
             configuration.label
@@ -48,8 +50,29 @@ struct CaffeinePressButtonStyle: PrimitiveButtonStyle {
                                          allowsHold: allowsHold, click: configuration.trigger,
                                          hold: holdAction, selectedDuration: selectedDuration,
                                          durationAction: durationAction, closedLidApproval: closedLidApproval,
-                                         hoverAction: hoverAction)
+                                         hoverAction: hoverAction, keyboardMenuRequest: keyboardMenuRequest)
                         .accessibilityHidden(true)
+                }
+                .overlay {
+                    if isFocused {
+                        Circle().strokeBorder(.white, lineWidth: 2)
+                            .padding(-3)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .focusable(isEnabled)
+                .focused($isFocused)
+                .focusEffectDisabled()
+                .onKeyPress(keys: [.space, .return], phases: .down) { _ in
+                    guard isEnabled else { return .ignored }
+                    configuration.trigger()
+                    return .handled
+                }
+                .onKeyPress(.downArrow, phases: .down) { _ in
+                    guard isEnabled, durationAction != nil else { return .ignored }
+                    keyboardMenuRequest &+= 1
+                    return .handled
                 }
                 .sensoryFeedback(.alignment, trigger: interaction.completionCount)
                 .accessibilityAction { if isEnabled { configuration.trigger() } }
@@ -71,10 +94,11 @@ struct CaffeinePointerInput: NSViewRepresentable {
     var durationAction: ((CaffeineDuration) -> Void)? = nil
     var closedLidApproval: (() -> Void)? = nil
     var hoverAction: ((Bool) -> Void)? = nil
+    var keyboardMenuRequest = 0
 
     func makeNSView(context: Context) -> PressView { PressView() }
     func updateNSView(_ view: PressView, context: Context) {
-        view.input = self
+        view.updateInput(self)
     }
     static func dismantleNSView(_ view: PressView, coordinator: ()) {
         view.cancelPress()
@@ -84,7 +108,25 @@ struct CaffeinePointerInput: NSViewRepresentable {
         var input: CaffeinePointerInput?
         private var activeInteraction: CaffeinePressInteraction?
         private var hoverTrackingArea: NSTrackingArea?
+        private var keyboardMenuTask: Task<Void, Never>?
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        func updateInput(_ input: CaffeinePointerInput) {
+            let requestedMenu = input.keyboardMenuRequest != (self.input?.keyboardMenuRequest ?? 0)
+            self.input = input
+            if !input.isEnabled { cancelPress() }
+            guard requestedMenu else { return }
+            keyboardMenuTask?.cancel()
+            // Enter native menu tracking after the SwiftUI update has finished. The menu uses
+            // the same actions and panel retention as the pointer's duration menu.
+            keyboardMenuTask = Task { @MainActor [weak self] in
+                guard !Task.isCancelled, let self, self.window != nil,
+                      let menu = self.durationMenu() else { return }
+                self.cancelPress()
+                menu.popUp(positioning: nil, at: NSPoint(x: self.bounds.midX, y: self.bounds.minY), in: self)
+                self.keyboardMenuTask = nil
+            }
+        }
 
         override func updateTrackingAreas() {
             super.updateTrackingAreas()
@@ -113,6 +155,10 @@ struct CaffeinePointerInput: NSViewRepresentable {
         }
 
         override func menu(for event: NSEvent) -> NSMenu? {
+            durationMenu()
+        }
+
+        private func durationMenu() -> NSMenu? {
             guard let input, input.isEnabled, input.durationAction != nil else { return nil }
             let menu = NSMenu(title: "Keep Awake For")
             for duration in CaffeineDuration.allCases {
@@ -162,6 +208,8 @@ struct CaffeinePointerInput: NSViewRepresentable {
             bounds.insetBy(dx: -10, dy: -10).contains(convert(event.locationInWindow, from: nil))
         }
         func cancelPress() {
+            keyboardMenuTask?.cancel()
+            keyboardMenuTask = nil
             activeInteraction?.cancel()
             activeInteraction = nil
         }
