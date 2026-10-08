@@ -31,13 +31,27 @@ public struct PomodoroConfiguration: Codable, Equatable, Sendable {
 
     public static let standard = PomodoroConfiguration()
 
+    public static let focusMinutesRange = 5...120
+    public static let shortBreakMinutesRange = 1...30
+    public static let longBreakMinutesRange = 5...60
+    public static let sessionsPerCycleRange = 1...8
+
+    /// Restored preferences must stay within the ranges offered by Settings. Explicit engine
+    /// configurations remain unrestricted so short sessions can be used by tests and previews.
+    var boundedForSettings: Self {
+        Self(focusMinutes: min(max(focusMinutes, Self.focusMinutesRange.lowerBound), Self.focusMinutesRange.upperBound),
+             shortBreakMinutes: min(max(shortBreakMinutes, Self.shortBreakMinutesRange.lowerBound), Self.shortBreakMinutesRange.upperBound),
+             longBreakMinutes: min(max(longBreakMinutes, Self.longBreakMinutesRange.lowerBound), Self.longBreakMinutesRange.upperBound),
+             sessionsPerCycle: min(max(sessionsPerCycle, Self.sessionsPerCycleRange.lowerBound), Self.sessionsPerCycleRange.upperBound))
+    }
+
     public func duration(of phase: PomodoroPhase) -> TimeInterval {
         let minutes = switch phase {
         case .focus: focusMinutes
         case .shortBreak: shortBreakMinutes
         case .longBreak: longBreakMinutes
         }
-        return TimeInterval(max(1, minutes) * 60)
+        return TimeInterval(max(1, minutes)) * 60
     }
 }
 
