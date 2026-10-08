@@ -1,3 +1,4 @@
+import NotchiumDesignSystem
 import NotchiumDynamicIsland
 import SwiftUI
 
@@ -6,7 +7,7 @@ struct PomodoroControlsView: View {
     let model: PomodoroModel
     var identifierPrefix = "notchium.pomodoro"
     var centersPrimary = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @NotchReducedMotion private var reduceMotion
 
     var body: some View {
         let controls = model.state.controls
