@@ -46,7 +46,7 @@ import NotchiumPersistence
                 .environment(\.colorScheme, .dark)
         }
         try await render(home(), name: "default", size: homeSize)
-        XCTAssertEqual(store.configuration.visibleSections, [.media, .calendar])
+        XCTAssertEqual(store.configuration.primarySections, [.media, .calendar])
         try store.setSectionEnabled(.shortcuts, enabled: true)
         XCTAssertFalse(actions.showsHomeActions)
         try store.save(.init(kind: .url, displayName: "Calendar", target: "https://example.com", pinnedToHome: true))
@@ -57,7 +57,7 @@ import NotchiumPersistence
         }
         try store.setSectionEnabled(.shortcuts, enabled: true)
         try await render(home(), name: "several", size: homeSize)
-        try await render(HomeCustomizationView(model: actions), name: "customization", size: CGSize(width: 570, height: 620))
+        try await render(Form { HomeSettingsSections(model: actions) }.formStyle(.grouped), name: "customization", size: CGSize(width: 570, height: 620))
         try await render(QuickActionEditor(action: .init(kind: .url, displayName: "Course", target: "https://learn.uwaterloo.ca", pinnedToHome: true), model: actions),
                          name: "add", size: CGSize(width: 420, height: 360))
         workspace.failure = .unavailable
@@ -70,9 +70,6 @@ import NotchiumPersistence
         try store.move(from: IndexSet(integer: 4), to: 0)
         try await render(home(),
                          name: "dense", size: homeSize)
-        try store.moveSection(from: IndexSet(integer: 2), to: 0)
-        try await render(home(), name: "reordered", size: homeSize)
-        XCTAssertEqual(store.configuration.visibleSections, [.shortcuts, .media, .calendar])
         XCTAssertEqual(store.pinned.count, 35)
         XCTAssertEqual(actions.homeSections, [.media, .calendar])
     }
