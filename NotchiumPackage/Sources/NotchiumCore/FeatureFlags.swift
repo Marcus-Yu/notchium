@@ -1,5 +1,4 @@
 public enum FeatureFlag: String, CaseIterable, Hashable, Sendable {
-    case notchShell
     case media
     case calendar
     case shelf
@@ -7,9 +6,7 @@ public enum FeatureFlag: String, CaseIterable, Hashable, Sendable {
     case audioDevices
     case caffeine
     case clipboard
-    case systemMonitor
     case activities
-    case pages
     case focus
 }
 
@@ -24,33 +21,8 @@ public struct FeatureFlags: Equatable, Sendable {
         values[flag, default: false]
     }
 
-    public static let stageOne = FeatureFlags(values: [
-        .notchShell: true,
-        .media: false,
-        .calendar: false,
-        .shelf: false,
-        .camera: false,
-        .audioDevices: false,
-        .caffeine: false,
-        .clipboard: false,
-        .systemMonitor: false,
-        .activities: false,
-        .pages: false,
-        .focus: false,
-    ])
-
-    public static let stageFourMedia = FeatureFlags(values: [.notchShell: true, .media: true])
-    public static let stageFiveCalendar = FeatureFlags(values: [
-        .notchShell: true, .media: true, .calendar: true
-    ])
-
-    public static let stageSixAudio = FeatureFlags(values: [
-        .notchShell: true, .media: true, .calendar: true, .audioDevices: true
-    ])
-
     /// Adds the file Shelf, transfer activities and screenshot activities (Stages 14–15).
     public static let stageFifteenFiles = FeatureFlags(values: [
-        .notchShell: true,
         .media: true,
         .calendar: true,
         .audioDevices: true,
@@ -61,7 +33,6 @@ public struct FeatureFlags: Equatable, Sendable {
 
     /// Adds Clipboard history, the Camera mirror, macOS Focus awareness and the Focus Timer (Stages 16–19).
     public static let stageNineteenUtilities = FeatureFlags(values: [
-        .notchShell: true,
         .media: true,
         .calendar: true,
         .audioDevices: true,
@@ -71,14 +42,5 @@ public struct FeatureFlags: Equatable, Sendable {
         .clipboard: true,
         .camera: true,
         .focus: true,
-    ])
-
-    public static let stageSevenActivities = FeatureFlags(values: [
-        .notchShell: true,
-        .media: true,
-        .calendar: true,
-        .audioDevices: true,
-        .caffeine: true,
-        .activities: true,
     ])
 }
