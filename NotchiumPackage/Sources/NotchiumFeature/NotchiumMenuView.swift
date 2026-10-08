@@ -15,17 +15,13 @@ public struct NotchiumMenuView: View {
 
     public var body: some View {
         Group {
-            Label("Stage 2 shell", systemImage: "checkmark.seal")
-            Text(shellStatus)
-                .foregroundStyle(.secondary)
-
-            Divider()
+            Button("Open Notchium") { controller.displayCoordinator.openForKeyboard() }
 
             Button {
                 NSApp.activate(ignoringOtherApps: true)
                 openSettings()
             } label: {
-                Label("Settings", systemImage: "gearshape")
+                Label("Settings…", systemImage: "gearshape")
             }
 
 #if DEBUG
@@ -45,15 +41,4 @@ public struct NotchiumMenuView: View {
         }
     }
 
-    private var shellStatus: String {
-        guard let placement = controller.displayCoordinator.shellPlacement else {
-            return "Menu-bar fallback active"
-        }
-        switch placement.mode {
-        case .physicalNotch:
-            return "Physical notch shell on \(placement.display.name)"
-        case .virtualPill:
-            return "Virtual pill on \(placement.display.name)"
-        }
-    }
 }
