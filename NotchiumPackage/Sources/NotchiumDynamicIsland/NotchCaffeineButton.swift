@@ -5,9 +5,10 @@ struct NotchCaffeineButton: View {
     let controller: any NotchCaffeineControlling
 
     @State private var isHovered = false
+    @Environment(\.notchMediaExpanded) private var isExpanded
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1, paused: !isTimed)) { context in
+        TimelineView(.animation(minimumInterval: 1, paused: !isTimed || !isExpanded)) { context in
             button(countdown: countdown(at: context.date))
         }
         .disabled(controller.isBusy)
@@ -17,7 +18,7 @@ struct NotchCaffeineButton: View {
             transaction.disablesAnimations = true
         }
         .accessibilityLabel("Caffeine")
-        .accessibilityHint("Click to keep Mac and display awake until turned off. Right-click to choose a duration.")
+        .accessibilityHint("Click to keep Mac and display awake until turned off. Right-click or press Down Arrow to choose a duration.")
         .accessibilityActions {
             ForEach(CaffeineDuration.allCases) { duration in
                 Button(duration.title) { controller.keepAwake(for: duration) }
