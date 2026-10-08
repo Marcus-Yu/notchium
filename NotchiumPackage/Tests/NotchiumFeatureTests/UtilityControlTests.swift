@@ -86,6 +86,48 @@ final class UtilityControlTests: XCTestCase {
 
 @MainActor
 final class CaffeinePressInteractionTests: XCTestCase {
+    func testClickOnlyPressFeedbackBeginsBeforeActionAndClearsOnCancellation() {
+        let press = CaffeinePressInteraction()
+        var clicks = 0
+        var holds = 0
+        press.begin(allowsHold: false, click: { clicks += 1 }, hold: { holds += 1 })
+        XCTAssertTrue(press.isPressed)
+        XCTAssertEqual(clicks, 0)
+        XCTAssertEqual(press.progress, 0)
+        press.end()
+        XCTAssertFalse(press.isPressed)
+        XCTAssertEqual(clicks, 1)
+        XCTAssertEqual(holds, 0)
+
+        press.begin(allowsHold: false, click: { clicks += 1 }, hold: { holds += 1 })
+        press.cancel()
+        press.end()
+        XCTAssertFalse(press.isPressed)
+        XCTAssertEqual(clicks, 1)
+    }
+
+    func testNativeDisableCancelsPressAndSuppressesHoverAndClick() {
+        let press = CaffeinePressInteraction()
+        let view = CaffeinePointerInput.PressView(frame: NSRect(x: 0, y: 0, width: 28, height: 28))
+        var clicks = 0
+        var hoverEvents: [Bool] = []
+        func input(enabled: Bool) -> CaffeinePointerInput {
+            .init(interaction: press, isEnabled: enabled, allowsHold: false,
+                  click: { clicks += 1 }, hold: {}, hoverAction: { hoverEvents.append($0) })
+        }
+        view.updateInput(input(enabled: true))
+        view.mouseEntered(with: mouse(.leftMouseDown, x: 14))
+        view.mouseDown(with: mouse(.leftMouseDown, x: 14))
+        XCTAssertEqual(hoverEvents, [true])
+        XCTAssertTrue(press.isPressed)
+        view.updateInput(input(enabled: false))
+        view.mouseEntered(with: mouse(.leftMouseDown, x: 14))
+        view.mouseUp(with: mouse(.leftMouseUp, x: 14))
+        XCTAssertEqual(hoverEvents, [true], "Disabled native input must not request hover feedback")
+        XCTAssertFalse(press.isPressed)
+        XCTAssertEqual(clicks, 0)
+    }
+
     func testProgressAndReleaseShareDeadline() {
         let press = CaffeinePressInteraction()
         let start = ContinuousClock.now
