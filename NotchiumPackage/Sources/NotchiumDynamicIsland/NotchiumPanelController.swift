@@ -151,9 +151,6 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         panel.backgroundColor = .clear
         panel.hasShadow = false
         updateHitTesting(at: NSEvent.mouseLocation)
-        #if DEBUG
-        print("[MediaHitTest] expanded=\(model.surfaceState != .collapsed) ignoresMouseEvents=\(panel.ignoresMouseEvents)")
-        #endif
         installPointerMonitorsIfNeeded()
 
         if model.visualState == .expanded {
@@ -262,25 +259,6 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         hostingView.frame = NSRect(origin: .zero, size: layout.panelFrame.size)
         hostingView.autoresizingMask = [.width, .height]
         hostingView.sizingOptions = []
-    }
-
-    @MainActor
-    func positionPanel(
-        _ panel: NSPanel,
-        on screen: NSScreen
-    ) {
-        let screenFrame = screen.frame
-
-        let origin = NSPoint(
-            x:
-                screenFrame.midX
-                - panel.frame.width / 2,
-            y:
-                screenFrame.maxY
-                - panel.frame.height
-        )
-
-        panel.setFrameOrigin(origin)
     }
 
     private func selectedScreen(for placement: NotchShellPlacement) -> NSScreen? {
@@ -424,9 +402,6 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         }
         let region = model.surfaceState == .collapsed
             ? currentLayout.collapsedHoverFrame : currentLayout.visibleSurfaceFrame
-        #if DEBUG
-        print("[MediaHitTest] click=\(point) content=\(region)")
-        #endif
         if NotchHoverRegion.contains(point, in: region) {
             interactionHandler?(point)
             // The header owns pin/unpin; content clicks belong to native controls.
