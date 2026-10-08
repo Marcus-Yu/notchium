@@ -4,18 +4,29 @@ import LocalAuthentication
 import Security
 
 public enum ClipboardStorageState: Equatable, Sendable {
-    case available, locked, unreadable
+    case available, locked, keyUnavailable, unreadable
 
     public var message: String? {
         switch self {
         case .available: nil
-        case .locked: "Clipboard history is locked. Unlock your Mac and reopen Notchium. Recent changes may not be saved."
+        case .locked: "Clipboard history’s encryption key is locked. Unlock your Mac, then try again. Recent changes may not have been saved."
+        case .keyUnavailable: "Clipboard history’s encryption key isn’t available. Try again. Existing history has been preserved. Recent changes may not have been saved."
         case .unreadable: "Clipboard history couldn’t be opened safely. Existing data has been preserved."
         }
     }
 }
 
-enum ClipboardStorageFailure: Error, Equatable { case keyUnavailable, invalidData, unsafeFile }
+enum ClipboardStorageFailure: Error, Equatable {
+    case keyUnavailable, keychain(OSStatus), invalidData, unsafeFile
+
+    var state: ClipboardStorageState {
+        switch self {
+        case .keychain(errSecInteractionNotAllowed): .locked
+        case .keyUnavailable, .keychain: .keyUnavailable
+        case .invalidData, .unsafeFile: .unreadable
+        }
+    }
+}
 
 /// The payload key is separate from Spotify credentials and never syncs to another device.
 public protocol ClipboardEncryptionKeyStoring: Sendable {
@@ -45,7 +56,8 @@ public struct KeychainClipboardEncryptionKeyStore: ClipboardEncryptionKeyStoring
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let key = result as? Data, key.count == 32 else {
+        guard status == errSecSuccess else { throw ClipboardStorageFailure.keychain(status) }
+        guard let key = result as? Data, key.count == 32 else {
             throw ClipboardStorageFailure.keyUnavailable
         }
         return key
@@ -59,7 +71,7 @@ public struct KeychainClipboardEncryptionKeyStore: ClipboardEncryptionKeyStoring
         item[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         let status = SecItemAdd(item as CFDictionary, nil)
         if status == errSecDuplicateItem, let existing = try read() { return existing }
-        guard status == errSecSuccess else { throw ClipboardStorageFailure.keyUnavailable }
+        guard status == errSecSuccess else { throw ClipboardStorageFailure.keychain(status) }
         return key
     }
 }
