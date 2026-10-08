@@ -89,8 +89,6 @@ public struct QueueTrack: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
-public typealias MediaQueueItem = QueueTrack
-
 /// The sole provider snapshot. Artwork is a URL identity; decoded images never enter activity queues.
 /// Licensed lyrics can later be supplied by a separate provider keyed by trackID and source.
 public struct MediaState: Equatable, Sendable {
@@ -181,18 +179,9 @@ public struct MediaState: Equatable, Sendable {
     public var canPlayPause: Bool { hasMedia && capabilities.canPlayPause }
     public var canSkipForward: Bool { hasMedia && capabilities.canSkipForward }
     public var canSkipBackward: Bool { hasMedia && capabilities.canSkipBackward }
-    public var canPlay: Bool { canPlayPause && !isPlaying }
-    public var canPause: Bool { canPlayPause && isPlaying }
-    public var canNext: Bool { canSkipForward }
-    public var canPrevious: Bool { canSkipBackward }
     public var canShuffle: Bool { hasMedia && capabilities.canShuffle && shuffle != nil }
     public var canRepeat: Bool { hasMedia && capabilities.canRepeat && repeatMode != nil }
     public var canSeek: Bool { hasMedia && validDuration != nil && capabilities.canSeek }
-    /// A bounded, single-line presentation string; views also apply tail truncation to actual width.
-    public var collapsedTitle: String {
-        let value = (title ?? "").split(whereSeparator: \.isNewline).joined(separator: " ")
-        return value.count > 120 ? String(value.prefix(119)) + "…" : value
-    }
 }
 
 /// The durable subset of a valid provider snapshot used to render the last known track.
@@ -309,7 +298,6 @@ public protocol MediaProviding: Sendable {
 public extension MediaProviding {
     func play() async throws { try await perform(.play) }
     func pause() async throws { try await perform(.pause) }
-    func togglePlayPause() async throws { try await perform(.playPause) }
     func nextTrack() async throws { try await perform(.next) }
     func previousTrack() async throws { try await perform(.previous) }
     func setShuffle(_ enabled: Bool) async throws { try await perform(.setShuffle(enabled)) }
@@ -351,7 +339,7 @@ public func estimatedPlaybackPosition(at now: Date, state: MediaState, uptime: T
 
 // Preserve the Stage 1 names at existing injection sites.
 public typealias MediaService = MediaProviding
-public typealias PlaybackSnapshot = MediaState
-public typealias MediaSnapshot = PlaybackSnapshot
 public typealias RealMediaService = RealMediaProvider
+#if DEBUG
 public typealias MockMediaService = MockMediaProvider
+#endif
