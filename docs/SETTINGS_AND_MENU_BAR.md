@@ -12,6 +12,12 @@ The gear and menu Settings button both activate the app and invoke SwiftUI's `op
 
 Stage 23 adds **Open Notchium** to the existing menu. This deliberately expands and focuses the panel for keyboard use; passive presentation does not take focus. Expanded controls follow native keyboard navigation behavior. Technical shell-stage and distribution labels were removed from the menu/Settings, while debug controls remain available in DEBUG builds. Clipboard capture has its own default-off production toggle and storage failures are visible in Settings.
 
+The external Settings window uses a native two-column sidebar. General contains app-wide settings; Home Page, Media, Audio, Calendar, Clipboard, Focus and Caffeine contain their existing feature controls. Categories follow the injected models, feature flags and distribution profile. Home layout and shortcut controls are shared with the standalone Home editor, and a shortcut edit request selects Home Page. Navigation state belongs to the Settings view; feature preferences remain owned by their existing models.
+
+Media contains Spotify connection and waveform colour controls. Audio contains system-audio
+recording permission controls. Waveform colours are automatically brightened when needed
+to remain visible against the black notch in both Static and Adaptive modes.
+
 ## Recovery
 
 Open the expanded notch's gear, then use **Show menu-bar icon** in Settings. This controls the same insertion binding as the menu scene. If macOS blocks the app, check **System Settings → Menu Bar → Allow in the Menu Bar → Notchium**. A true insertion value does not guarantee available menu-bar space.
@@ -45,3 +51,11 @@ If this recurs despite Notchium being allowed, investigate Control Center's bloc
 - Manual testing confirmed `openSettings` works from the manually hosted notch and displays the existing Spotify connection UI.
 - Final Cmd+R relaunch retained insertion `true` and saved item visibility `1`; the user visually confirmed the capsule icon appears. The underlying Control Center mapping workaround survives relaunch.
 - Live Spotify pause/resume succeeded and the collapsed playing indicator returned. Playback restart/previous, next, shuffle/repeat, and waveform behavior are covered by the passing unit tests; not all live commands were independently exercised.
+
+## Clipboard and sidebar follow-up validation — 2026-10-07
+
+- The Debug `Notchium` scheme built successfully on My Mac. Signed entitlements include the private Keychain group and app identifier.
+- All 25 clipboard tests passed, including entitlement failure, blocked writes, encrypted history preservation and recovery after simulated unlock.
+- The Settings reopen UI test passed after selecting the sidebar’s identified Media button; it covers opening, focusing the existing window, closing and reopening.
+- Native inspection confirmed saved clipboard text, links and images load without the false locked warning, and Home Page, Media and Audio display their controls. The rendered Audio/Settings layout was inspected.
+- A physical lock/unlock cycle and App Store signing were not exercised.
