@@ -6,19 +6,23 @@ import NotchiumDynamicIsland
 /// Seven bands of real system-audio energy. There is no view-owned timer.
 public struct MediaWaveform: View {
     public let isPlaying: Bool
-    @ObservedObject private var meter: SystemAudioMeter
+    public let color: Color
+    public let isPresented: Bool
+    private let meter: SystemAudioMeter
     @NotchReducedMotion private var reduceMotion
-    public init(isPlaying: Bool, meter: SystemAudioMeter) {
-        self.isPlaying = isPlaying; self.meter = meter
+    public init(isPlaying: Bool, meter: SystemAudioMeter, color: Color = .white, isPresented: Bool = true) {
+        self.isPlaying = isPlaying; self.meter = meter; self.color = color
+        self.isPresented = isPresented
     }
     @ViewBuilder
     public var body: some View {
-        let isVisible = isPlaying && meter.isAudioActive && !reduceMotion
+        // Hidden surfaces and Reduce Motion must not subscribe to audio samples.
+        let isVisible = isPresented && isPlaying && !reduceMotion && meter.isAudioActive
         Group {
             if isVisible {
                 HStack(spacing: 1.5) {
                     ForEach(0..<7) { band in
-                        Capsule().fill(.white)
+                        Capsule().fill(color)
                             .frame(width: 2, height: 16 * meter.waveformLevels[band])
                     }
                 }
@@ -28,6 +32,16 @@ public struct MediaWaveform: View {
             }
         }
         .animation(MediaMotion.waveform(reduceMotion: reduceMotion), value: isVisible)
+    }
+}
+
+struct CollapsedMediaWaveform: View {
+    let model: MediaFeatureModel
+    @Environment(\.notchMediaExpanded) private var isExpanded
+
+    var body: some View {
+        MediaWaveform(isPlaying: model.state.isPlaying, meter: model.audioMeter,
+                      color: model.waveformAppearance.color, isPresented: !isExpanded)
     }
 }
 
@@ -43,7 +57,8 @@ public struct CollapsedMediaView: View {
             MediaArtworkSlot(url: model.state.artwork, size: geometry.artworkSize, expanded: false)
                 .frame(width: geometry.leadingWidth)
             Color.black.frame(width: geometry.hardwareWidth)
-            MediaWaveform(isPlaying: model.state.isPlaying, meter: model.audioMeter).frame(width: geometry.trailingWidth)
+            CollapsedMediaWaveform(model: model)
+                .frame(width: geometry.trailingWidth)
         }
         .frame(width: geometry.width, height: geometry.height)
         .foregroundStyle(.white)
@@ -191,8 +206,9 @@ public struct MediaPageView: View {
                                     .lineLimit(1)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            MediaWaveform(isPlaying: model.state.isPlaying, meter: model.audioMeter)
-                                .opacity(0.6)
+                            MediaWaveform(isPlaying: model.state.isPlaying, meter: model.audioMeter,
+                                          color: model.waveformAppearance.color,
+                                          isPresented: isExpanded && isPageVisible)
                                 .frame(width: 24, height: 16)
                         }
                         .id(trackIdentity)
