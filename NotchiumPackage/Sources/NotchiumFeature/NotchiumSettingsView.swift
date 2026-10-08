@@ -69,9 +69,6 @@ public struct NotchiumSettingsView: View {
             if environment.featureFlags[.clipboard], let clipboardModel {
                 ClipboardSettingsSection(model: clipboardModel)
             }
-            Section("Distribution") {
-                Text(environment.distributionProfile.rawValue)
-            }
         }
         .formStyle(.grouped)
         .frame(width: 520, height: 540)
