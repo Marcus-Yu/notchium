@@ -29,7 +29,7 @@ struct NotchUtilityControls: View {
     }
 }
 
-/// Opens a small mirror inside the expanded notch; selected while the camera is live.
+/// Selected while Mirror is presented, including permission and recovery screens.
 private struct NotchCameraButton: View {
     let camera: any NotchCameraControlling
 
@@ -37,19 +37,19 @@ private struct NotchCameraButton: View {
     @State private var isHovered = false
 
     var body: some View {
-        let live = camera.isPreviewPresented
+        let isPresented = camera.isPreviewPresented
         Button(action: camera.togglePreview) {
-            NotchUtilityLabel(symbol: live ? "web.camera.fill" : "web.camera", isHovered: isHovered, isSelected: live)
+            NotchUtilityLabel(symbol: isPresented ? "web.camera.fill" : "web.camera", isHovered: isHovered, isSelected: isPresented)
         }
         .buttonStyle(NotchUtilityButtonStyle())
         .onHover { isHovered = $0 }
         .animation(reduceMotion ? .easeOut(duration: 0.1) : .smooth(duration: 0.18), value: isHovered)
-        .animation(reduceMotion ? .easeOut(duration: 0.1) : .smooth(duration: 0.18), value: live)
-        .help(live ? "Close Mirror" : "Mirror")
+        .animation(reduceMotion ? .easeOut(duration: 0.1) : .smooth(duration: 0.18), value: isPresented)
+        .help(isPresented ? "Close Mirror" : "Mirror")
         .accessibilityLabel("Mirror")
-        .accessibilityValue(live ? "Camera on" : "Off")
+        .accessibilityValue(isPresented ? "Preview open" : "Off")
         .accessibilityHint("Shows a live camera preview in the notch. Nothing is recorded.")
-        .accessibilityAddTraits(live ? .isSelected : [])
+        .accessibilityAddTraits(isPresented ? .isSelected : [])
         .accessibilityIdentifier("notchium.shell.camera")
     }
 }
