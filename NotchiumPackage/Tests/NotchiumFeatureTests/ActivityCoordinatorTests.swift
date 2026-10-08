@@ -38,7 +38,7 @@ final class ActivityCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(coordinator.persistentActivity, music)
         XCTAssertEqual(coordinator.activeTransient, calendar)
-        XCTAssertEqual(coordinator.activeActivity, calendar)
+        XCTAssertEqual(coordinator.primary, calendar)
         XCTAssertEqual(coordinator.presentationMode, .combined)
         XCTAssertEqual(coordinator.queueCount, 0)
     }
@@ -54,7 +54,7 @@ final class ActivityCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.presentationMode, .combined)
         XCTAssertEqual(coordinator.persistentActivity, music)
         coordinator.dismissActive()
-        XCTAssertEqual(coordinator.activeActivity, music)
+        XCTAssertEqual(coordinator.primary, music)
         XCTAssertEqual(coordinator.presentationMode, .mediaSides)
     }
 
@@ -192,7 +192,7 @@ final class ActivityCoordinatorTests: XCTestCase {
         XCTAssertNil(coordinator.activeTransient)
         XCTAssertEqual(coordinator.persistentActivity, music)
         coordinator.clearAll()
-        XCTAssertNil(coordinator.activeActivity)
+        XCTAssertNil(coordinator.primary)
     }
 
     func testMockCatalogUsesTypedKindPriorities() {
