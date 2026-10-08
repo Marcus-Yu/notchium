@@ -75,7 +75,6 @@ public actor RealPersistenceStore: PersistenceStoring {
 
 public actor MockPersistenceStore: PersistenceStoring {
     private let report: RetentionReport
-    private var cleanupCount = 0
     private var mediaTrack: CachedMediaTrack?
 
     public init(report: RetentionReport = .empty) {
@@ -86,12 +85,7 @@ public actor MockPersistenceStore: PersistenceStoring {
         policy: RetentionPolicy,
         referenceDate: Date
     ) -> RetentionReport {
-        cleanupCount += 1
-        return report
-    }
-
-    public func performedCleanupCount() -> Int {
-        cleanupCount
+        report
     }
 
     public func loadLastMediaTrack() -> CachedMediaTrack? { mediaTrack }
