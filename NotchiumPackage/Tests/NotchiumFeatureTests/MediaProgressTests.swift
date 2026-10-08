@@ -314,11 +314,11 @@ private actor HeldSeekProvider: MediaProviding {
         model.receive(remote)
         XCTAssertFalse(model.collapsedMediaVisible)
         XCTAssertTrue(model.state.hasMedia)
-        XCTAssertNotNil(coordinator.activeActivity)
+        XCTAssertNotNil(coordinator.primary)
 
         model.receive(.init())
         XCTAssertFalse(model.collapsedMediaVisible)
-        XCTAssertNotNil(coordinator.activeActivity)
+        XCTAssertNotNil(coordinator.primary)
         XCTAssertTrue(model.isShowingCachedTrack)
         XCTAssertEqual(model.state.playbackState, .paused)
         model.stop()
