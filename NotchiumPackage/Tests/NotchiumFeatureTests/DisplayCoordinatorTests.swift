@@ -177,13 +177,7 @@ final class DisplayCoordinatorTests: XCTestCase {
         XCTAssertEqual(model.presentationState, .activity)
         XCTAssertEqual(model.visualState, .collapsed)
         XCTAssertEqual(panel.layout?.surfaceSize, passiveLayout?.surfaceSize)
-        XCTAssertNotNil(panel.layout.flatMap {
-            NotchGeometryResolver.transientFrame(
-                for: $0,
-                mode: model.activityCoordinator.presentationMode,
-                reminderHeight: model.calendarReminderHeight
-            )
-        })
+        XCTAssertEqual(model.activityCoordinator.presentationMode, .downwardBanner)
         XCTAssertEqual(panel.layout?.panelFrame, passiveLayout?.panelFrame)
         model.activityCoordinator.dismissActive()
         await drainMainActorTasks()
@@ -240,7 +234,7 @@ final class DisplayCoordinatorTests: XCTestCase {
         )
         XCTAssertEqual(model.presentationState, .expanded)
         XCTAssertEqual(model.visualState, .expanded)
-        XCTAssertNotNil(model.activityCoordinator.activeActivity)
+        XCTAssertNotNil(model.activityCoordinator.primary)
         XCTAssertEqual(model.activityCoordinator.queueCount, 0)
         XCTAssertNotNil(model.activityCoordinator.persistentActivity)
         XCTAssertNotNil(model.activityCoordinator.activeTransient)
@@ -275,7 +269,7 @@ final class DisplayCoordinatorTests: XCTestCase {
         for _ in 0..<100 where !media.collapsedMediaVisible { await Task.yield() }
         XCTAssertTrue(media.collapsedMediaVisible) // Never opened the notch.
         let track = media.state.trackID
-        let activity = coordinator.presentationModel.activityCoordinator.activeActivity?.id
+        let activity = coordinator.presentationModel.activityCoordinator.primary?.id
         let hides = panel.hideCount
         for pinned in [false, true, false] {
             coordinator.presentationModel.present(pinned ? .expanded : .collapsed, animated: false)
@@ -283,7 +277,7 @@ final class DisplayCoordinatorTests: XCTestCase {
             XCTAssertEqual(coordinator.presentationModel.visualState, pinned ? .expanded : .collapsed)
             XCTAssertEqual(coordinator.presentationModel.showsCollapsedMedia, !pinned)
             XCTAssertEqual(media.state.trackID, track)
-            XCTAssertEqual(coordinator.presentationModel.activityCoordinator.activeActivity?.id, activity)
+            XCTAssertEqual(coordinator.presentationModel.activityCoordinator.primary?.id, activity)
             XCTAssertEqual(panel.hideCount, hides)
             await drainMainActorTasks()
             XCTAssertEqual(capture.starts, 1)
