@@ -36,7 +36,6 @@ public final class MediaSessionController {
     public private(set) var deviceIssue: String?
     public private(set) var transferringDeviceID: String?
     public private(set) var previousRemoteDevice: SpotifyDevice?
-    @ObservationIgnored private var devicesFetchedAt: Date?
     public private(set) var pendingControls: Set<String> = []
     public var isBusy: Bool { !pendingControls.isEmpty }
     public func isPending(_ command: MediaCommand) -> Bool { pendingControls.contains(command.controlID) }
@@ -129,7 +128,7 @@ public final class MediaSessionController {
         audioMeter.setWaveformPresentationEnabled(true)
         playbackActivityRefreshTask?.cancel(); playbackActivityRefreshTask = nil
         devicesTask?.cancel(); devicesTask = nil; devices = []; devicesLoading = false; deviceIssue = nil
-        transferringDeviceID = nil; previousRemoteDevice = nil; devicesFetchedAt = nil
+        transferringDeviceID = nil; previousRemoteDevice = nil
         volumeThrottleTask?.cancel(); volumeThrottleTask = nil
         volumeCommandTask?.cancel(); volumeCommandTask = nil; queuedVolumeRequest = nil
         cacheLoadTask?.cancel(); cacheLoadTask = nil
@@ -546,9 +545,6 @@ public final class MediaSessionController {
     public func addToQueue(uri: String) async throws {
         try await provider.addToQueue(uri: uri)
     }
-    public func refreshPlaybackState() async {
-        await provider.refresh()
-    }
     public func setExpandedVisible(_ visible: Bool) async {
         guard !Task.isCancelled else { return }
         await provider.setExpandedVisible(visible)
@@ -572,8 +568,6 @@ public final class MediaSessionController {
         isLocalDevice(name: authoritativeState.activeDeviceName, type: authoritativeState.activeDeviceType)
     }
 
-    public var connectActiveDeviceName: String { authoritativeState.activeDeviceName ?? "No active device" }
-
     public var connectTarget: SpotifyDevice? {
         if connectPlaybackIsLocal {
             guard let previousRemoteDevice else { return nil }
@@ -586,11 +580,6 @@ public final class MediaSessionController {
         connectTarget?.name ?? (connectPlaybackIsLocal ? previousRemoteDevice?.name ?? "Previous device" : "This Mac")
     }
 
-    public func refreshDevicesIfStale() {
-        guard homeMediaConnected, !devicesLoading,
-              devicesFetchedAt.map({ Date().timeIntervalSince($0) >= 30 }) ?? true else { return }
-        refreshDevices()
-    }
 
     public func refreshDevices() {
         guard transferringDeviceID == nil else { return }
@@ -604,7 +593,6 @@ public final class MediaSessionController {
                 let devices = try await provider.devices()
                 guard let self, self.generation == generation, !Task.isCancelled else { return }
                 self.devices = devices
-                self.devicesFetchedAt = Date()
                 self.devicesLoading = false
                 self.devicesTask = nil
             } catch {
@@ -635,7 +623,6 @@ public final class MediaSessionController {
                 // Device identity arrives in the same authoritative snapshot as playback.
                 if let devices {
                     self.devices = devices
-                    self.devicesFetchedAt = Date()
                     if self.transferringDeviceID != nil, !devices.contains(where: { $0.id == device.id && !$0.isRestricted }) {
                         self.transferringDeviceID = nil
                         self.deviceIssue = "Device unavailable"
