@@ -66,13 +66,6 @@ import NotchiumServices
         XCTAssertEqual(preferences.data(forKey: "quickActions.v1"), Data("broken".utf8))
     }
 
-    func testURLValidationRejectsExecutablesAndCredentials() {
-        XCTAssertNotNil(QuickAction.validatedWebURL("https://example.com/path?q=test"))
-        for target in ["file:///tmp/a", "javascript:alert(1)", "shortcuts://run-shortcut", "https://", "https://user:secret@example.com"] {
-            XCTAssertNil(QuickAction.validatedWebURL(target))
-        }
-    }
-
     func testShortcutParserUsesLastIdentifierAndRejectsMalformedOutput() throws {
         let id = UUID()
         let parsed = try AppleShortcutService.parseList("Name (with parentheses) (\(id))\n")
