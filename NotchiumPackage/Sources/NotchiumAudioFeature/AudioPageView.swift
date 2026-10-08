@@ -175,11 +175,12 @@ struct AudioPageView: View {
             ScrollView {
                 LazyVStack(spacing: AudioPageMetrics.appRowSpacing) {
                     if model.visibleProcesses.isEmpty {
-                        Text("No apps are producing audio")
+                        Text(emptyMixerMessage)
                             .font(.system(size: 11))
                             .foregroundStyle(.white.opacity(0.52))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.top, 5)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     ForEach(model.visibleProcesses) { process in
                         appRow(process)
@@ -249,6 +250,12 @@ struct AudioPageView: View {
         .overlay(alignment: .bottom) {
             Rectangle().fill(.white.opacity(0.10)).frame(height: 1)
         }
+    }
+
+    private var emptyMixerMessage: String {
+        if model.audioPermissionRequired { return "Allow System Audio Recording to see local apps" }
+        if model.mixerStatus == .unavailable { return "Per-app audio is unavailable right now" }
+        return "No apps are producing audio"
     }
 
     private func columnTitle(_ text: String) -> some View {
