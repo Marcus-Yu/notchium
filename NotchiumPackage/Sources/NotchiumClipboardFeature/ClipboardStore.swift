@@ -64,6 +64,9 @@ public struct ClipboardItem: Codable, Equatable, Identifiable, Sendable {
 }
 
 public protocol ClipboardStoring: AnyObject, Sendable {
+    var state: ClipboardStorageState { get }
+    /// Reports asynchronous disk-state changes. In-memory and test stores may ignore it.
+    func setStateChangeHandler(_ handler: (@Sendable (ClipboardStorageState) -> Void)?)
     func loadItems() -> [ClipboardItem]
     func saveItems(_ items: [ClipboardItem])
     func saveImage(_ png: Data, id: UUID)
@@ -73,77 +76,10 @@ public protocol ClipboardStoring: AnyObject, Sendable {
     func flush()
 }
 
-public extension ClipboardStoring { func flush() {} }
-
-/// Application Support/Notchium/Clipboard: one JSON index plus one PNG per image. Local only.
-public final class FileClipboardStore: ClipboardStoring, @unchecked Sendable {
-    private let directory: URL
-    // All disk work and the image index are serialized here. Synchronous reads/barriers
-    // observe every preceding write; routine saves never encode or scan on MainActor.
-    private let queue = DispatchQueue(label: "notchium.clipboard.store", qos: .utility)
-    private var imageIDs: Set<UUID>?
-
-    public init(directory: URL? = nil) {
-        self.directory = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Notchium/Clipboard", isDirectory: true)
-    }
-
-    private var index: URL { directory.appendingPathComponent("history.json") }
-    private func imageURL(_ id: UUID) -> URL { directory.appendingPathComponent("\(id.uuidString).png") }
-
-    public func loadItems() -> [ClipboardItem] {
-        queue.sync {
-            guard let data = try? Data(contentsOf: index) else { return [] }
-            return (try? JSONDecoder().decode([ClipboardItem].self, from: data)) ?? []
-        }
-    }
-
-    public func saveItems(_ items: [ClipboardItem]) {
-        queue.async { [self] in
-            guard let data = try? JSONEncoder().encode(items) else { return }
-            ensureDirectory()
-            try? data.write(to: index, options: [.atomic])
-        }
-    }
-
-    public func saveImage(_ png: Data, id: UUID) {
-        queue.async { [self] in
-            ensureDirectory()
-            try? png.write(to: imageURL(id), options: [.atomic])
-            if imageIDs != nil { imageIDs?.insert(id) }
-        }
-    }
-
-    public func loadImage(id: UUID) -> Data? {
-        queue.sync { try? Data(contentsOf: imageURL(id)) }
-    }
-
-    public func removeImages(except ids: Set<UUID>) {
-        queue.async { [self] in
-            if imageIDs == nil {
-                guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
-                else { return }
-                imageIDs = Set(files.filter { $0.pathExtension == "png" }.compactMap {
-                    UUID(uuidString: $0.deletingPathExtension().lastPathComponent)
-                })
-            }
-            for id in imageIDs!.subtracting(ids) {
-                do {
-                    try FileManager.default.removeItem(at: imageURL(id))
-                    imageIDs?.remove(id)
-                } catch {
-                    // Missing files are already removed. Keep real failures for a later cleanup.
-                    if !FileManager.default.fileExists(atPath: imageURL(id).path) { imageIDs?.remove(id) }
-                }
-            }
-        }
-    }
-
-    public func flush() { queue.sync {} }
-
-    private func ensureDirectory() {
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    }
+public extension ClipboardStoring {
+    var state: ClipboardStorageState { .available }
+    func setStateChangeHandler(_ handler: (@Sendable (ClipboardStorageState) -> Void)?) {}
+    func flush() {}
 }
 
 public final class InMemoryClipboardStore: ClipboardStoring, @unchecked Sendable {
