@@ -151,31 +151,6 @@ public enum NotchGeometryResolver {
         )
     }
 
-    public static func transientFrame(
-        for layout: NotchPanelLayout,
-        mode: NotchPresentationMode,
-        reminderHeight: CGFloat
-    ) -> CGRect? {
-        let size: CGSize
-        switch mode {
-        case .compactHUD:
-            size = NotchNotificationGeometry.size(for: .compact, layout: layout)
-        case .downwardBanner, .combined:
-            size = CGSize(
-                width: NotchReminderGeometry.width(for: layout),
-                height: layout.collapsedVisibleFrame.height + max(0, reminderHeight)
-            )
-        case .none, .mediaSides:
-            return nil
-        }
-        return CGRect(
-            x: layout.collapsedVisibleFrame.midX - size.width / 2,
-            y: layout.panelFrame.maxY - size.height,
-            width: size.width,
-            height: size.height
-        )
-    }
-
     private static func visibleSurfaceSize(
         state: NotchStableState,
         collapsedSize: CGSize,
