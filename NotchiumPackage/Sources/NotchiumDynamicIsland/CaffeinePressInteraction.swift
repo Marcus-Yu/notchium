@@ -14,8 +14,7 @@ struct CaffeinePressState {
 
     func progress(at instant: ContinuousClock.Instant) -> Double {
         guard let startedAt else { return 0 }
-        let elapsed = startedAt.duration(to: instant).components
-        return min(1, max(0, (Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18) / 0.75))
+        return min(1, max(0, startedAt.duration(to: instant) / Self.duration))
     }
 
     mutating func complete(at instant: ContinuousClock.Instant) -> Bool {
