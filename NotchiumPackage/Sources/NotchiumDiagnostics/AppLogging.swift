@@ -12,12 +12,7 @@ public enum AppLogLevel: String, Equatable, Sendable {
 public enum AppLogEvent: String, Equatable, Sendable {
     case applicationStarted
     case applicationStopped
-    case notchPanelShown
-    case notchPanelUnavailable
-    case providerUnavailable
-    case permissionStateChanged
     case retentionCleanupCompleted
-    case syntheticActivityCreated
 }
 
 public struct AppLogEntry: Equatable, Sendable {
