@@ -8,6 +8,7 @@ struct ClipboardSettingsSection: View {
 
     var body: some View {
         Section("Clipboard") {
+            Toggle("Capture clipboard history", isOn: $model.captureEnabled)
             Picker("History size", selection: $model.historyLimit) {
                 ForEach(ClipboardModel.limitOptions, id: \.self) { Text("\($0) items").tag($0) }
             }
@@ -16,9 +17,14 @@ struct ClipboardSettingsSection: View {
             }
             HStack {
                 Button("Clear History") { model.clear() }
+                    .disabled(model.storageState != .available)
                 Button("Clear All, Including Pinned", role: .destructive) { model.clear(includingPinned: true) }
+                    .disabled(model.storageState != .available)
             }
-            Text("History stays on this Mac. Items that password managers mark as concealed or transient, and copies from known password managers, are never saved. Pinned items are kept until you remove them.")
+            if let message = model.storageState.message {
+                Text(message).font(.caption).foregroundStyle(.secondary)
+            }
+            Text("History is stored on this Mac with best-effort encryption. Clipboard sensitivity and password-manager exclusions are best effort. Turning capture off keeps saved history. Pinned items stay until you remove them.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
@@ -32,7 +38,7 @@ struct FocusSettingsSection: View {
         Section("Focus") {
             LabeledContent("macOS Focus", value: statusText)
             if focus.availability == .unavailable(.unsupportedDistribution) {
-                Text("macOS shares Focus status only with apps signed with the Communication Notifications capability, which needs a paid Apple Developer team. Until then Notchium can’t see Focus, so it can’t quiet itself or show Focus changes.")
+                Text("Focus status isn’t available to Notchium in this version, so it can’t automatically quiet routine interruptions or show Focus changes.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Toggle("Reduce Notchium interruptions while Focus is on", isOn: $focus.reducesInterruptions)
@@ -59,13 +65,13 @@ struct FocusSettingsSection: View {
             }
             .pickerStyle(.segmented)
             Stepper("Focus: \(timer.configuration.focusMinutes) min",
-                    value: $timer.configuration.focusMinutes, in: 5...120, step: 5)
+                    value: $timer.configuration.focusMinutes, in: PomodoroConfiguration.focusMinutesRange, step: 5)
             Stepper("Short break: \(timer.configuration.shortBreakMinutes) min",
-                    value: $timer.configuration.shortBreakMinutes, in: 1...30)
+                    value: $timer.configuration.shortBreakMinutes, in: PomodoroConfiguration.shortBreakMinutesRange)
             Stepper("Long break: \(timer.configuration.longBreakMinutes) min",
-                    value: $timer.configuration.longBreakMinutes, in: 5...60, step: 5)
+                    value: $timer.configuration.longBreakMinutes, in: PomodoroConfiguration.longBreakMinutesRange, step: 5)
             Stepper("Long break every \(timer.configuration.sessionsPerCycle) focus session\(timer.configuration.sessionsPerCycle == 1 ? "" : "s")",
-                    value: $timer.configuration.sessionsPerCycle, in: 1...8)
+                    value: $timer.configuration.sessionsPerCycle, in: PomodoroConfiguration.sessionsPerCycleRange)
                 .accessibilityIdentifier("notchium.pomodoro.longBreakCadence")
             HStack {
                 Picker("Completion sound", selection: $timer.completionSound) {
@@ -85,7 +91,7 @@ struct FocusSettingsSection: View {
         switch focus.availability {
         case .unavailable(.permissionDenied): "Not allowed (System Settings → Privacy & Security → Focus)"
         case .unavailable(.permissionNotDetermined): "Waiting for permission"
-        case .unavailable(.unsupportedDistribution): "Unavailable in this build"
+        case .unavailable(.unsupportedDistribution): "Unavailable"
         case .unavailable, .limited: "Unavailable"
         case .available: focus.isFocused == true ? "On" : "Off"
         }
