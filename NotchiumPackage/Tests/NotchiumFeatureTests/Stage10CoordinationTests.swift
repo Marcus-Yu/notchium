@@ -44,15 +44,15 @@ final class Stage10CoordinationTests: XCTestCase {
         defer { observation.cancel(); activities.clearAll() }
         for notification in [audio(), reminder()] {
             XCTAssertTrue(activities.notifications.present(notification))
-            XCTAssertEqual(activities.foregroundActivity?.id, notification.id)
-            XCTAssertEqual(activities.underlyingActivity, music)
+            XCTAssertEqual(activities.primary?.id, notification.id)
+            XCTAssertEqual(activities.persistentActivity, music)
             XCTAssertEqual(activities.presentationMode, .combined)
             XCTAssertTrue(activities.retainsMediaPresentation)
         }
         XCTAssertFalse(activities.notifications.present(audio()))
         activities.notifications.dismissByUser()
-        XCTAssertEqual(activities.foregroundActivity, music)
-        XCTAssertNil(activities.transientActivity)
+        XCTAssertEqual(activities.primary, music)
+        XCTAssertNil(activities.activeTransient)
         XCTAssertEqual(persistentChanges, 0)
         XCTAssertEqual(activities.preferredExpandedPage, .music)
     }
@@ -198,7 +198,7 @@ final class Stage10CoordinationTests: XCTestCase {
                                       duration: .seconds(1))
             activities.present(urgent)
             activities.present(lower)
-            XCTAssertEqual(activities.foregroundActivity, urgent)
+            XCTAssertEqual(activities.primary, urgent)
             // Stage 12: a lower-priority reminder waits underneath; replaceable volume is dropped.
             XCTAssertEqual(activities.queueCount, kinds.1 == .systemHUD ? 0 : 1)
             activities.clearAll()
