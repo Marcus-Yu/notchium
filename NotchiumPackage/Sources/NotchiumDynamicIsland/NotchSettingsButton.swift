@@ -1,3 +1,4 @@
+import NotchiumDesignSystem
 import AppKit
 import NotchiumCore
 import SwiftUI
@@ -32,7 +33,7 @@ struct NotchUtilityControls: View {
 private struct NotchCameraButton: View {
     let camera: any NotchCameraControlling
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @NotchReducedMotion private var reduceMotion
     @State private var isHovered = false
 
     var body: some View {
@@ -56,7 +57,7 @@ private struct NotchCameraButton: View {
 /// App utility in the expanded header, outside the media controls.
 private struct NotchSettingsButton: View {
     @Environment(\.openSettings) private var openSettings
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @NotchReducedMotion private var reduceMotion
     @State private var isHovered = false
 
     var body: some View {
@@ -78,7 +79,7 @@ private struct NotchSettingsButton: View {
 private struct NotchCloseButton: View {
     let action: () -> Void
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @NotchReducedMotion private var reduceMotion
     @State private var isHovered = false
 
     var body: some View {
@@ -97,7 +98,7 @@ private struct NotchCloseButton: View {
 
 public struct NotchUtilityButtonStyle: ButtonStyle {
     public init() {}
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @NotchReducedMotion private var reduceMotion
 
     public func makeBody(configuration: Configuration) -> some View {
         configuration.label
