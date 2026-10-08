@@ -60,3 +60,14 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+
+# Local release products and private build logs
+dist/
+.DS_Store
+*.profraw
+*.profdata
+__pycache__/
+.env
+.env.*
+*.p12
+*.pfx
