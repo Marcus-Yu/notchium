@@ -1,3 +1,4 @@
+#if DEBUG
 import Foundation
 import NotchiumCore
 import NotchiumDiagnostics
@@ -7,7 +8,7 @@ import NotchiumServices
 public enum FixtureFactory {
     public static let referenceDate = Date(timeIntervalSince1970: 1_800_000_000)
 
-    public static let mediaSnapshot = MediaSnapshot(
+    public static let mediaSnapshot = MediaState(
         availability: .available,
         playbackState: .playing,
         title: "Fixture Track",
@@ -71,3 +72,4 @@ public enum FixtureFactory {
         MockPersistenceStore()
     }
 }
+#endif
