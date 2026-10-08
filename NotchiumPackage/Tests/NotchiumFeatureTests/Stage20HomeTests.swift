@@ -18,9 +18,6 @@ import NotchiumPersistence
         let action = QuickAction(kind: .url, displayName: "Docs", target: "https://example.com", pinnedToHome: true)
         try store.save(action)
         XCTAssertTrue(store.configuration.showsShortcutRegion)
-        try store.moveSection(from: IndexSet(integer: 2), to: 0)
-        try store.moveSection(from: IndexSet(integer: 2), to: 1)
-        XCTAssertEqual(store.configuration.orderedSections, [.shortcuts, .calendar, .media])
         XCTAssertEqual(store.configuration.primarySections, [.media, .calendar])
         XCTAssertEqual(QuickActionStore(preferences: preferences).configuration, store.configuration)
 
@@ -44,19 +41,18 @@ import NotchiumPersistence
 
     func testDefaultsHideReorderRelaunchAndResetKeepShortcuts() throws {
         let store = QuickActionStore(preferences: preferences)
-        XCTAssertEqual(store.configuration.visibleSections, [.media, .calendar])
+        XCTAssertEqual(store.configuration.enabledSections, ["media", "calendar"])
         let action = QuickAction(kind: .url, displayName: "Docs", target: "https://example.com", pinnedToHome: true)
         try store.save(action)
         try store.setSectionEnabled(.calendar, enabled: false)
-        XCTAssertEqual(store.configuration.visibleSections, [.media])
-        try store.moveSection(from: IndexSet(integer: 1), to: 0)
+        XCTAssertEqual(store.configuration.primarySections, [.media])
         try store.setSectionEnabled(.calendar, enabled: true)
         try store.setSectionEnabled(.shortcuts, enabled: true)
         let restored = QuickActionStore(preferences: preferences)
-        XCTAssertEqual(restored.configuration.visibleSections, [.calendar, .media, .shortcuts])
+        XCTAssertEqual(restored.configuration.enabledSections, ["media", "calendar", "shortcuts"])
         XCTAssertEqual(restored.actions, [action])
         try restored.resetHomeLayout()
-        XCTAssertEqual(restored.configuration.visibleSections, [.media, .calendar])
+        XCTAssertEqual(restored.configuration.enabledSections, ["media", "calendar"])
         XCTAssertEqual(restored.actions, [action])
         XCTAssertEqual(QuickActionStore(preferences: preferences).configuration, restored.configuration)
     }
@@ -67,10 +63,8 @@ import NotchiumPersistence
             try store.setSectionEnabled(section, enabled: true)
             try store.setSectionEnabled(section, enabled: false)
         }
-        XCTAssertTrue(store.configuration.visibleSections.isEmpty)
-        XCTAssertEqual(store.configuration.orderedSections.count, 3)
-        try store.moveSection(from: IndexSet(integer: 99), to: 0)
-        XCTAssertEqual(store.configuration.orderedSections, HomeSectionID.allCases)
+        XCTAssertTrue(store.configuration.enabledSections.isEmpty)
+        XCTAssertEqual(store.configuration.sectionOrder, HomeSectionID.allCases.map(\.rawValue))
     }
     func testMissingFieldsFutureSectionsAndMalformedItemsAreIndependent() throws {
         let valid = QuickAction(kind: .url, displayName: "Docs", target: "https://example.com")
@@ -81,7 +75,8 @@ import NotchiumPersistence
                                   "shortcuts": [record, future, ["kind": "file"], "bad item"]]
         preferences.set(try JSONSerialization.data(withJSONObject: object), forKey: QuickActionStore.configurationKey)
         let store = QuickActionStore(preferences: preferences)
-        XCTAssertEqual(store.configuration.orderedSections, [.calendar, .media, .shortcuts])
+        XCTAssertEqual(store.configuration.sectionOrder, ["calendar", "futureSection", "media", "shortcuts"])
+        XCTAssertEqual(store.configuration.primarySections, [.media, .calendar], "Legacy order never moves the fixed regions")
         XCTAssertEqual(store.actions, [valid])
         try store.setSectionEnabled(.media, enabled: false)
         let encoded = try XCTUnwrap(preferences.data(forKey: QuickActionStore.configurationKey))
@@ -110,7 +105,7 @@ import NotchiumPersistence
         let broken = Data("broken".utf8)
         preferences.set(broken, forKey: QuickActionStore.configurationKey)
         let store = QuickActionStore(preferences: preferences)
-        XCTAssertEqual(store.configuration.visibleSections, [.media, .calendar])
+        XCTAssertEqual(store.configuration.primarySections, [.media, .calendar])
         XCTAssertNotNil(store.error)
         XCTAssertEqual(preferences.data(forKey: "\(QuickActionStore.configurationKey).recovery"), broken)
         try store.save(QuickAction(kind: .url, displayName: "Recovered", target: "https://example.com"))
@@ -120,7 +115,7 @@ import NotchiumPersistence
         let data = Data("{\"schemaVersion\":999}".utf8)
         preferences.set(data, forKey: QuickActionStore.configurationKey)
         let store = QuickActionStore(preferences: preferences)
-        XCTAssertEqual(store.configuration.visibleSections, [.media, .calendar])
+        XCTAssertEqual(store.configuration.primarySections, [.media, .calendar])
         XCTAssertThrowsError(try store.resetHomeLayout())
         XCTAssertEqual(preferences.data(forKey: QuickActionStore.configurationKey), data)
     }
