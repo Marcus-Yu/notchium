@@ -65,7 +65,7 @@ No feature is labeled BROKEN solely because a historical bug was reported or a l
 
 **Spotify-only. Apple Music support was removed/is outside current scope.** There is no current MusicKit provider to extend accidentally.
 
-`MediaProviding` is the canonical service protocol. `MediaService`, `MediaProvider`, `RealMediaService`, `MockMediaService`, and `MediaFeatureModel` include compatibility aliases; the principal implementations are `RealMediaProvider`, `MediaState`/`PlaybackSnapshot`, and `MediaSessionController`.
+`MediaProviding` is the canonical service protocol. `MediaService`, `MediaProvider`, `RealMediaService`, `MockMediaService`, and `MediaFeatureModel` include compatibility aliases; the principal implementations are `RealMediaProvider`, `MediaState`, and `MediaSessionController`.
 
 Authentication uses browser OAuth, random state, S256 PKCE, a single-use loopback callback at `http://127.0.0.1:8888/callback`, and Keychain access/refresh tokens. The public client ID is a preference; there is no embedded client secret. Scopes are `user-read-playback-state`, `user-modify-playback-state`, and `user-read-currently-playing`. Cold restoration and interactive authorization are distinct states. Refreshes are shared; generation cancellation prevents obsolete restoration overwriting a newer login. An authenticated 204/no-player response is not disconnection.
 
@@ -136,7 +136,7 @@ Audio sliders use `NotchiumSlider`'s native local pointer responder. Output feed
 
 ## 9. ActivityCoordinator
 
-`ActivityCoordinator` owns one persistent baseline and a bounded transient dictionary keyed by activity family. Exposed state includes `persistentActivity`, `activeTransient`, `activeActivity`/`foregroundActivity`, `underlyingActivity`, queue count, and presentation mode. Foreground is transient if present, otherwise persistent. Media state itself is never copied into a notification queue.
+`ActivityCoordinator` owns one persistent baseline and a bounded transient dictionary keyed by activity family. Exposed state includes `primary`, `secondary`, `persistentActivity`, `activeTransient`, `liveActivities`, queue count, and presentation mode. Foreground is transient if present, otherwise persistent. Media state itself is never copied into a notification queue.
 
 Generic activity kinds include media, systemHUD, charging, audioDevice, download, screenshot, calendar, focus, battery, meeting, clipboard, notification. Many are skeleton/debug possibilities, not current production features. Generic semantic priorities are low (media/systemHUD), medium (charging/audioDevice/download/screenshot/calendar), high (focus/battery/meeting/clipboard), critical (notification). Actual unified notifications derive their own priority from notification kind.
 
@@ -383,7 +383,7 @@ The grouped entries below are an orientation map, not an exhaustive source inven
 | Notifications | `NotchiumDynamicIsland/NotificationCoordinator.swift`, `NotchNotification.swift` → slot/deadlines/kinds |
 | Navigation | `NotchiumDynamicIsland/Pages/NotchPageModel.swift`, `NotchPagesView.swift` → selection/session/mounted pages |
 | Home | `NotchiumDynamicIsland/Home/HomeDashboardView.swift` → fixed composition |
-| Media contract | `NotchiumServices/MediaService.swift` → MediaProviding, MediaState/PlaybackSnapshot, commands |
+| Media contract | `NotchiumServices/MediaService.swift` → MediaProviding, MediaState, commands |
 | Spotify | `NotchiumServices/RealMediaProvider.swift` → authoritative reads/commands/poll lifecycle |
 | Spotify | `NotchiumServices/PlaybackReconciliation.swift` → bounded command confirmation |
 | Spotify | `NotchiumServices/SpotifyPlaybackAPI.swift`, `SpotifyAuthorization.swift` → HTTP/cooldown/OAuth/Keychain |
@@ -439,7 +439,7 @@ Most overlap is intentional optimistic-versus-authoritative state. Highest-risk 
 SPOTIFY
 OAuth/Keychain → SpotifyPlaybackAPI
 poll / desktop hint / command → RealMediaProvider.readPlayback
-→ PlaybackSnapshot → MediaSessionController → Music / Home
+→ MediaState → MediaSessionController → Music / Home
                                       └→ persistent ActivityCoordinator entry
 Spotify process PCM → SpotifyAudioTap → FFT → SystemAudioMeter
 → real local activity gate / waveform / bounded metadata refresh hint
