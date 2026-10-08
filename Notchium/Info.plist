@@ -2,6 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 	<dict>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Notchium watches for new screenshots in your screenshot folder so you can add them to Shelf.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Notchium watches your Downloads folder to show download progress and completed files.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Notchium watches for new screenshots in your screenshot folder so you can add them to Shelf.</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
 	<string>Notchium adds reminders to your chosen list when you use Quick Reminder.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
