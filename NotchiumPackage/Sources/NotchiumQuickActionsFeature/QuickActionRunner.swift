@@ -13,6 +13,7 @@ import Observation
     public private(set) var shortcuts: [ExistingShortcut] = []
     public private(set) var discoveryError: String?
     public private(set) var refreshing = false
+    private var preparedIcons: [UUID: (action: QuickAction, image: NSImage)] = [:]
     public let store: QuickActionStore
     public let workspace: any QuickActionWorkspace
     @ObservationIgnored private let shortcutService: any ShortcutService
@@ -47,6 +48,11 @@ import Observation
     public func prepareHomeAction(_ action: QuickAction) async {
         if action.kind == .shortcut { await discover(force: false) }
         await validate(action, force: false)
+    }
+    /// Observable presentation state; native resource loading stays in the workspace adapter.
+    public func icon(for action: QuickAction) -> NSImage? {
+        guard let prepared = preparedIcons[action.id], prepared.action == action else { return nil }
+        return prepared.image
     }
     private func discover(force: Bool) async {
         let now = await clock.now()
@@ -92,6 +98,10 @@ import Observation
             if resolved != action { try store.save(resolved) }
             await workspace.prepareIcon(for: resolved)
             try Task.checkCancellation()
+            guard store.actions.contains(resolved) else { return }
+            if let image = workspace.icon(for: resolved) {
+                preparedIcons[action.id] = (resolved, image)
+            } else { preparedIcons[action.id] = nil }
             unavailable[action.id] = nil
             validated[action.id] = (resolved, now)
         } catch is CancellationError { return }
