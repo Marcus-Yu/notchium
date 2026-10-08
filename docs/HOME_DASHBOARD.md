@@ -1,6 +1,6 @@
 # Home — Stage 20 customization
 
-Home is a configurable single-screen dashboard. Default Home remains 524 × 266 with Media on the left and Calendar on the right, using a balanced 56/44 split and a subtle vertical divider. Shortcuts is an optional lower strip within the same 266 pt shell. When present, smaller artwork/date typography and tighter primary-region and divider spacing make room for the 47 pt strip footprint. Settings → Home → Customize Home is the editing entry point.
+Home is a configurable single-screen dashboard. Default Home remains 524 × 266 with Media on the left and Calendar on the right, using a balanced 56/44 split and a subtle vertical divider. Shortcuts is an optional lower strip within the same 266 pt shell. When present, smaller artwork/date typography and tighter primary-region and divider spacing make room for the 47 pt strip footprint. The Settings → Home Page category is the editing entry point.
 
 ## Composition and ownership
 
@@ -28,7 +28,7 @@ Apple Shortcuts uses Apple's existing fixed `/usr/bin/shortcuts` adapter with ar
 
 ## Editing and reset
 
-Customize Home uses a native Settings sheet. Primary regions have visibility toggles and fixed positions; a separate “Show shortcut row” toggle controls the auxiliary strip. Shortcuts supports add, edit, delete, enable, pin, and native list reorder with keyboard-accessible arrow alternatives. Edits retain their saved order. Existing items keep their action type; replacement is available through Add Shortcut rather than unsafe conversion. Optional SF Symbols come from a small built-in selection; files/apps use their native icons by default.
+The Home Page category in Settings (`HomeSettingsSections`) edits Home. Primary regions have visibility toggles and fixed positions; a section order saved by an earlier version is kept losslessly but never moves them; a separate “Show shortcut row” toggle controls the auxiliary strip. Shortcuts supports add, edit, delete, enable, pin, and native list reorder with keyboard-accessible arrow alternatives. Edits retain their saved order. Existing items keep their action type; replacement is available through Add Shortcut rather than unsafe conversion. Optional SF Symbols come from a small built-in selection; files/apps use their native icons by default.
 
 Reset Home Layout restores Media then Calendar, hides Shortcuts, and preserves every shortcut. No bulk shortcut reset or deletion accompanies layout reset. Individual removal is explicit.
 
@@ -50,7 +50,7 @@ Bookmark/filesystem work runs in a dedicated actor. Icons are cached and never l
 
 Stage 20 makes no changes to automatic page arbitration, shell geometry, panel geometry, or activity priorities. Qualifying local Media still wins over running Pomodoro, then paused Pomodoro's exclusive 30-second grace, then Home. Manual selection remains owned by the user while open; remote Spotify and all unrelated pages retain their existing policies.
 
-Focused tests cover defaults/hide/reorder/reset/relaunch, Stage 11 migration, per-item resilience, corrupt/newer schemas, shortcut CRUD/dense ordering, URL validation, availability/access denial, exact Apple Shortcut identity, caching, no transient/page changes, real bookmark restoration/missing resources, and native app resolution. Rendering checks cover default, Shortcuts, customization, add, unavailable, dense, and reordered states. `HomeShortcutLayoutTests` checks filled segment edges, empty gaps, and centered contents for one through four shortcuts at Home's available width. QA images are opt-in through `NOTCHIUM_STAGE20_QA=1`: the presentation fixtures capture default Home, one shortcut, and several shortcuts, and the adaptive-strip fixtures capture one through four shortcuts. Ordinary tests leave no screenshots.
+Focused tests cover defaults/hide/reset/relaunch, lossless legacy section order, Stage 11 migration, per-item resilience, corrupt/newer schemas, shortcut CRUD/dense ordering, URL validation, availability/access denial, exact Apple Shortcut identity, caching, no transient/page changes, real bookmark restoration/missing resources, and native app resolution. Rendering checks cover default, Shortcuts, customization, add, unavailable, dense, and reordered states. `HomeShortcutLayoutTests` checks filled segment edges, empty gaps, and centered contents for one through four shortcuts at Home's available width. QA images are opt-in through `NOTCHIUM_STAGE20_QA=1`: the presentation fixtures capture default Home, one shortcut, and several shortcuts, and the adaptive-strip fixtures capture one through four shortcuts. Ordinary tests leave no screenshots.
 
 ### Stage 20 verification results
 
@@ -65,7 +65,7 @@ The former generic three-column composition is replaced by primary Media/Calenda
 Changed files for this refinement:
 
 - Core and shared metrics: `HomeConfiguration.swift`, `HomeDashboardStyle.swift`, and the explicit internal design-system dependency in `Package.swift`.
-- Home presentation and settings: `HomeDashboardView.swift`, `HomeMediaView.swift`, `HomeCalendarView.swift`, `HomeQuickActionsView.swift`, `HomeCustomizationView.swift`.
+- Home presentation and settings: `HomeDashboardView.swift`, `HomeMediaView.swift`, `HomeCalendarView.swift`, `HomeQuickActionsView.swift`, `HomeSettingsSections.swift`.
 - Rendering projection: `QuickActionsModel.swift`, `NotchQuickActionsRendering.swift`.
 - Geometry and motion: the temporary Home-specific sizing changes in `NotchPanelLayout.swift`, `NotchiumDisplayCoordinator.swift`, `NotchiumPanelController.swift`, and `NotchTransitionSurface.swift` were removed. These files retain their original shell behavior.
 - Focused tests: `Stage20HomeTests.swift`, `Stage20PresentationTests.swift`, `Stage11PresentationTests.swift`, `DisplayCoordinatorTests.swift`.
