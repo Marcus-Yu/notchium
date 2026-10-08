@@ -33,12 +33,13 @@ struct NotchCompactActivitySlot: View {
                                          blendsMedia: activity.blendsWithMedia && model.mediaVisiblyPlaying)
                     // A coalesced update keeps its ID: the same view updates in place.
                     .id(shown.id)
-                    .transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.96)),
-                                            removal: .opacity))
+                    .transition(model.reduceMotion ? .opacity :
+                        .asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.96)),
+                                    removal: .opacity))
                     .allowsHitTesting(current != nil)
             }
         }
-        .animation(NotchMotion.compactSwap, value: shown?.id)
+        .animation(model.reduceMotion ? NotchMotion.reduced : NotchMotion.compactSwap, value: shown?.id)
         .onChange(of: current, initial: true) { _, value in
             if let value { retained = value }
         }
@@ -141,7 +142,7 @@ struct NotchCompactActivityView: View {
             Image(systemName: name, variableValue: variableValue)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(tint)
-                .contentTransition(.symbolEffect(.replace))
+                .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
                 .scaleEffect(reduceMotion ? 1 : 0.62 + 0.38 * progress)
                 .rotationEffect(.degrees(reduceMotion ? 0 : -16 * (1 - progress)))
         case let .thumbnail(url):
@@ -174,7 +175,8 @@ struct NotchCompactActivityView: View {
             switch activity.trailing {
             case let .level(level):
                 // Spans the trailing side from just past the physical notch to the outer padding.
-                NotchCompactLevelBar(level: level, reveal: progress, dimmed: activity.tint == .muted)
+                NotchCompactLevelBar(level: level, reveal: progress, dimmed: activity.tint == .muted,
+                                     reduceMotion: reduceMotion)
                     .frame(maxWidth: .infinity)
                     .frame(height: 4)
             case let .text(text):
@@ -195,7 +197,8 @@ struct NotchCompactActivityView: View {
                 // Only the progress itself moves while active; updates glide, never re-enter.
                 HStack(spacing: 7) {
                     if let fraction {
-                        NotchCompactLevelBar(level: fraction, reveal: progress, dimmed: false)
+                        NotchCompactLevelBar(level: fraction, reveal: progress, dimmed: false,
+                                             reduceMotion: reduceMotion)
                             .frame(maxWidth: .infinity)
                             .frame(height: 4)
                     }
@@ -203,7 +206,7 @@ struct NotchCompactActivityView: View {
                         .font(.system(size: 11, weight: .semibold).monospacedDigit())
                         .lineLimit(1)
                         .fixedSize()
-                        .contentTransition(.numericText())
+                        .contentTransition(reduceMotion ? .identity : .numericText())
                         .opacity(textOpacity)
                 }
                 .animation(reduceMotion ? nil : NotchMotion.compactLevel, value: label)
@@ -211,7 +214,7 @@ struct NotchCompactActivityView: View {
                 NotchCountdownTimeline(countdown: countdown) { date in
                     HStack(spacing: 7) {
                         NotchCompactLevelBar(level: countdown.elapsedFraction(at: date), reveal: progress,
-                                             dimmed: !countdown.isRunning)
+                                             dimmed: !countdown.isRunning, reduceMotion: reduceMotion)
                             .frame(maxWidth: .infinity)
                             .frame(height: 4)
                         Text(NotchCountdown.label(countdown.remaining(at: date)))
@@ -273,15 +276,16 @@ private struct NotchCompactLevelBar: View {
     let level: Double
     let reveal: CGFloat
     let dimmed: Bool
+    let reduceMotion: Bool
 
     var body: some View {
         GeometryReader { proxy in
             Capsule().fill(.white.opacity(0.2))
                 .overlay(alignment: .leading) {
                     Capsule().fill(.white.opacity(dimmed ? 0.4 : 1))
-                        .animation(NotchMotion.compactLevel, value: dimmed)
+                        .animation(reduceMotion ? NotchMotion.reduced : NotchMotion.compactLevel, value: dimmed)
                         .frame(width: proxy.size.width * CGFloat(min(max(level, 0), 1)) * reveal)
-                        .animation(NotchMotion.compactLevel, value: level)
+                        .animation(reduceMotion ? nil : NotchMotion.compactLevel, value: level)
                 }
         }
     }
@@ -334,8 +338,8 @@ private struct NotchDeviceTurnGlyph: View {
     }
 
     var body: some View {
-        TimelineView(.animation(paused: turnStart == nil)) { context in
-            let t = turnStart.map { min(1, context.date.timeIntervalSince($0) / NotchMotion.deviceTurn) } ?? 1
+        TimelineView(.animation(paused: turnStart == nil || reduceMotion)) { context in
+            let t = reduceMotion ? 1 : turnStart.map { min(1, context.date.timeIntervalSince($0) / NotchMotion.deviceTurn) } ?? 1
             let eased = 1 - pow(1 - t, 3)
             Image(systemName: style.symbol)
                 .font(.system(size: 14, weight: .medium))
@@ -346,6 +350,9 @@ private struct NotchDeviceTurnGlyph: View {
         // a disconnect settles immediately. One activity, never a pile-up of entries.
         .onChange(of: TurnKey(style: style, connected: connected)) { _, _ in
             turnStart = Self.turns(style, connected, reduceMotion) ? .now : nil
+        }
+        .onChange(of: reduceMotion) { _, reduced in
+            if reduced { turnStart = nil }
         }
         .task(id: TurnTask(trigger: trigger, start: turnStart)) {
             guard turnStart != nil else { return }
