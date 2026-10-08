@@ -22,7 +22,9 @@ public struct MediaConnectionView: View {
                     Label("Connected to Spotify", systemImage: "checkmark.circle.fill")
                 } else {
                     Button(connectionTask == nil ? "Connect Spotify" : "Cancel") {
-                        if let connectionTask { connectionTask.cancel(); self.connectionTask = nil; return }
+                        // Keep the attempt owned until its cancellation has finished. A new
+                        // connect must not race the old task's provider cleanup or defer.
+                        if let connectionTask { connectionTask.cancel(); return }
                         let clientID = clientID.trimmingCharacters(in: .whitespacesAndNewlines)
                         connectionTask = Task {
                             defer { connectionTask = nil }
@@ -30,7 +32,10 @@ public struct MediaConnectionView: View {
                                 let url = try await provider.beginAuthorization(clientID: clientID)
                                 let receiver = SpotifyLoopbackCallback()
                                 status = "Waiting for Spotify authorization…"
-                                let callback = try await receiver.receive {
+                                let state = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+                                    .first(where: { $0.name == "state" })?.value
+                                guard let state else { throw MediaFailure.authorization }
+                                let callback = try await receiver.receive(expectedState: state) {
                                     Task { @MainActor in NSWorkspace.shared.open(url) }
                                 }
                                 try Task.checkCancellation()
@@ -85,8 +90,7 @@ public struct MediaConnectionView: View {
             }
         }
         .onDisappear {
-            connectionTask?.cancel(); connectionTask = nil
-            Task { await provider.cancelAuthorization() }
+            connectionTask?.cancel()
         }
     }
 }
