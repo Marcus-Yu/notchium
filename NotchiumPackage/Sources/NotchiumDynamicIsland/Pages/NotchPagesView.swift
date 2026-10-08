@@ -16,7 +16,7 @@ struct NotchPagesView: View {
     var clipboardRenderer: (any NotchClipboardRendering)?
     var camera: (any NotchCameraControlling)?
     var close: () -> Void = {}
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @NotchReducedMotion private var reduceMotion
 
     var body: some View {
         let cameraOpen = camera?.isPreviewPresented == true
@@ -31,6 +31,7 @@ struct NotchPagesView: View {
                     .opacity(cameraOpen ? 0 : 1)
                     .scaleEffect(cameraOpen && !reduceMotion ? 0.985 : 1, anchor: .top)
                     .allowsHitTesting(!cameraOpen)
+                    .accessibilityElement(children: cameraOpen ? .ignore : .contain)
                     .accessibilityHidden(cameraOpen)
                 if cameraOpen, let camera {
                     camera.preview()
@@ -42,17 +43,17 @@ struct NotchPagesView: View {
             .animation(reduceMotion ? NotchMotion.reduced : NotchMotion.compactIn, value: cameraOpen)
         }
         .disabled(!isExpanded)
-        .onChange(of: isExpanded && model.selectedPage == .audio, initial: true) { _, visible in
+        .onChange(of: pageVisible(.audio), initial: true) { _, visible in
             audioRenderer?.setPageVisible(visible)
         }
-        .onChange(of: isExpanded && model.selectedPage == .shelf, initial: true) { _, visible in
+        .onChange(of: pageVisible(.shelf) && model.shelfSection == .files, initial: true) { _, visible in
             shelfRenderer?.setPageVisible(visible)
         }
-        .onChange(of: isExpanded && model.selectedPage == .shelf && model.shelfSection == .clipboard,
+        .onChange(of: pageVisible(.shelf) && model.shelfSection == .clipboard,
                   initial: true) { _, visible in
             clipboardRenderer?.setVisible(visible)
         }
-        .onChange(of: isExpanded && model.selectedPage == .pomodoro, initial: true) { _, visible in
+        .onChange(of: pageVisible(.pomodoro), initial: true) { _, visible in
             pomodoroRenderer?.setPageVisible(visible)
         }
         .onChange(of: isExpanded) { _, expanded in
@@ -77,15 +78,21 @@ struct NotchPagesView: View {
         }
     }
 
+    private func pageVisible(_ page: NotchPage) -> Bool {
+        isExpanded && model.selectedPage == page && camera?.isPreviewPresented != true
+    }
+
     /// Every page stays mounted; only the selected one is visible and interactive.
     private var pages: some View {
         ZStack {
             HomeDashboardView(pages: model, media: mediaRenderer, calendar: calendarRenderer, quickActions: quickActions)
-                .environment(\.notchHomePageVisible, isExpanded && model.selectedPage == .home)
+                .environment(\.notchHomePageVisible, pageVisible(.home))
+                .environment(\.notchMediaExpanded, pageVisible(.home))
                 .opacity(model.selectedPage == .home ? 1 : 0)
                 .disabled(model.selectedPage != .home)
                 .allowsHitTesting(model.selectedPage == .home)
-                .accessibilityHidden(model.selectedPage != .home)
+                .accessibilityElement(children: pageVisible(.home) ? .contain : .ignore)
+                .accessibilityHidden(!pageVisible(.home))
             Group {
                 if let mediaRenderer {
                     mediaRenderer.expandedMedia()
@@ -93,11 +100,13 @@ struct NotchPagesView: View {
                     MediaPagePlaceholder()
                 }
             }
-            .environment(\.notchMediaPageVisible, model.selectedPage == .music)
+            .environment(\.notchMediaPageVisible, pageVisible(.music))
+            .environment(\.notchMediaExpanded, pageVisible(.music))
             .opacity(model.selectedPage == .music ? 1 : 0)
             .disabled(model.selectedPage != .music)
             .allowsHitTesting(model.selectedPage == .music)
-            .accessibilityHidden(model.selectedPage != .music)
+            .accessibilityElement(children: pageVisible(.music) ? .contain : .ignore)
+            .accessibilityHidden(!pageVisible(.music))
 
             Group {
                 if let calendarRenderer {
@@ -108,11 +117,12 @@ struct NotchPagesView: View {
                         .foregroundStyle(.white.opacity(0.55))
                 }
             }
-            .environment(\.notchCalendarPageVisible, model.selectedPage == .calendar)
+            .environment(\.notchCalendarPageVisible, pageVisible(.calendar))
             .opacity(model.selectedPage == .calendar ? 1 : 0)
             .disabled(model.selectedPage != .calendar)
             .allowsHitTesting(model.selectedPage == .calendar)
-            .accessibilityHidden(model.selectedPage != .calendar)
+            .accessibilityElement(children: pageVisible(.calendar) ? .contain : .ignore)
+            .accessibilityHidden(!pageVisible(.calendar))
 
             Group {
                 if let audioRenderer {
@@ -123,11 +133,12 @@ struct NotchPagesView: View {
                         .foregroundStyle(.white.opacity(0.55))
                 }
             }
-            .environment(\.notchAudioPageVisible, model.selectedPage == .audio)
+            .environment(\.notchAudioPageVisible, pageVisible(.audio))
             .opacity(model.selectedPage == .audio ? 1 : 0)
             .disabled(model.selectedPage != .audio)
             .allowsHitTesting(model.selectedPage == .audio)
-            .accessibilityHidden(model.selectedPage != .audio)
+            .accessibilityElement(children: pageVisible(.audio) ? .contain : .ignore)
+            .accessibilityHidden(!pageVisible(.audio))
 
             Group {
                 if let pomodoroRenderer {
@@ -138,18 +149,20 @@ struct NotchPagesView: View {
                         .foregroundStyle(.white.opacity(0.55))
                 }
             }
-            .environment(\.notchPomodoroPageVisible, isExpanded && model.selectedPage == .pomodoro)
+            .environment(\.notchPomodoroPageVisible, pageVisible(.pomodoro))
             .opacity(model.selectedPage == .pomodoro ? 1 : 0)
             .disabled(model.selectedPage != .pomodoro)
             .allowsHitTesting(model.selectedPage == .pomodoro)
-            .accessibilityHidden(model.selectedPage != .pomodoro)
+            .accessibilityElement(children: pageVisible(.pomodoro) ? .contain : .ignore)
+            .accessibilityHidden(!pageVisible(.pomodoro))
 
             shelfSection
-                .environment(\.notchShelfPageVisible, model.selectedPage == .shelf)
+                .environment(\.notchShelfPageVisible, pageVisible(.shelf) && model.shelfSection == .files)
                 .opacity(model.selectedPage == .shelf ? 1 : 0)
                 .disabled(model.selectedPage != .shelf)
                 .allowsHitTesting(model.selectedPage == .shelf)
-                .accessibilityHidden(model.selectedPage != .shelf)
+                .accessibilityElement(children: pageVisible(.shelf) ? .contain : .ignore)
+                .accessibilityHidden(!pageVisible(.shelf))
         }
     }
 
@@ -170,11 +183,13 @@ struct NotchPagesView: View {
             }
             .opacity(section == .files ? 1 : 0)
             .allowsHitTesting(section == .files)
+            .accessibilityElement(children: section == .files ? .contain : .ignore)
             .accessibilityHidden(section != .files)
             if let clipboardRenderer {
                 clipboardRenderer.expandedClipboard()
                     .opacity(section == .clipboard ? 1 : 0)
                     .allowsHitTesting(section == .clipboard)
+                    .accessibilityElement(children: section == .clipboard ? .contain : .ignore)
                     .accessibilityHidden(section != .clipboard)
             }
         }
@@ -209,6 +224,8 @@ private struct NotchPageButton: View {
     let isSelected: Bool
     let action: () -> Void
     @State private var isHovered = false
+    @FocusState private var isFocused: Bool
+    @NotchIncreasedContrast private var increaseContrast
 
     var body: some View {
         Button(action: action) {
@@ -218,11 +235,14 @@ private struct NotchPageButton: View {
                 .frame(width: ExpandedPageStyle.headerControlSize, height: ExpandedPageStyle.headerControlSize)
                 .background(.white.opacity(isSelected ? 0.18 : (isHovered ? 0.10 : 0.04)), in: .circle)
                 .overlay {
-                    Circle().strokeBorder(.white.opacity(isSelected ? 0.22 : 0), lineWidth: 1)
+                    Circle().strokeBorder(.white.opacity(isFocused ? 0.95 :
+                        (increaseContrast ? (isSelected ? 0.8 : 0.5) : (isSelected ? 0.22 : 0))),
+                        lineWidth: isFocused ? 2 : 1)
                 }
                 .contentShape(.circle)
         }
         .buttonStyle(NotchUtilityButtonStyle())
+        .focused($isFocused)
         .onHover { isHovered = $0 }
         .help(page.title)
         .accessibilityLabel(page.title)
