@@ -99,7 +99,8 @@ public final class PomodoroModel {
         state = archive.state
         records = archive.records
         configuration = preferences.data(forKey: Keys.configuration)
-            .flatMap { try? JSONDecoder().decode(PomodoroConfiguration.self, from: $0) } ?? .standard
+            .flatMap { try? JSONDecoder().decode(PomodoroConfiguration.self, from: $0) }
+            .map { $0.boundedForSettings } ?? .standard
         collapsedPreference = preferences.string(forKey: Keys.collapsed).flatMap(CollapsedTimerPreference.init) ?? .timer
         completionSound = preferences.string(forKey: Keys.selectedSound).flatMap(PomodoroSound.init(rawValue:))
             ?? (preferences.bool(forKey: Keys.sound) ? .glass : .none)
