@@ -235,6 +235,15 @@ public final class NotchiumDisplayCoordinator: NSObject {
         needsSpaceReassertion = false
     }
 
+    /// An explicit menu command opens the existing owned panel for keyboard operation.
+    public func openForKeyboard() {
+        guard isStarted, !isSleeping else { return }
+        presentationModel.present(.expanded, animated: false)
+        preserveOpenOwnership()
+        reconcilePanel(animated: false)
+        panelController.focusExpandedPanel()
+    }
+
     private func preserveOpenOwnership() {
         if presentationModel.visualState != .collapsed || presentationModel.isAuxiliaryInteractionPresented {
             if let id = displayState.ownedDisplayID { displayState.interact(on: id, evidence: evidence) }
