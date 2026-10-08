@@ -159,7 +159,12 @@ final class AudioMixerTests: XCTestCase {
         model.receiveProcesses([process])
         model.setAppVolume(0.3, process: process)
         model.commitAppVolume(process)
-        for _ in 0..<4 { await Task.yield() }
+        // Reconciliation waits for superseded mixer tasks before publishing. Four yields
+        // do not guarantee that actor work has completed, especially in the full suite.
+        let deadline = ContinuousClock.now.advanced(by: .seconds(1))
+        while model.mixerStatus == .inactive, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(1))
+        }
         XCTAssertEqual(model.mixerStatus, .permissionRequired)
         XCTAssertEqual(model.appVolume(process), 0.3, accuracy: 0.001)
     }
