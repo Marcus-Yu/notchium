@@ -104,7 +104,7 @@ struct QuickActionIcon: View {
     var body: some View {
         Group {
             if let symbol = action.symbol { Image(systemName: symbol).resizable().scaledToFit() }
-            else if let image = runner.workspace.icon(for: action) { Image(nsImage: image).resizable().scaledToFit() }
+            else if let image = runner.icon(for: action) { Image(nsImage: image).resizable().scaledToFit() }
             else {
                 Image(systemName: action.kind == .systemAction
                     ? (NativeHomeAction(rawValue: action.target)?.symbol ?? action.kind.symbol) : action.kind.symbol)
