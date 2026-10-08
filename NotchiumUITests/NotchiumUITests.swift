@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 
 @MainActor
@@ -232,6 +233,11 @@ final class NotchiumUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(waitForState("collapsed", in: app, timeout: 5))
         XCTAssertFalse(shellElement("notchium.shell.settings", in: app).exists)
+        let runningApp = try XCTUnwrap(
+            NSRunningApplication.runningApplications(withBundleIdentifier: "com.marcusyu.notchium")
+                .max { ($0.launchDate ?? .distantPast) < ($1.launchDate ?? .distantPast) }
+        )
+        XCTAssertTrue(waitForActivationPolicy(.accessory, application: runningApp))
 
         let settings = app.windows["com_apple_SwiftUI_Settings_window"]
         for attempt in 0..<3 {
@@ -241,6 +247,8 @@ final class NotchiumUITests: XCTestCase {
             XCTAssertTrue(gear.waitForExistence(timeout: 5))
             gear.click()
             XCTAssertTrue(settings.waitForExistence(timeout: 5))
+            XCTAssertTrue(waitForActivationPolicy(.regular, application: runningApp),
+                          "Settings must show Notchium in the Dock")
             XCTAssertEqual(app.windows.matching(identifier: "com_apple_SwiftUI_Settings_window").count, 1)
             let mediaCategory = settings.buttons["notchium.settings.category.media"]
             XCTAssertTrue(mediaCategory.waitForExistence(timeout: 5), settings.debugDescription)
@@ -249,8 +257,16 @@ final class NotchiumUITests: XCTestCase {
             mediaCategory.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
             XCTAssertTrue(settings.descendants(matching: .any)["notchium.settings.spotifyClientID"]
                 .waitForExistence(timeout: 5), settings.debugDescription)
-            // The second click must focus the existing window; the third reopens it.
-            if attempt > 0 { settings.buttons[XCUIIdentifierCloseWindow].click() }
+            // The second click restores the minimized window; the third reopens it.
+            if attempt == 0 {
+                settings.buttons[XCUIIdentifierMinimizeWindow].click()
+                XCTAssertTrue(waitForActivationPolicy(.regular, application: runningApp),
+                              "Minimized Settings must keep Notchium in the Dock")
+            } else {
+                settings.buttons[XCUIIdentifierCloseWindow].click()
+                XCTAssertTrue(waitForActivationPolicy(.accessory, application: runningApp),
+                              "Closing Settings must return to menu-bar mode")
+            }
             XCTAssertTrue(waitForState("collapsed", in: app, timeout: 5))
         }
     }
@@ -470,6 +486,15 @@ final class NotchiumUITests: XCTestCase {
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    private func waitForActivationPolicy(
+        _ policy: NSApplication.ActivationPolicy,
+        application: NSRunningApplication
+    ) -> Bool {
+        let predicate = NSPredicate(format: "activationPolicy == %d", policy.rawValue)
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: application)
+        return XCTWaiter.wait(for: [expectation], timeout: 5) == .completed
     }
 
 }
