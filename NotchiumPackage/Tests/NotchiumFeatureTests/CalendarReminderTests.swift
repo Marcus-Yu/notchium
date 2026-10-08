@@ -21,7 +21,7 @@ final class CalendarReminderTests: XCTestCase {
         let clock = TestAppClock(now: base, automaticallyAdvances: false)
         let activities = ActivityCoordinator(clock: clock)
         let media = NotchActivity(id: UUID(), kind: .media, title: "Playing",
-            subtitle: nil, priority: 20, duration: nil)
+            subtitle: nil, priority: .low, duration: nil)
         activities.present(media)
         let reminders = CalendarReminderCoordinator(activities: activities, clock: clock)
         let upcoming = event(minutesAway: 60)
@@ -29,9 +29,9 @@ final class CalendarReminderTests: XCTestCase {
         await reminders.update(events: [upcoming])
         XCTAssertEqual(reminders.current?.label, "in 1 hr")
         XCTAssertEqual(activities.activeTransient?.priority, .medium)
-        XCTAssertEqual(activities.activeActivity?.kind, .calendar)
+        XCTAssertEqual(activities.primary?.kind, .calendar)
         reminders.dismiss()
-        XCTAssertEqual(activities.activeActivity, media)
+        XCTAssertEqual(activities.primary, media)
         await reminders.update(events: [upcoming])
         XCTAssertNil(reminders.current)
 
@@ -45,7 +45,7 @@ final class CalendarReminderTests: XCTestCase {
         XCTAssertEqual(reminders.current?.label, "5 min")
         XCTAssertEqual(activities.activeTransient?.priority, .high)
         reminders.dismiss()
-        XCTAssertEqual(activities.activeActivity, media)
+        XCTAssertEqual(activities.primary, media)
         reminders.stop()
     }
 
@@ -84,7 +84,7 @@ final class CalendarReminderTests: XCTestCase {
         XCTAssertEqual(activities.queueCount, 0)
         reminders.dismiss()
         let critical = NotchActivity(id: UUID(), kind: .notification, title: "Critical",
-            subtitle: nil, priority: 100, duration: nil)
+            subtitle: nil, priority: .critical, duration: nil)
         activities.present(critical)
         let another = event(minutesAway: 6)
         await reminders.update(events: [another])
@@ -113,12 +113,12 @@ final class CalendarReminderTests: XCTestCase {
         XCTAssertEqual(activities.notifications.active?.duration, .seconds(5))
         await clock.waitForPendingSleeps()
         await clock.advance(by: .seconds(2))
-        reminders.setHovered(true)
+        activities.notifications.setHovered(true) // The panel's hover path.
         await clock.advance(by: .seconds(3))
         for _ in 0..<100 { await Task.yield() }
         XCTAssertNil(reminders.current)
         XCTAssertNil(activities.notifications.active)
-        reminders.setHovered(false)
+        activities.notifications.setHovered(false)
         XCTAssertNil(reminders.current)
         reminders.stop()
     }
@@ -255,12 +255,12 @@ final class CalendarReminderTests: XCTestCase {
         model.mediaRenderer = media
         model.calendarRenderer = ReminderCalendarRenderer()
         let playing = NotchActivity(id: UUID(), kind: .media, title: "Playing",
-                                    subtitle: nil, priority: 20, duration: nil)
+                                    subtitle: nil, priority: .low, duration: nil)
         model.activityCoordinator.present(playing)
         XCTAssertTrue(model.showsCollapsedMedia)
 
         let reminder = NotchActivity(id: UUID(), kind: .calendar, title: "Meeting",
-                                     subtitle: nil, priority: 25, duration: nil)
+                                     subtitle: nil, priority: .medium, duration: nil)
         model.activityCoordinator.present(reminder)
         XCTAssertTrue(model.showsCalendarReminder)
         XCTAssertTrue(model.showsCollapsedMedia)
@@ -293,6 +293,5 @@ private final class ReminderCalendarRenderer: NotchCalendarRendering {
     func reminderBanner(action: @escaping @MainActor () -> Void) -> AnyView {
         AnyView(Color.clear)
     }
-    func setReminderHovered(_ hovered: Bool) {}
     func expandedCalendar() -> AnyView { AnyView(Color.clear) }
 }
