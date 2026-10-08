@@ -49,6 +49,15 @@ public final class ClipboardModel {
             enforceBounds(at: currentDate())
         }
     }
+    /// Whether new clipboard values are captured. Turning this off preserves saved history.
+    public var captureEnabled: Bool {
+        didSet {
+            guard captureEnabled != oldValue else { return }
+            preferences.set(captureEnabled, forKey: Keys.captureEnabled)
+            if captureEnabled { start() } else { stopCapture() }
+        }
+    }
+    public private(set) var storageState: ClipboardStorageState = .available
     public private(set) var isVisible = false
 
     public static let limitOptions = [25, 50, 100]
@@ -60,6 +69,7 @@ public final class ClipboardModel {
     @ObservationIgnored private let preferences: UserDefaults
     @ObservationIgnored private let currentDate: () -> Date
     @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private var captureGeneration: UInt64 = 0
     @ObservationIgnored private var copiedTask: Task<Void, Never>?
     @ObservationIgnored private var persistedItems: [ClipboardItem] = []
     @ObservationIgnored private var persistedImageIDs: Set<UUID>?
@@ -67,10 +77,11 @@ public final class ClipboardModel {
     private enum Keys {
         static let limit = "notchium.clipboard.limit.v1"
         static let retention = "notchium.clipboard.retention.v1"
+        static let captureEnabled = "notchium.clipboard.capture-enabled.v1"
     }
 
     public init(service: any ClipboardService, store: any ClipboardStoring, preferences: UserDefaults = .standard,
-                now: @escaping () -> Date = Date.init) {
+                now: @escaping () -> Date = Date.init, captureEnabledByDefault: Bool = true) {
         self.service = service
         self.store = store
         self.preferences = preferences
@@ -78,33 +89,52 @@ public final class ClipboardModel {
         let limit = preferences.integer(forKey: Keys.limit)
         historyLimit = Self.limitOptions.contains(limit) ? limit : 50
         retention = preferences.string(forKey: Keys.retention).flatMap(ClipboardRetention.init) ?? .month
+        captureEnabled = preferences.object(forKey: Keys.captureEnabled) as? Bool ?? captureEnabledByDefault
         items = store.loadItems()
         persistedItems = items
+        storageState = store.state
+        store.setStateChangeHandler { [weak self] state in
+            Task { @MainActor [weak self] in
+                guard let self, self.storageState != state, self.store.state == state else { return }
+                self.storageState = state
+            }
+        }
         enforceBounds(at: now())
     }
 
     public func start() {
-        guard task == nil else { return }
+        guard captureEnabled, task == nil else { return }
+        let generation = captureGeneration
         task = Task { [weak self, service] in
             for await capture in await service.captures() {
-                guard !Task.isCancelled, let self else { return }
+                guard !Task.isCancelled, let self, self.captureGeneration == generation,
+                      self.captureEnabled else { return }
                 self.receive(capture)
             }
         }
     }
 
     public func stop() {
-        task?.cancel(); task = nil
+        stopCapture()
         copiedTask?.cancel(); copiedTask = nil
         lastCopiedID = nil
         store.flush()
     }
 
-    isolated deinit { stop() }
+    private func stopCapture() {
+        captureGeneration &+= 1
+        task?.cancel(); task = nil
+    }
+
+    isolated deinit {
+        store.setStateChangeHandler(nil)
+        stop()
+    }
 
     // MARK: History
 
     func receive(_ capture: ClipboardCapture) {
+        guard captureEnabled else { return }
         let fingerprint = capture.content.fingerprint
         if let index = items.firstIndex(where: { $0.fingerprint == fingerprint }) {
             // Copying the same thing again moves it forward instead of duplicating it.
