@@ -48,11 +48,6 @@ public struct QuickAction: Identifiable, Codable, Equatable, Sendable {
         self.pinnedToHome = pinnedToHome; self.order = order
     }
 
-    public static func validatedWebURL(_ text: String) -> URL? {
-        guard let url = validatedURL(text), ["https", "http"].contains(url.scheme?.lowercased() ?? "") else { return nil }
-        return url
-    }
-
     public static func validatedURL(_ text: String) -> URL? {
         let input = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !input.isEmpty, input.rangeOfCharacter(from: .whitespacesAndNewlines.union(.controlCharacters)) == nil,
