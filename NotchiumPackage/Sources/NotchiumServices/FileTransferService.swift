@@ -56,8 +56,6 @@ public struct TransferSnapshot: Identifiable, Equatable, Sendable {
         self.startedAt = startedAt
         self.updatedAt = updatedAt
     }
-
-    public var destinationFolder: URL? { fileURL?.deletingLastPathComponent() }
 }
 
 public protocol FileTransferService: Sendable {
