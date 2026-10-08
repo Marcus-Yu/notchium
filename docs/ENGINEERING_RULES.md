@@ -4,7 +4,7 @@
 
 **Target:** macOS 26 and later
 
-**Canonical distribution:** Developer ID, hardened runtime, notarized direct download
+**Canonical distribution:** Stage 24 zero-cost GitHub Release; local ad-hoc signature, no Apple-trusted identity. See [RELEASING.md](RELEASING.md).
 
 **Last reviewed:** 2026-08-28
 
