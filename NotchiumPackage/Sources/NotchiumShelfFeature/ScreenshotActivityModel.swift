@@ -51,8 +51,6 @@ public final class ScreenshotActivityModel {
         else { present() }
     }
 
-    public func clearRecent() { recent.removeAll() }
-
     func reset() {
         if let activityID { activities.dismiss(id: activityID) }
         batch.removeAll()
