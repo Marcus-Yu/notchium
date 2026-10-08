@@ -10,6 +10,8 @@
 
 The gear and menu Settings button both activate the app and invoke SwiftUI's `openSettings`. This was exercised successfully from the manual hosting hierarchy on macOS 26.6.2. SwiftUI owns the existing Settings window and orders it forward when already open; no second hosting window, selector, or Settings view is introduced.
 
+Stage 23 adds **Open Notchium** to the existing menu. This deliberately expands and focuses the panel for keyboard use; passive presentation does not take focus. Expanded controls follow native keyboard navigation behavior. Technical shell-stage and distribution labels were removed from the menu/Settings, while debug controls remain available in DEBUG builds. Clipboard capture has its own default-off production toggle and storage failures are visible in Settings.
+
 ## Recovery
 
 Open the expanded notch's gear, then use **Show menu-bar icon** in Settings. This controls the same insertion binding as the menu scene. If macOS blocks the app, check **System Settings → Menu Bar → Allow in the Menu Bar → Notchium**. A true insertion value does not guarantee available menu-bar space.
