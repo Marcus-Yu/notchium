@@ -21,7 +21,6 @@ public enum ExpandedPageStyle {
     public static let compactControlSize: CGFloat = 24
     public static let controlRadius: CGFloat = 6
     public static let selectionRadius: CGFloat = 8
-    public static let artworkRadius: CGFloat = 12
     public static let title: Font = .system(size: 16, weight: .semibold)
     public static let body: Font = .system(size: 12)
     public static let caption: Font = .system(size: 11)
