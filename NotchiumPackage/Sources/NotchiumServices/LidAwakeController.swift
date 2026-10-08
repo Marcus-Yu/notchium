@@ -17,11 +17,16 @@ public final class LidAwakeController {
     @ObservationIgnored private var lastReply: ContinuousClock.Instant?
     @ObservationIgnored private let service = SMAppService.daemon(plistName: "com.marcusyu.notchium.lid-awake.plist")
 
-    public init() {}
+    public var isAvailableInThisBuild: Bool { DistributionProfile.current == .developerID }
+
+    public init() {
+        if !isAvailableInThisBuild {
+            message = "Unavailable in this build. Closed-lid mode requires a helper with an Apple-trusted signing identity. Ordinary Caffeine remains available."
+        }
+    }
 
     public func enable() {
-        guard DistributionProfile.current == .developerID else {
-            message = "Closed-lid mode is available only in the direct-download edition."
+        guard isAvailableInThisBuild else {
             return
         }
         do {
@@ -54,6 +59,7 @@ public final class LidAwakeController {
     }
 
     public func removeHelper() async {
+        guard isAvailableInThisBuild else { return }
         disable()
         // Do not unregister a daemon before it confirms restoration. A failed or
         // disconnected helper stays registered so its watchdog can restore sleep.
