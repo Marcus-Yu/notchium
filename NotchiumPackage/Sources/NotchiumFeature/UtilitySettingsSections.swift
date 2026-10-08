@@ -23,6 +23,7 @@ struct ClipboardSettingsSection: View {
             }
             if let message = model.storageState.message {
                 Text(message).font(.caption).foregroundStyle(.secondary)
+                Button("Try Again", action: model.retryStorage)
             }
             Text("History is stored on this Mac with best-effort encryption. Clipboard sensitivity and password-manager exclusions are best effort. Turning capture off keeps saved history. Pinned items stay until you remove them.")
                 .font(.caption).foregroundStyle(.secondary)
