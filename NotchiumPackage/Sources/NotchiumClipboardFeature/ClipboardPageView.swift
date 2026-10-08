@@ -19,6 +19,8 @@ struct ClipboardPageView: View {
                 VStack(spacing: 6) {
                     Image(systemName: "lock.fill").font(.system(size: 16, weight: .light)).foregroundStyle(.white.opacity(0.45))
                     Text(message).font(.system(size: 11)).foregroundStyle(.white.opacity(0.65)).multilineTextAlignment(.center)
+                    Button("Try Again", action: model.retryStorage)
+                        .accessibilityIdentifier("notchium.clipboard.retryStorage")
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityElement(children: .combine)
@@ -77,7 +79,7 @@ struct ClipboardPageView: View {
                 .frame(maxWidth: 190)
                 .accessibilityLabel("Search clipboard history")
             NotchToolbarButton(symbol: "trash", label: "Clear History") { model.clear() }
-                .disabled(!model.items.contains { !$0.isPinned })
+                .disabled(model.storageState != .available || !model.items.contains { !$0.isPinned })
         }
         .frame(height: NotchToolbarMetrics.control)
     }
@@ -120,7 +122,7 @@ private struct ClipboardRow: View {
     let pin: () -> Void
     let delete: () -> Void
     @State private var isHovered = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @NotchReducedMotion private var reduceMotion
 
     var body: some View {
         HStack(spacing: 9) {
@@ -148,8 +150,12 @@ private struct ClipboardRow: View {
             .accessibilityValue(item.isPinned ? "Pinned" : (copied ? "Copied" : ""))
             .accessibilityHint("Copies it to the clipboard")
             .accessibilityAddTraits(isSelected ? .isSelected : [])
-            .accessibilityAction(named: item.isPinned ? "Unpin" : "Pin", pin)
-            .accessibilityAction(named: "Delete", delete)
+            .accessibilityActions {
+                if item.isPinned || canPin {
+                    Button(item.isPinned ? "Unpin" : "Pin", action: pin)
+                }
+                Button("Delete", action: delete)
+            }
             if isHovered || isSelected {
                 ClipboardIconButton(symbol: item.isPinned ? "pin.slash" : "pin", compact: true,
                                     label: item.isPinned ? "Unpin" : "Pin", action: pin)
