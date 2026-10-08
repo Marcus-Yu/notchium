@@ -23,7 +23,7 @@ import NotchiumServices
 public final class NotchiumApplicationController {
     public let environment: AppEnvironment
     public let displayCoordinator: NotchiumDisplayCoordinator
-    public let mediaSessionController: MediaSessionController
+    public let mediaModel: MediaSessionController
     public let calendarModel: CalendarActivityModel
     public let audioModel: AudioFeatureModel
     public let quickActions: QuickActionsModel
@@ -33,7 +33,6 @@ public final class NotchiumApplicationController {
     public let cameraModel: CameraModel
     public let focusModeModel: FocusModeModel
     public let pomodoroModel: PomodoroModel
-    public var mediaModel: MediaSessionController { mediaSessionController }
 #if DEBUG
     public let mockMediaProvider = MockMediaProvider()
 #endif
@@ -65,14 +64,13 @@ public final class NotchiumApplicationController {
         developerPanelModel = DeveloperPanelModel(
             services: environment.services,
             clock: environment.clock,
-            uuids: environment.uuids,
             persistence: environment.persistence,
             logger: environment.logger
         )
 #else
         displayCoordinator = NotchiumDisplayCoordinator(clock: environment.clock)
 #endif
-        mediaSessionController = MediaSessionController(provider: environment.services.media,
+        mediaModel = MediaSessionController(provider: environment.services.media,
                                        coordinator: displayCoordinator.presentationModel.activityCoordinator,
                                        visibilityClock: environment.clock,
                                        snapshotStore: environment.persistence,
