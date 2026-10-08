@@ -3,10 +3,21 @@ import ImageIO
 import SwiftUI
 import NotchiumDynamicIsland
 
-/// At most eight 160px thumbnails (~800KB decoded). Requests cancel with their view identity.
-@MainActor private final class MediaArtworkCache {
+@MainActor final class MediaArtworkResource {
+    let image: NSImage
+    let primaryColor: WaveformColor?
+    init(thumbnail: CGImage) {
+        image = NSImage(cgImage: thumbnail, size: .zero)
+        primaryColor = WaveformColor.primaryColor(in: thumbnail)
+    }
+}
+
+/// At most eight 160px thumbnails (~800KB decoded), each with one sampled palette.
+/// Artwork and adaptive colour share bounded requests; cancelled consumers ignore the result.
+@MainActor final class MediaArtworkCache {
     static let shared = MediaArtworkCache()
-    let images = NSCache<NSURL, NSImage>()
+    private let images = NSCache<NSURL, MediaArtworkResource>()
+    private var requests: [URL: Task<MediaArtworkResource?, Error>] = [:]
     private let session: URLSession
     init() {
         images.countLimit = 8
@@ -16,9 +27,16 @@ import NotchiumDynamicIsland
         configuration.timeoutIntervalForResource = 20
         session = URLSession(configuration: configuration)
     }
-    func load(_ url: URL) async throws -> NSImage? {
+    func load(_ url: URL) async throws -> MediaArtworkResource? {
         if let image = images.object(forKey: url as NSURL) { return image }
         guard url.scheme == "https", url.host == "i.scdn.co" else { return nil }
+        if let request = requests[url] { return try await request.value }
+        let request = Task { try await self.fetch(url) }
+        requests[url] = request
+        defer { requests[url] = nil }
+        return try await request.value
+    }
+    private func fetch(_ url: URL) async throws -> MediaArtworkResource? {
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
         request.timeoutInterval = 15
         let (bytes, response) = try await session.bytes(for: request)
@@ -36,7 +54,7 @@ import NotchiumDynamicIsland
                 kCGImageSourceThumbnailMaxPixelSize: 160,
                 kCGImageSourceCreateThumbnailWithTransform: true
               ] as CFDictionary) else { return nil }
-        let image = NSImage(cgImage: thumbnail, size: .zero)
+        let image = MediaArtworkResource(thumbnail: thumbnail)
         images.setObject(image, forKey: url as NSURL, cost: thumbnail.bytesPerRow * thumbnail.height)
         return image
     }
@@ -71,7 +89,7 @@ public struct MediaArtwork: View {
             }
             let loaded = try? await MediaArtworkCache.shared.load(url)
             guard !Task.isCancelled else { return }
-            withAnimation(.easeInOut(duration: 0.18)) { image = loaded }
+            withAnimation(.easeInOut(duration: 0.18)) { image = loaded?.image }
         }
     }
 }
