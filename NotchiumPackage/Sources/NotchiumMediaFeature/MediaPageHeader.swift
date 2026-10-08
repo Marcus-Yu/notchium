@@ -11,7 +11,7 @@ struct MediaPageHeader: View {
     @Binding var selection: MediaSurface
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 10) {
             ForEach(MediaSurface.allCases) { surface in
                 Button {
                     selection = surface
@@ -19,7 +19,7 @@ struct MediaPageHeader: View {
                     Text(surface.rawValue)
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.white)
-                        .padding(.horizontal, 12)
+                        .padding(.horizontal, 22)
                         .frame(height: 32)
                         .background(.white.opacity(selection == surface ? 0.18 : 0.06),
                                     in: .rect(cornerRadius: 8))
