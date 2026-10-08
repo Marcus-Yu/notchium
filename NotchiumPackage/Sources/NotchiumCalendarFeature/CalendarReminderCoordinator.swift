@@ -69,11 +69,6 @@ public final class CalendarReminderCoordinator {
         shown = [:]
     }
 
-    public func setHovered(_ hovered: Bool) {
-        guard activities.activeTransient?.id == activeID else { return }
-        activities.notifications.setHovered(hovered)
-    }
-
     private func evaluate(at now: Date) {
         var due: [(CalendarEventSummary, Int)] = []
         for event in events where event.endDate > now {
