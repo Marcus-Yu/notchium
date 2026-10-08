@@ -12,25 +12,21 @@ public final class DeveloperPanelModel {
     public var providerModes: [ServiceKind: ProviderMode]
     public var simulatedPermissions: [PermissionKind: PermissionState]
     public private(set) var capabilitySnapshot: [ServiceKind: FeatureAvailability]
-    public private(set) var syntheticActivities: [ActivityEvent]
     public private(set) var lastRetentionReport: RetentionReport?
 
     @ObservationIgnored private let services: ServiceRegistry
     @ObservationIgnored private let clock: any AppClock
-    @ObservationIgnored private let uuids: any UUIDGenerating
     @ObservationIgnored private let persistence: any PersistenceStoring
     @ObservationIgnored private let logger: any AppLogging
 
     public init(
         services: ServiceRegistry,
         clock: any AppClock,
-        uuids: any UUIDGenerating,
         persistence: any PersistenceStoring,
         logger: any AppLogging
     ) {
         self.services = services
         self.clock = clock
-        self.uuids = uuids
         self.persistence = persistence
         self.logger = logger
         providerModes = Dictionary(
@@ -40,7 +36,6 @@ public final class DeveloperPanelModel {
             uniqueKeysWithValues: PermissionKind.allCases.map { ($0, .notDetermined) }
         )
         capabilitySnapshot = [:]
-        syntheticActivities = []
     }
 
     public func setProviderMode(_ mode: ProviderMode, for service: ServiceKind) {
@@ -57,16 +52,6 @@ public final class DeveloperPanelModel {
             snapshot[service] = await services.availability(for: service)
         }
         capabilitySnapshot = snapshot
-    }
-
-    public func createSyntheticActivity(_ kind: ActivityKind) async {
-        let event = ActivityEvent(
-            id: await uuids.next(),
-            kind: kind,
-            occurredAt: await clock.now()
-        )
-        syntheticActivities.append(event)
-        await logger.record(.syntheticActivityCreated, level: .debug)
     }
 
     public func runRetentionCleanup() async throws {
