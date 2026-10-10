@@ -135,12 +135,13 @@ final class Stage16ClipboardTests: XCTestCase {
         XCTAssertEqual(received.count, 1, "Notchium's own copy-back is not re-captured")
     }
 
-    func testHistorySurvivesRestartAndImageFilesFollowTheList() throws {
+    func testHistorySurvivesRestartAndImageFilesFollowTheList() async throws {
         let directory = URL(fileURLWithPath: "/private/tmp").appendingPathComponent("clipboard-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
         let keys = TestClipboardKeyStore()
         let store = FileClipboardStore(directory: directory, keyStore: keys)
         let first = ClipboardModel(service: MockClipboardService(), store: store, preferences: defaults(), now: { [base] in base })
+        while first.isLoadingStorage { await Task.yield() }
         first.receive(capture(.text("persisted")))
         first.receive(capture(try XCTUnwrap(ClipboardImageProcessing.content(from: pngData(width: 64, height: 64)))))
         first.togglePin(first.items[1])
@@ -148,6 +149,7 @@ final class Stage16ClipboardTests: XCTestCase {
 
         let second = ClipboardModel(service: MockClipboardService(), store: FileClipboardStore(directory: directory, keyStore: keys),
                                     preferences: defaults(), now: { [base] in base })
+        while second.isLoadingStorage { await Task.yield() }
         XCTAssertEqual(second.items.map(\.kind), [.image, .text])
         XCTAssertTrue(second.items[1].isPinned)
         let imageID = second.items[0].id
