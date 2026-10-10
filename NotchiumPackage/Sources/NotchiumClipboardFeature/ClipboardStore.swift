@@ -65,9 +65,12 @@ public struct ClipboardItem: Codable, Equatable, Identifiable, Sendable {
 
 public protocol ClipboardStoring: AnyObject, Sendable {
     var state: ClipboardStorageState { get }
+    /// Disk stores require asynchronous initial hydration; memory fixtures are immediate.
+    var loadsAsynchronously: Bool { get }
     /// Reports asynchronous disk-state changes. In-memory and test stores may ignore it.
     func setStateChangeHandler(_ handler: (@Sendable (ClipboardStorageState) -> Void)?)
     func loadItems() -> [ClipboardItem]
+    func loadItemsForRecovery(allowAuthentication: Bool) async -> [ClipboardItem]
     func saveItems(_ items: [ClipboardItem])
     func saveImage(_ png: Data, id: UUID)
     func loadImage(id: UUID) -> Data?
@@ -78,6 +81,14 @@ public protocol ClipboardStoring: AnyObject, Sendable {
 
 public extension ClipboardStoring {
     var state: ClipboardStorageState { .available }
+    var loadsAsynchronously: Bool { false }
+    func loadItemsForRecovery(allowAuthentication: Bool) async -> [ClipboardItem] {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(returning: self.loadItems())
+            }
+        }
+    }
     func setStateChangeHandler(_ handler: (@Sendable (ClipboardStorageState) -> Void)?) {}
     func flush() {}
 }
