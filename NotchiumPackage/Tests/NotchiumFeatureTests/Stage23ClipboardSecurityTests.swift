@@ -115,7 +115,7 @@ final class Stage23ClipboardSecurityTests: XCTestCase {
 
         let store = FileClipboardStore(directory: directory, keyStore: TestClipboardKeyStore())
         XCTAssertTrue(store.loadItems().isEmpty)
-        XCTAssertEqual(store.state, .unreadable)
+        XCTAssertEqual(store.state, .corruptHistory)
         store.saveItems([])
         store.removeImages(except: [])
         store.flush()
@@ -159,6 +159,7 @@ final class Stage23ClipboardSecurityTests: XCTestCase {
         defer { preferences.removePersistentDomain(forName: preferencesName) }
         let model = ClipboardModel(service: MockClipboardService(), store: store, preferences: preferences)
         defer { model.stop() }
+        while model.isLoadingStorage { await Task.yield() }
         store.flush()
 
         let stateChanged = expectation(description: "observable storage state changes")
