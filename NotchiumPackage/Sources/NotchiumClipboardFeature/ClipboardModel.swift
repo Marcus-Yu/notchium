@@ -1,4 +1,5 @@
 import Foundation
+import NotchiumCore
 import NotchiumDynamicIsland
 import NotchiumServices
 import Observation
@@ -58,6 +59,8 @@ public final class ClipboardModel {
         }
     }
     public private(set) var storageState: ClipboardStorageState = .available
+    public private(set) var isLoadingStorage = false
+    public private(set) var storageNeedsAttention = false
     public private(set) var isVisible = false
 
     public static let limitOptions = [25, 50, 100]
@@ -71,6 +74,12 @@ public final class ClipboardModel {
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var captureGeneration: UInt64 = 0
     @ObservationIgnored private var copiedTask: Task<Void, Never>?
+    @ObservationIgnored private var storageTask: Task<Void, Never>?
+    @ObservationIgnored private var storageGeneration: UInt64 = 0
+    @ObservationIgnored private var storageTimeoutTask: Task<Void, Never>?
+    @ObservationIgnored private let storageClock: any AppClock
+    @ObservationIgnored private var storageStopped = false
+    @ObservationIgnored private var hasLoadedStorage = false
     @ObservationIgnored private var persistedItems: [ClipboardItem] = []
     @ObservationIgnored private var persistedImageIDs: Set<UUID>?
 
@@ -81,28 +90,36 @@ public final class ClipboardModel {
     }
 
     public init(service: any ClipboardService, store: any ClipboardStoring, preferences: UserDefaults = .standard,
-                now: @escaping () -> Date = Date.init, captureEnabledByDefault: Bool = true) {
+                now: @escaping () -> Date = Date.init, captureEnabledByDefault: Bool = true,
+                storageClock: any AppClock = ContinuousAppClock()) {
         self.service = service
         self.store = store
         self.preferences = preferences
         currentDate = now
+        self.storageClock = storageClock
         let limit = preferences.integer(forKey: Keys.limit)
         historyLimit = Self.limitOptions.contains(limit) ? limit : 50
         retention = preferences.string(forKey: Keys.retention).flatMap(ClipboardRetention.init) ?? .month
         captureEnabled = preferences.object(forKey: Keys.captureEnabled) as? Bool ?? captureEnabledByDefault
-        items = store.loadItems()
+        items = store.loadsAsynchronously ? [] : store.loadItems()
+        hasLoadedStorage = !store.loadsAsynchronously
         persistedItems = items
         storageState = store.state
         store.setStateChangeHandler { [weak self] state in
             Task { @MainActor [weak self] in
-                guard let self, self.storageState != state, self.store.state == state else { return }
+                guard let self, !self.storageStopped, self.hasLoadedStorage,
+                      !self.isLoadingStorage, self.storageState != state,
+                      self.store.state == state else { return }
                 self.storageState = state
             }
         }
-        enforceBounds(at: now())
+        if store.loadsAsynchronously { loadStorage(allowAuthentication: false) }
+        else { enforceBounds(at: now()) }
     }
 
     public func start() {
+        storageStopped = false
+        if !hasLoadedStorage, storageTask == nil { loadStorage(allowAuthentication: false) }
         guard captureEnabled, task == nil else { return }
         let generation = captureGeneration
         task = Task { [weak self, service] in
@@ -118,7 +135,17 @@ public final class ClipboardModel {
         stopCapture()
         copiedTask?.cancel(); copiedTask = nil
         lastCopiedID = nil
-        store.flush()
+        storageGeneration &+= 1
+        storageStopped = true
+        // Retain ownership until the native operation returns; cancellation cannot
+        // cancel Security.framework UI or the queued disk read.
+        storageTask?.cancel()
+        storageTimeoutTask?.cancel(); storageTimeoutTask = nil
+        // No model writes are submitted during hydration. Do not block shutdown
+        // behind a system authorization dialog that only the user can dismiss.
+        if storageTask == nil { store.flush() }
+        isLoadingStorage = false
+        storageNeedsAttention = false
     }
 
     private func stopCapture() {
@@ -134,7 +161,7 @@ public final class ClipboardModel {
     // MARK: History
 
     func receive(_ capture: ClipboardCapture) {
-        guard captureEnabled, store.state == .available else { return }
+        guard captureEnabled, storageIsReady else { return }
         let fingerprint = capture.content.fingerprint
         if let index = items.firstIndex(where: { $0.fingerprint == fingerprint }) {
             // Copying the same thing again moves it forward instead of duplicating it.
@@ -164,6 +191,7 @@ public final class ClipboardModel {
     }
 
     private func persist() {
+        guard storageIsReady else { return }
         if persistedItems != items {
             store.saveItems(items)
             persistedItems = items
@@ -179,7 +207,7 @@ public final class ClipboardModel {
 
     /// Puts the item back on the clipboard and moves it to the front.
     public func copy(_ item: ClipboardItem) {
-        guard store.state == .available else { return }
+        guard storageIsReady else { return }
         guard let content = content(of: item) else { return }
         Task { [service] in await service.write(content) }
         if let index = items.firstIndex(where: { $0.id == item.id }) {
@@ -200,7 +228,7 @@ public final class ClipboardModel {
     public var canPin: Bool { items.count { $0.isPinned } < Self.maximumPinned }
 
     public func togglePin(_ item: ClipboardItem) {
-        guard store.state == .available else { return }
+        guard storageIsReady else { return }
         guard let index = items.firstIndex(where: { $0.id == item.id }) else { return }
         guard items[index].isPinned || canPin else { return }
         items[index].isPinned.toggle()
@@ -208,14 +236,14 @@ public final class ClipboardModel {
     }
 
     public func delete(_ item: ClipboardItem) {
-        guard store.state == .available else { return }
+        guard storageIsReady else { return }
         items.removeAll { $0.id == item.id }
         persist()
     }
 
     /// Clears history; pinned items stay unless `includingPinned`.
     public func clear(includingPinned: Bool = false) {
-        guard store.state == .available else { return }
+        guard storageIsReady else { return }
         items.removeAll { includingPinned || !$0.isPinned }
         persist()
     }
@@ -232,7 +260,7 @@ public final class ClipboardModel {
     public func setVisible(_ visible: Bool) {
         let becameVisible = visible && !isVisible
         isVisible = visible
-        if becameVisible { retryStorage() }
+        if becameVisible, store.state != .available { loadStorage(allowAuthentication: false) }
         if visible { enforceBounds(at: currentDate()) }
     }
 
@@ -240,13 +268,52 @@ public final class ClipboardModel {
     /// mutations; merging unsaved captures could resurrect deleted or unpinned entries.
     public func retryStorage() {
         guard store.state != .available else { return }
-        let restored = store.loadItems()
-        storageState = store.state
-        guard storageState == .available else { return }
-        items = restored
-        persistedItems = restored
-        persistedImageIDs = nil
-        enforceBounds(at: currentDate())
+        loadStorage(allowAuthentication: true)
+    }
+
+    private func loadStorage(allowAuthentication: Bool) {
+        guard !storageStopped, storageTask == nil else { return }
+        hasLoadedStorage = false
+        isLoadingStorage = true
+        storageNeedsAttention = false
+        let generation = storageGeneration
+        storageTimeoutTask = Task { [weak self, storageClock] in
+            do { try await storageClock.sleep(for: .seconds(30)) }
+            catch { return }
+            guard !Task.isCancelled, let self, self.storageGeneration == generation,
+                  self.isLoadingStorage else { return }
+            // Security.framework has no per-call cancellation for file-Keychain UI.
+            // Keep the attempt owned (no second request) but end the indefinite spinner.
+            self.storageNeedsAttention = true
+        }
+        storageTask = Task { [weak self, store] in
+            let restored = await store.loadItemsForRecovery(allowAuthentication: allowAuthentication)
+            guard let self else { return }
+            self.storageTask = nil
+            self.storageTimeoutTask?.cancel(); self.storageTimeoutTask = nil
+            self.storageNeedsAttention = false
+            guard !Task.isCancelled, self.storageGeneration == generation else {
+                self.isLoadingStorage = false
+                // Restart must hydrate again before any capture can write over the
+                // committed history discarded by this canceled completion.
+                if !self.storageStopped { self.loadStorage(allowAuthentication: false) }
+                return
+            }
+            self.storageState = store.state
+            // Commit the restored snapshot before capture or actions can mutate history.
+            if self.storageState == .available {
+                self.hasLoadedStorage = true
+                self.items = restored
+                self.persistedItems = restored
+                self.persistedImageIDs = nil
+            }
+            self.isLoadingStorage = false
+            if self.storageState == .available { self.enforceBounds(at: self.currentDate()) }
+        }
+    }
+
+    private var storageIsReady: Bool {
+        !storageStopped && hasLoadedStorage && !isLoadingStorage && store.state == .available
     }
 
     func content(of item: ClipboardItem) -> ClipboardContent? {
