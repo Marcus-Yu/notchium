@@ -24,6 +24,7 @@ public final class FileClipboardStore: ClipboardStoring, @unchecked Sendable {
     }
 
     public var state: ClipboardStorageState { stateLock.withLock { storageState } }
+    public var loadsAsynchronously: Bool { true }
 
     public func setStateChangeHandler(_ handler: (@Sendable (ClipboardStorageState) -> Void)?) {
         let current = stateLock.withLock {
@@ -34,19 +35,29 @@ public final class FileClipboardStore: ClipboardStoring, @unchecked Sendable {
     }
 
     public func loadItems() -> [ClipboardItem] {
-        queue.sync {
-            // Explicit reads can retry an unlocked Keychain; pending writes cannot reset errors.
-            initialized = false
-            key = nil
-            imageIDs = nil
-            do {
-                let items = try prepare()
-                setState(.available)
-                return items
-            } catch {
-                record(error)
-                return []
+        queue.sync { reload(allowAuthentication: false) }
+    }
+
+    public func loadItemsForRecovery(allowAuthentication: Bool) async -> [ClipboardItem] {
+        await withCheckedContinuation { continuation in
+            queue.async { [self] in
+                continuation.resume(returning: reload(allowAuthentication: allowAuthentication))
             }
+        }
+    }
+
+    private func reload(allowAuthentication: Bool) -> [ClipboardItem] {
+        // Only deliberate reads reset a failure; queued writes cannot reset errors.
+        initialized = false
+        key = nil
+        imageIDs = nil
+        do {
+            let items = try prepare(allowAuthentication: allowAuthentication)
+            setState(.available)
+            return items
+        } catch {
+            record(error)
+            return []
         }
     }
 
@@ -110,15 +121,16 @@ public final class FileClipboardStore: ClipboardStoring, @unchecked Sendable {
         } catch { record(error) }
     }
 
-    private func prepare() throws -> [ClipboardItem] {
+    private func prepare(allowAuthentication: Bool = false) throws -> [ClipboardItem] {
         disk = try ClipboardDiskDirectory(url: directory)
         let names = try disk!.names()
         let hasEncryptedData = names.contains { $0.hasSuffix(".clip") }
-        let storedKey = try keys.read()
-        let candidateKey = try storedKey ?? (hasEncryptedData ? nil : keys.create())
-        guard let loadedKey = candidateKey, loadedKey.count == 32 else {
+        let storedKey = try keys.read(allowAuthentication: allowAuthentication)
+        let candidateKey = try storedKey ?? (hasEncryptedData ? nil : keys.create(allowAuthentication: allowAuthentication))
+        guard let loadedKey = candidateKey else {
             throw ClipboardStorageFailure.keyUnavailable
         }
+        guard loadedKey.count == 32 else { throw ClipboardStorageFailure.invalidKey }
         key = loadedKey
         let items: [ClipboardItem]
         if let encrypted = try disk!.read(Self.indexName, maximumBytes: Self.indexLimit + 64) {
