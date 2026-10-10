@@ -15,7 +15,18 @@ struct ClipboardPageView: View {
         let items = model.visibleItems
         VStack(alignment: .leading, spacing: NotchToolbarMetrics.sectionGap) {
             toolbar
-            if let message = model.storageState.message {
+            if model.isLoadingStorage {
+                Group {
+                    if model.storageNeedsAttention {
+                        Text("Keychain hasn’t responded. Complete or cancel any Keychain authorization dialog. Existing history has been preserved.")
+                            .multilineTextAlignment(.center)
+                    } else {
+                        ProgressView("Opening Clipboard history…")
+                    }
+                }
+                .font(.system(size: 11))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let message = model.storageState.message {
                 VStack(spacing: 6) {
                     Image(systemName: "lock.fill").font(.system(size: 16, weight: .light)).foregroundStyle(.white.opacity(0.45))
                     Text(message).font(.system(size: 11)).foregroundStyle(.white.opacity(0.65)).multilineTextAlignment(.center)
