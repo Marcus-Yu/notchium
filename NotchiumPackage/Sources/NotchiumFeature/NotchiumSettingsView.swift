@@ -20,6 +20,7 @@ public struct NotchiumSettingsView: View {
     private let clipboardModel: ClipboardModel?
     private let focusModeModel: FocusModeModel?
     private let pomodoroModel: PomodoroModel?
+    private let systemFeedback: SystemFeedbackCoordinator?
 
     public init(environment: AppEnvironment, audioMeter: SystemAudioMeter? = nil,
                 waveformAppearance: WaveformAppearanceModel? = nil,
@@ -29,7 +30,9 @@ public struct NotchiumSettingsView: View {
                 quickActions: QuickActionsModel? = nil,
                 clipboardModel: ClipboardModel? = nil,
                 focusModeModel: FocusModeModel? = nil,
-                pomodoroModel: PomodoroModel? = nil) {
+                pomodoroModel: PomodoroModel? = nil,
+                systemFeedback: SystemFeedbackCoordinator? = nil) {
+        self.systemFeedback = systemFeedback
         self.clipboardModel = clipboardModel
         self.focusModeModel = focusModeModel
         self.pomodoroModel = pomodoroModel
@@ -83,7 +86,7 @@ public struct NotchiumSettingsView: View {
             case .general: false
             case .home: quickActions != nil
             case .media: environment.services.media is RealMediaProvider || waveformAppearance != nil
-            case .audio: audioMeter != nil
+            case .audio: audioMeter != nil || systemFeedback != nil
             case .calendar: calendarModel != nil
             case .clipboard: environment.featureFlags[.clipboard] && clipboardModel != nil
             case .focus: environment.featureFlags[.focus] && focusModeModel != nil && pomodoroModel != nil
@@ -124,6 +127,7 @@ public struct NotchiumSettingsView: View {
             }
             if let waveformAppearance { WaveformAppearanceSettings(appearance: waveformAppearance) }
         case .audio:
+            if let systemFeedback { SystemFeedbackSettingsSection(model: systemFeedback) }
             if let audioMeter { AudioMeterPermissionView(meter: audioMeter) }
         case .calendar:
             if let calendarModel { CalendarSettingsSection(model: calendarModel) }
