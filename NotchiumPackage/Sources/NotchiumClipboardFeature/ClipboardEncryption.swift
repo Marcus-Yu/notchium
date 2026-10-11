@@ -36,7 +36,7 @@ public enum ClipboardStorageState: Equatable, Sendable {
             default:
                 reason = "The Keychain operation failed. Try again."
             }
-            return "\(reason) (\(operation.rawValue), \(status).) \(preserved)"
+            return "\(reason) (Keychain \(operation.rawValue): \(status)) \(preserved)"
         }
     }
 }
