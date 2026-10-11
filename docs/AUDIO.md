@@ -68,14 +68,17 @@ running silent stream may appear.
 
 The long-lived device stream still detects keyboard volume/mute and default-output
 changes through HAL property notifications. For Volume Down at 0 and Volume Up at 1,
-`RealAudioDevicesService.volumeCommands()` separately observes key-down/repeat intent
-through one passive session event tap restricted to system-defined events. It reads only
-the current output's HAL controls and emits an event without mutating audio or device state.
-`AudioFeatureModel` presents boundary feedback through the same `onHUD` callback used by
-ordinary changes; interior commands continue to rely on HAL change notifications. The tap
-stops with its last command subscriber, never consumes input or changes native HUD handling,
-and does not request permissions. If macOS refuses tap creation, ordinary HAL-driven feedback
-continues; boundary key delivery requires live qualification with the signed app's permissions.
+`RealAudioDevicesService.volumeCommands()` observes key-down/repeat intent through one
+session event tap restricted to system-defined events. The default mode is passive:
+it reads the current output's HAL controls without changing native input handling.
+The optional **Replace macOS Volume HUD** setting switches that same monitor to an active
+HID tap after contextual Accessibility education and capability checks. A serial worker
+performs route-validated volume/mute operations and returns actual HAL readback. Unsupported
+keys and outputs pass through. Failure disables interception and restores passive observation
+where available; no permission is requested on launch. `AudioFeatureModel` presents replaced
+commands and passive boundary intent through the existing `onHUD` callback. Ordinary passive
+interior changes continue to rely on HAL notifications. See [System feedback](SYSTEM_FEEDBACK.md)
+for ownership, replay limits, hardware evidence, and the acceptance checks still required.
 `showAudioHUD` submits typed notifications
 to the shared `NotificationCoordinator`. Volume and mute share one coalescing key and a
 1.75-second timeout; output changes use medium priority and a 2.5-second timeout. Repeats
@@ -89,6 +92,12 @@ Music flanks visible throughout Audio entry and exit. Absolute expiry continues 
 expanded; collapse only reveals unexpired feedback. No Music notification kinds
 or producers exist. See [Unified notifications](STAGE9_NOTIFICATIONS.md) and
 [Stage 10 coordination](STAGE10_COORDINATION.md).
+
+Wearable appearance and selection can arrive as separate HAL snapshots. A stable-UID
+transition tracker suppresses the second announcement within the existing 2.5-second
+connection activity lifetime. Removal clears that suppression so rapid reconnection still
+announces. Available output endpoints and the selected route are separate facts; neither
+claims universal physical Bluetooth connection truth. Existing device animations remain.
 
 ## Qualification
 
