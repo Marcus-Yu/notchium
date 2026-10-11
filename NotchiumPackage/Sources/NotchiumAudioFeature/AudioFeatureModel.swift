@@ -32,6 +32,7 @@ public final class AudioFeatureModel: NotchAudioRendering {
     @ObservationIgnored private var volumeTask: Task<Void, Never>?
     @ObservationIgnored private var mixerTask: Task<Void, Never>?
     @ObservationIgnored private var hasReceivedDevices = false
+    @ObservationIgnored private var deviceTransitions = OutputDeviceTransitionTracker()
     @ObservationIgnored private var isEditingVolume = false
     @ObservationIgnored private var mixerGeneration = 0
     @ObservationIgnored private var applicationCache: [pid_t: NSRunningApplication] = [:]
@@ -90,6 +91,7 @@ public final class AudioFeatureModel: NotchAudioRendering {
         processes = []
         applicationCache = [:]
         hasReceivedDevices = false
+        deviceTransitions = OutputDeviceTransitionTracker()
         isEditingVolume = false
         displayVolume = nil
         mixerGeneration &+= 1
@@ -125,7 +127,7 @@ public final class AudioFeatureModel: NotchAudioRendering {
         if old?.id != next.currentOutput?.id { reconcileMixer() }
         // Devices already connected at launch are known state, not events.
         guard hasReceivedDevices else { hasReceivedDevices = true; return }
-        if let transition = OutputDeviceTransition.between(oldStates, states) {
+        if let transition = deviceTransitions.receive(old: oldStates, new: states, now: now()) {
             onHUD?(transition.hud)
             return
         }
@@ -145,12 +147,12 @@ public final class AudioFeatureModel: NotchAudioRendering {
         }
     }
 
-    /// HAL remains authoritative for normal changes. Only a command at its numeric boundary
-    /// needs independent feedback; never write audio or manufacture a changed snapshot.
+    /// Replaced commands and passive boundary intent reuse the existing HUD. Both carry HAL
+    /// truth; this path never writes audio or manufactures a changed snapshot.
     func receiveVolumeCommand(_ event: AudioVolumeCommandEvent) {
         let output = event.output
-        guard hasReceivedDevices, devices.currentOutput?.id == output.id, output.canSetVolume,
-              event.command.isUnchangedBoundary(volume: output.volume) else { return }
+        guard hasReceivedDevices, devices.currentOutput?.id == output.id,
+              event.wasReplaced || (output.canSetVolume && event.command.isUnchangedBoundary(volume: output.volume)) else { return }
         onHUD?(NotchAudioHUD(kind: .volume, deviceName: output.name,
                              volume: output.volume, isMuted: output.isMuted ?? false))
     }
