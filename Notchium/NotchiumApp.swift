@@ -73,7 +73,8 @@ struct NotchiumApp: App {
                                  quickActions: appDelegate.controller.quickActions,
                                  clipboardModel: appDelegate.controller.clipboardModel,
                                  focusModeModel: appDelegate.controller.focusModeModel,
-                                 pomodoroModel: appDelegate.controller.pomodoroModel)
+                                 pomodoroModel: appDelegate.controller.pomodoroModel,
+                                 systemFeedback: appDelegate.controller.systemFeedback)
                 .background {
                     SettingsWindowLifecycle(onOpenChanged: appDelegate.settingsWindowOpenChanged)
                         .frame(width: 0, height: 0)
