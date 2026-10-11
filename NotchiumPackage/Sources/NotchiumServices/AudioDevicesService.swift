@@ -1,3 +1,5 @@
+import AppKit
+@preconcurrency import ApplicationServices
 import CoreAudio
 import Foundation
 import NotchiumCore
@@ -110,7 +112,7 @@ public extension AudioDevicesService {
 
 /// Listens to HAL device, default-output, volume, and mute events.
 @MainActor
-public final class RealAudioDevicesService: AudioDevicesService {
+public final class RealAudioDevicesService: AudioDevicesService, SystemFeedbackControlling {
     private struct Listener {
         let object: AudioObjectID
         let address: AudioObjectPropertyAddress
@@ -119,22 +121,41 @@ public final class RealAudioDevicesService: AudioDevicesService {
     private struct OutputDetails {
         let uid: String?
         let name: String
-        let canSetVolume: Bool
-        let canSetMute: Bool
+        let volumeElements: [UInt32]
+        let muteElements: [UInt32]
+        var canSetVolume: Bool { !volumeElements.isEmpty }
+        var canSetMute: Bool { !muteElements.isEmpty }
         let transport: AudioOutputTransport
     }
     private var systemListeners: [Listener] = []
     private var outputListeners: [Listener] = []
+    private var deviceListeners: [Listener] = []
     private var observers: [UUID: AsyncStream<AudioDevicesSnapshot>.Continuation] = [:]
     private var commandObservers: [UUID: AsyncStream<AudioVolumeCommandEvent>.Continuation] = [:]
-    private lazy var volumeKeyMonitor = SystemVolumeKeyMonitor { [weak self] command in
+    private var feedbackObservers: [UUID: AsyncStream<VolumeReplacementStatus>.Continuation] = [:]
+    private var replacementEnabled = false
+    private var replacementFailure: VolumeReplacementFallback?
+    private var feedbackStatus = VolumeReplacementStatus(mode: .disabled)
+    private var monitorStarted = false
+    private var monitorAttempted = false
+    private var monitorRoute: VolumeInputGate.Route?
+    private var suspended = false
+    private var lifecycleObservers: [(NotificationCenter, NSObjectProtocol)] = []
+    private lazy var volumeKeyMonitor = SystemVolumeKeyMonitor(onCommand: { [weak self] command, reading in
         guard let self, !self.commandObservers.isEmpty else { return }
         let id = self.defaultOutputID()
-        guard self.cachedOutputIDs.contains(id) else { return }
+        guard self.cachedOutputIDs.contains(id), reading == nil || reading?.deviceID == id else { return }
         let output = self.device(id, selected: id)
-        let event = AudioVolumeCommandEvent(command: command, output: output)
+        // Publish only hardware truth; no requested scalar enters the presentation stream.
+        let event = AudioVolumeCommandEvent(command: command, output: output, wasReplaced: reading != nil)
         self.commandObservers.values.forEach { $0.yield(event) }
-    }
+    }, onFailure: { [weak self] reason in
+        guard let self else { return }
+        self.replacementFailure = reason
+        self.monitorStarted = false
+        self.monitorAttempted = false
+        self.reconcileVolumeMonitor()
+    })
     private var selectedID: AudioObjectID = kAudioObjectUnknown
     private var previous: AudioDevicesSnapshot?
     private var cachedOutputIDs: [AudioObjectID] = []
@@ -144,6 +165,104 @@ public final class RealAudioDevicesService: AudioDevicesService {
     public init() {}
     isolated deinit { stopObservation() }
     public func availability() async -> FeatureAvailability { .available }
+
+    public func volumeReplacementUpdates() -> AsyncStream<VolumeReplacementStatus> {
+        let token = UUID()
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            feedbackObservers[token] = continuation
+            if systemListeners.isEmpty { start() }
+            continuation.yield(feedbackStatus)
+            continuation.onTermination = { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.feedbackObservers[token] = nil
+                    self?.stopIfUnobserved()
+                }
+            }
+        }
+    }
+
+    public func setVolumeReplacementEnabled(_ enabled: Bool, requestPermission: Bool) {
+        replacementEnabled = enabled
+        replacementFailure = nil
+        monitorAttempted = false
+        if enabled && requestPermission && !AXIsProcessTrusted() {
+            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+            _ = AXIsProcessTrustedWithOptions(options)
+        }
+        reconcileVolumeMonitor()
+    }
+
+    public func stopVolumeReplacement() {
+        replacementEnabled = false
+        replacementFailure = nil
+        monitorAttempted = false
+        reconcileVolumeMonitor()
+    }
+
+    private func reconcileVolumeMonitor() {
+        let output = previous?.currentOutput
+        let permitted = !replacementEnabled || (AXIsProcessTrusted() && CGPreflightPostEventAccess())
+        let supportsMute = output?.canSetMute == true && output?.isMuted != nil
+        let supportsVolume = output?.canSetVolume == true && output?.volume != nil
+            && (output?.isMuted != true || supportsMute)
+        var fallback = replacementFailure
+        if suspended { fallback = .suspended }
+        else if replacementEnabled && !permitted { fallback = .permissionRequired }
+        else if replacementEnabled && !supportsVolume && !supportsMute { fallback = .unsupportedOutput }
+        let route: VolumeInputGate.Route? = replacementEnabled && fallback == nil && !commandObservers.isEmpty
+            ? output.flatMap { device in UInt32(device.id).map {
+                .init(deviceID: $0, volume: supportsVolume, mute: supportsMute)
+            } } : nil
+        if suspended || commandObservers.isEmpty {
+            volumeKeyMonitor.stop()
+            monitorStarted = false
+            monitorAttempted = false
+            monitorRoute = nil
+        } else if !monitorAttempted || monitorRoute != route {
+            volumeKeyMonitor.stop()
+            monitorStarted = false
+            monitorAttempted = true
+            monitorRoute = route
+            monitorStarted = volumeKeyMonitor.start(route: route)
+            if route != nil && !monitorStarted {
+                replacementFailure = .tapUnavailable
+                fallback = .tapUnavailable
+                monitorRoute = nil
+                monitorStarted = volumeKeyMonitor.start()
+            }
+        }
+        let status = VolumeReplacementStatus(
+            mode: !replacementEnabled ? .disabled : (monitorRoute != nil && monitorStarted ? .activeReplacement : .passive),
+            fallback: replacementEnabled ? fallback : nil,
+            canReplaceVolume: supportsVolume, canReplaceMute: supportsMute)
+        guard status != feedbackStatus else { return }
+        feedbackStatus = status
+        feedbackObservers.values.forEach { $0.yield(status) }
+    }
+
+    private func observeLifecycle() {
+        func observe(_ center: NotificationCenter, _ name: Notification.Name,
+                     action: @escaping @MainActor @Sendable (RealAudioDevicesService) -> Void) {
+            let token = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { if let self { action(self) } }
+            }
+            lifecycleObservers.append((center, token))
+        }
+        observe(NSWorkspace.shared.notificationCenter, NSWorkspace.willSleepNotification) {
+            $0.suspended = true
+            $0.reconcileVolumeMonitor()
+        }
+        observe(NSWorkspace.shared.notificationCenter, NSWorkspace.didWakeNotification) {
+            $0.suspended = false
+            $0.replacementFailure = nil
+            $0.refresh(rebuildDevices: true)
+        }
+        observe(.default, NSApplication.didBecomeActiveNotification) {
+            if $0.replacementFailure == .permissionRequired { $0.replacementFailure = nil }
+            if !$0.monitorStarted { $0.monitorAttempted = false }
+            $0.reconcileVolumeMonitor()
+        }
+    }
 
     public func updates() async -> AsyncStream<AudioDevicesSnapshot> {
         let token = UUID()
@@ -173,12 +292,12 @@ public final class RealAudioDevicesService: AudioDevicesService {
         return AsyncStream(bufferingPolicy: .bufferingNewest(16)) { continuation in
             commandObservers[token] = continuation
             if systemListeners.isEmpty { start() }
-            volumeKeyMonitor.start()
+            reconcileVolumeMonitor()
             continuation.onTermination = { [weak self] _ in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
                     self.commandObservers[token] = nil
-                    if self.commandObservers.isEmpty { self.volumeKeyMonitor.stop() }
+                    if self.commandObservers.isEmpty { self.reconcileVolumeMonitor() }
                     self.stopIfUnobserved()
                 }
             }
@@ -189,29 +308,21 @@ public final class RealAudioDevicesService: AudioDevicesService {
         guard let id = UInt32(deviceID), id == defaultOutputID() else {
             throw ServiceFailure.unsupportedOperation(.audioDevices)
         }
-        var value = Float32(min(max(volume, 0), 1))
-        let addresses = Self.writableControlAddresses(id, kAudioDevicePropertyVolumeScalar)
-        guard !addresses.isEmpty else { throw ServiceFailure.unsupportedOperation(.audioDevices) }
-        for var address in addresses {
-            guard AudioObjectSetPropertyData(id, &address, 0, nil,
-                                             UInt32(MemoryLayout.size(ofValue: value)), &value) == noErr else {
-                throw ServiceFailure.unavailable(.audioDevices)
-            }
+        guard volume.isFinite, let state = CoreAudioOutputControls().read(id), state.supportsVolume else {
+            throw ServiceFailure.unsupportedOperation(.audioDevices)
+        }
+        guard CoreAudioOutputControls().writeVolume(state.volumes.map { _ in min(max(volume, 0), 1) }, state: state) else {
+            throw ServiceFailure.unavailable(.audioDevices)
         }
     }
 
     public func setMuted(_ muted: Bool, deviceID: String) async throws {
-        guard let id = UInt32(deviceID), id == defaultOutputID() else {
+        guard let id = UInt32(deviceID), id == defaultOutputID(),
+              let state = CoreAudioOutputControls().read(id), state.supportsMute else {
             throw ServiceFailure.unsupportedOperation(.audioDevices)
         }
-        var value: UInt32 = muted ? 1 : 0
-        let addresses = Self.writableControlAddresses(id, kAudioDevicePropertyMute)
-        guard !addresses.isEmpty else { throw ServiceFailure.unsupportedOperation(.audioDevices) }
-        for var address in addresses {
-            guard AudioObjectSetPropertyData(id, &address, 0, nil,
-                                             UInt32(MemoryLayout.size(ofValue: value)), &value) == noErr else {
-                throw ServiceFailure.unavailable(.audioDevices)
-            }
+        guard CoreAudioOutputControls().writeMute(muted, state: state) else {
+            throw ServiceFailure.unavailable(.audioDevices)
         }
     }
 
@@ -220,6 +331,7 @@ public final class RealAudioDevicesService: AudioDevicesService {
         let system = AudioObjectID(kAudioObjectSystemObject)
         addListener(system, Self.address(kAudioHardwarePropertyDevices), to: &systemListeners)
         addListener(system, Self.address(kAudioHardwarePropertyDefaultOutputDevice), to: &systemListeners)
+        observeLifecycle()
         refresh()
     }
 
@@ -229,17 +341,24 @@ public final class RealAudioDevicesService: AudioDevicesService {
     }
 
     private func stopIfUnobserved() {
-        guard observers.isEmpty, commandObservers.isEmpty else { return }
+        guard observers.isEmpty, commandObservers.isEmpty, feedbackObservers.isEmpty else { return }
         stopObservation()
     }
 
     private func stopObservation() {
         generation &+= 1
         volumeKeyMonitor.stop()
+        monitorStarted = false
+        monitorAttempted = false
+        monitorRoute = nil
+        lifecycleObservers.forEach { $0.0.removeObserver($0.1) }
+        lifecycleObservers = []
         systemListeners.forEach(Self.remove)
         outputListeners.forEach(Self.remove)
+        deviceListeners.forEach(Self.remove)
         systemListeners.removeAll()
         outputListeners.removeAll()
+        deviceListeners.removeAll()
         selectedID = kAudioObjectUnknown
         previous = nil
         cachedOutputIDs = []
@@ -247,17 +366,25 @@ public final class RealAudioDevicesService: AudioDevicesService {
     }
 
     private func refresh(rebuildDevices: Bool = false) {
-        guard !observers.isEmpty || !commandObservers.isEmpty else { return }
+        guard !suspended, !observers.isEmpty || !commandObservers.isEmpty || !feedbackObservers.isEmpty else { return }
         let defaultID = defaultOutputID()
         // Hot-plug can report the new default output before the device-list change arrives.
         if rebuildDevices || cachedOutputIDs.isEmpty
             || (defaultID != selectedID && defaultID != kAudioObjectUnknown
                 && !cachedOutputIDs.contains(defaultID)) {
-            cachedOutputIDs = outputIDs()
+            // Retained but unavailable HAL endpoints must keep an alive-state listener so
+            // reconnection is observed even when their object ID and device list stay unchanged.
+            let candidates = outputIDs(includeInactive: true)
+            cachedOutputIDs = candidates.filter(Self.isAlive)
+            deviceListeners.forEach(Self.remove)
+            deviceListeners.removeAll()
+            for id in candidates {
+                addListener(id, Self.address(kAudioDevicePropertyDeviceIsAlive), to: &deviceListeners)
+            }
             outputDetails = Dictionary(uniqueKeysWithValues: cachedOutputIDs.map { id in
                 (id, OutputDetails(uid: Self.deviceUID(id), name: Self.name(id) ?? "Audio Output",
-                                   canSetVolume: !Self.writableControlAddresses(id, kAudioDevicePropertyVolumeScalar).isEmpty,
-                                   canSetMute: !Self.writableControlAddresses(id, kAudioDevicePropertyMute).isEmpty,
+                                   volumeElements: CoreAudioOutputControls.writableElements(id, kAudioDevicePropertyVolumeScalar),
+                                   muteElements: CoreAudioOutputControls.writableElements(id, kAudioDevicePropertyMute),
                                    transport: Self.transport(id)))
             })
         }
@@ -266,6 +393,8 @@ public final class RealAudioDevicesService: AudioDevicesService {
             outputListeners.forEach(Self.remove)
             outputListeners.removeAll()
             selectedID = id
+            replacementFailure = nil
+            if !monitorStarted { monitorAttempted = false }
             if id != kAudioObjectUnknown {
                 for selector in [kAudioDevicePropertyVolumeScalar, kAudioDevicePropertyMute] {
                     for element in 0...min(Self.outputChannelCount(id), 32) {
@@ -279,8 +408,10 @@ public final class RealAudioDevicesService: AudioDevicesService {
             }
         }
         let next = snapshot()
-        guard next != previous else { return }
+        let changed = next != previous
         previous = next
+        reconcileVolumeMonitor()
+        guard changed else { return }
         observers.values.forEach { $0.yield(next) }
     }
 
@@ -291,7 +422,8 @@ public final class RealAudioDevicesService: AudioDevicesService {
         let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
             Task { @MainActor [weak self] in
                 guard let self, self.generation == generation else { return }
-                self.refresh(rebuildDevices: property.mSelector == kAudioHardwarePropertyDevices)
+                self.refresh(rebuildDevices: [kAudioHardwarePropertyDevices, kAudioDevicePropertyDeviceIsAlive]
+                    .contains(property.mSelector))
             }
         }
         if AudioObjectAddPropertyListenerBlock(object, &address, .main, block) == noErr {
@@ -320,7 +452,7 @@ public final class RealAudioDevicesService: AudioDevicesService {
         // AirPods/headphone battery; private Bluetooth sources are deliberately not used.
         return AudioDevice(id: String(id), uid: details?.uid, name: details?.name ?? "Audio Output",
                            isDefaultOutput: id == selected,
-                           volume: Self.scalar(id), isMuted: Self.muted(id),
+                           volume: Self.scalar(id, elements: details?.volumeElements ?? []), isMuted: Self.muted(id),
                            canSetVolume: details?.canSetVolume ?? false,
                            canSetMute: details?.canSetMute ?? false,
                            transport: details?.transport ?? .other)
@@ -334,7 +466,7 @@ public final class RealAudioDevicesService: AudioDevicesService {
                                           0, nil, &size, &id) == noErr ? id : kAudioObjectUnknown
     }
 
-    private func outputIDs() -> [AudioObjectID] {
+    private func outputIDs(includeInactive: Bool = false) -> [AudioObjectID] {
         let system = AudioObjectID(kAudioObjectSystemObject)
         var address = Self.address(kAudioHardwarePropertyDevices)
         var size: UInt32 = 0
@@ -344,6 +476,7 @@ public final class RealAudioDevicesService: AudioDevicesService {
         guard AudioObjectGetPropertyData(system, &address, 0, nil, &size, &ids) == noErr else { return [] }
         return ids.filter { id in
             Self.hasOutput(id)
+                && (includeInactive || Self.isAlive(id))
                 && AudioDeviceVisibility.isUserVisible(uid: Self.deviceUID(id))
         }
     }
@@ -361,35 +494,15 @@ public final class RealAudioDevicesService: AudioDevicesService {
             .contains { $0.mNumberChannels > 0 }
     }
 
-    private static func writableControlAddresses(_ id: AudioObjectID,
-                                                 _ selector: AudioObjectPropertySelector) -> [AudioObjectPropertyAddress] {
-        if let master = controlAddress(id, selector, writable: true),
-           master.mElement == kAudioObjectPropertyElementMain { return [master] }
-        let channels = min(outputChannelCount(id), 32)
-        guard channels > 0 else { return [] }
-        let addresses = (1...channels).compactMap { element -> AudioObjectPropertyAddress? in
-            var address = Self.address(selector,
-                                       scope: kAudioDevicePropertyScopeOutput,
-                                       element: AudioObjectPropertyElement(element))
-            var settable = DarwinBoolean(false)
-            return AudioObjectHasProperty(id, &address)
-                && AudioObjectIsPropertySettable(id, &address, &settable) == noErr
-                && settable.boolValue ? address : nil
-        }
-        return addresses.count == channels ? addresses : []
+    private static func isAlive(_ id: AudioObjectID) -> Bool {
+        var address = Self.address(kAudioDevicePropertyDeviceIsAlive)
+        var alive: UInt32 = 0
+        var size: UInt32 = 4
+        return AudioObjectGetPropertyData(id, &address, 0, nil, &size, &alive) == noErr && alive != 0
     }
 
     private static func outputChannelCount(_ id: AudioObjectID) -> Int {
-        var address = Self.address(kAudioDevicePropertyStreamConfiguration,
-                                   scope: kAudioDevicePropertyScopeOutput)
-        var size: UInt32 = 0
-        guard AudioObjectGetPropertyDataSize(id, &address, 0, nil, &size) == noErr,
-              size >= MemoryLayout<AudioBufferList>.size else { return 0 }
-        let buffer = UnsafeMutableRawPointer.allocate(byteCount: Int(size), alignment: MemoryLayout<AudioBufferList>.alignment)
-        defer { buffer.deallocate() }
-        guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, buffer) == noErr else { return 0 }
-        return UnsafeMutableAudioBufferListPointer(buffer.assumingMemoryBound(to: AudioBufferList.self))
-            .reduce(0) { $0 + Int($1.mNumberChannels) }
+        CoreAudioOutputControls.channelCount(id)
     }
 
     private static func name(_ id: AudioObjectID) -> String? {
@@ -412,12 +525,13 @@ public final class RealAudioDevicesService: AudioDevicesService {
         ProcessTapSupport.stringProperty(id, selector: kAudioDevicePropertyDeviceUID)
     }
 
-    private static func scalar(_ id: AudioObjectID) -> Double? {
+    private static func scalar(_ id: AudioObjectID, elements: [UInt32]) -> Double? {
+        if !elements.isEmpty { return CoreAudioOutputControls.observedVolume(id, elements: elements) }
         guard var address = controlAddress(id, kAudioDevicePropertyVolumeScalar) else { return nil }
         var value: Float32 = 0
         var size = UInt32(MemoryLayout.size(ofValue: value))
         return AudioObjectGetPropertyData(id, &address, 0, nil, &size, &value) == noErr
-            ? Double(value) : nil
+            && value.isFinite && (0...1).contains(value) ? Double(value) : nil
     }
 
     private static func muted(_ id: AudioObjectID) -> Bool? {
