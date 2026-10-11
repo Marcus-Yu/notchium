@@ -90,3 +90,25 @@ enum OutputDeviceTransition: Equatable {
         }
     }
 }
+
+/// HAL can announce an available wearable and then its route separately. Suppress only the
+/// second half of that connection within the existing activity lifetime. A later deliberate
+/// route switch or a reconnection remains a new event. No timer or Bluetooth polling is needed.
+struct OutputDeviceTransitionTracker {
+    private var recentAppearances: [String: Date] = [:]
+
+    mutating func receive(old: [OutputDeviceState], new: [OutputDeviceState], now: Date) -> OutputDeviceTransition? {
+        let newIDs = Set(new.map(\.id))
+        recentAppearances = recentAppearances.filter {
+            newIDs.contains($0.key) && (0..<2.5).contains(now.timeIntervalSince($0.value))
+        }
+        let transition = OutputDeviceTransition.between(old, new)
+        let oldActive = old.first(where: \.isActiveOutput)?.id
+        if case let .connected(device) = transition {
+            if device.isActiveOutput, oldActive != device.id,
+               recentAppearances.removeValue(forKey: device.id) != nil { return nil }
+            if !device.isActiveOutput { recentAppearances[device.id] = now }
+        }
+        return transition
+    }
+}
