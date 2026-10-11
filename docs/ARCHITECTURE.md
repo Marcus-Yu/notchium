@@ -154,6 +154,15 @@ Mock providers return deterministic snapshots without touching macOS services. T
 
 ## Concurrency contract
 
+Native volume replacement adds a small `SystemFeedbackControlling` boundary implemented
+by the existing `RealAudioDevicesService`. `SystemFeedbackCoordinator` persists the opt-in
+preference and projects status; it owns no device enumeration or HUD. The device service
+owns one passive-or-active volume event tap and HAL listeners. A serial worker owns copied
+accepted events and hardware operations, with a synchronized route/generation gate for
+cancellation. `AudioFeatureModel` still emits `NotchAudioHUD` to the existing activity and
+notification coordination. Brightness availability and AirPods feedback remain independent.
+See [System feedback](SYSTEM_FEEDBACK.md) for the safety contract and qualification evidence.
+
 - Presentation and AppKit lifecycle types are explicitly `@MainActor`.
 - Mutable test infrastructure uses actors, including the fake clock, mock logger, mock permission authorizer, and mock persistence store.
 - Services and exchanged value types are `Sendable`.
