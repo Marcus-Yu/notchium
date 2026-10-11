@@ -18,7 +18,7 @@ final class VolumeBoundaryHUDTests: XCTestCase {
         XCTAssertEqual(AudioVolumeCommand(systemDefinedSubtype: subtype,
                                           data1: data(NX_KEYTYPE_SOUND_DOWN, repeatKey: true)), .down)
         XCTAssertNil(AudioVolumeCommand(systemDefinedSubtype: subtype, data1: data(NX_KEYTYPE_SOUND_DOWN, down: false)))
-        XCTAssertNil(AudioVolumeCommand(systemDefinedSubtype: subtype, data1: data(NX_KEYTYPE_MUTE)))
+        XCTAssertEqual(AudioVolumeCommand(systemDefinedSubtype: subtype, data1: data(NX_KEYTYPE_MUTE)), .mute)
         XCTAssertNil(AudioVolumeCommand(systemDefinedSubtype: 0, data1: data(NX_KEYTYPE_SOUND_DOWN)))
     }
 
@@ -42,6 +42,25 @@ final class VolumeBoundaryHUDTests: XCTestCase {
         audio.receive(snapshot(1))
         audio.receiveVolumeCommand(.init(command: .up, output: output(1)))
         XCTAssertEqual(values.suffix(2), [1, 1])
+        let writes = await service.writeCount
+        XCTAssertEqual(writes, 0)
+    }
+
+    func testReplacedInteriorVolumeAndMuteOnlyReadbackReuseHUDWithoutWritingAudio() async {
+        let service = RecordingVolumeService()
+        let audio = makeAudio(service)
+        var huds: [NotchAudioHUD] = []
+        audio.onHUD = { huds.append($0) }
+        audio.receive(snapshot(0.5))
+        audio.receiveVolumeCommand(.init(command: .up, output: output(0.5625), wasReplaced: true))
+        let muteOnly = AudioDevice(id: "7", name: "Speakers", isDefaultOutput: true,
+                                   isMuted: true, canSetMute: true)
+        audio.receiveVolumeCommand(.init(command: .mute, output: muteOnly, wasReplaced: true))
+        XCTAssertEqual(huds.count, 2)
+        XCTAssertEqual(huds.first?.volume, 0.5625)
+        XCTAssertNil(huds.last?.volume)
+        XCTAssertEqual(huds.last?.isMuted, true)
+        XCTAssertEqual(audio.devices.currentOutput?.volume, 0.5, "Command readback is not a fabricated snapshot")
         let writes = await service.writeCount
         XCTAssertEqual(writes, 0)
     }
