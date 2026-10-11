@@ -271,6 +271,38 @@ final class NotchiumUITests: XCTestCase {
         }
     }
 
+    func testVolumeReplacementEducationCanBeCancelledWithoutEnablingIt() throws {
+        let app = XCUIApplication()
+        defer { app.terminate() }
+        app.launchArguments = fixtureArguments(display: "builtInMock", surface: "physical",
+            presentation: "expanded", appearance: "system") + ["--notchium-system-feedback-fixture",
+            "-systemFeedback.replaceVolumeHUD", "NO"]
+        app.launch()
+        XCTAssertEqual(app.alerts.count, 0, "Launch must not request Accessibility")
+        app.activate()
+        app.typeKey(",", modifierFlags: .command)
+        let settings = app.windows["com_apple_SwiftUI_Settings_window"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 5))
+        let toggle = settings.descendants(matching: .any)["notchium.settings.replaceVolumeHUD"].firstMatch
+        // Native Settings restores its last category. A selected NavigationLink may no longer
+        // expose a button, so only navigate if Audio is not already visible.
+        if !toggle.exists {
+            let audio = settings.descendants(matching: .any)["notchium.settings.category.audio"].firstMatch
+            XCTAssertTrue(audio.waitForExistence(timeout: 5), settings.debugDescription)
+            audio.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
+        }
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        guard toggle.isEnabled else { throw XCTSkip("Current output exposes no writable control") }
+        toggle.click()
+        let education = app.staticTexts["Replace the macOS Volume HUD?"]
+        XCTAssertTrue(education.waitForExistence(timeout: 5), app.debugDescription)
+        settings.sheets.containing(.staticText, identifier: "Replace the macOS Volume HUD?")
+            .buttons["Cancel"].click()
+        XCTAssertFalse(education.exists)
+        XCTAssertEqual((toggle.value as? NSNumber)?.boolValue, false, "Cancel keeps replacement disabled: \(toggle.debugDescription)")
+        XCTAssertFalse(settings.checkBoxes["Replace macOS Brightness HUD"].exists)
+    }
+
     override nonisolated func setUpWithError() throws {
         continueAfterFailure = false
     }
