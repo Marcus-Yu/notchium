@@ -11,7 +11,10 @@ struct VolumeHardwareState: Equatable, Sendable {
     let muteElements: [UInt32]
     let muted: Bool?
     var volume: Double? { volumes.max() }
-    var supportsVolume: Bool { !volumes.isEmpty && volumeElements.count == volumes.count }
+    var supportsVolume: Bool {
+        !volumes.isEmpty && volumeElements.count == volumes.count
+            && volumes.allSatisfy { $0.isFinite && (0...1).contains($0) }
+    }
     var supportsMute: Bool { !muteElements.isEmpty && muted != nil }
 }
 
@@ -62,7 +65,12 @@ struct VolumeKeyOperation {
         if before.muted == true, !hardware.writeMute(false, state: before) { return .uncertain }
         if values != before.volumes, !hardware.writeVolume(values, state: before) { return .uncertain }
         guard let after = hardware.read(deviceID), hardware.defaultOutputID() == deviceID,
-              let confirmed = after.volume, after.muted != true else { target = nil; return .uncertain }
+              after.supportsVolume, let confirmed = after.volume, after.muted != true,
+              // Quantization may leave a small step unchanged, but cannot reverse direction
+              // or leave a full-range boundary request at an interior level.
+              (key == .up ? confirmed >= volume - 0.00001 : confirmed <= volume + 0.00001),
+              requested != 0 || confirmed < 0.00001,
+              requested != 1 || confirmed > 0.99999 else { target = nil; return .uncertain }
         target = (deviceID, requested, confirmed)
         return .applied(after)
     }
