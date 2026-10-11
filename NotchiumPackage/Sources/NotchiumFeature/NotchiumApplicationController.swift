@@ -26,6 +26,7 @@ public final class NotchiumApplicationController {
     public let mediaModel: MediaSessionController
     public let calendarModel: CalendarActivityModel
     public let audioModel: AudioFeatureModel
+    public let systemFeedback: SystemFeedbackCoordinator
     public let quickActions: QuickActionsModel
     public let caffeineModel: CaffeineControlModel
     public let filesModel: FilesFeatureModel
@@ -82,6 +83,8 @@ public final class NotchiumApplicationController {
         audioModel = AudioFeatureModel(devices: environment.services.audioDevices,
                                        processes: environment.services.audioProcesses,
                                        mixer: environment.services.appAudioMixer)
+        systemFeedback = SystemFeedbackCoordinator(control: environment.distributionProfile == .appStoreSandboxed
+            ? nil : environment.services.audioDevices as? any SystemFeedbackControlling)
         let store = actionStore ?? QuickActionStore(preferences: .standard)
         let notifications = displayCoordinator.presentationModel.notificationCoordinator
         let runner = QuickActionRunner(store: store, workspace: workspace, shortcuts: shortcutService,
@@ -156,7 +159,7 @@ public final class NotchiumApplicationController {
         isRunning = true
         displayCoordinator.start()
         if environment.featureFlags[.calendar] { calendarModel.start() }
-        if environment.featureFlags[.audioDevices] { audioModel.start() }
+        if environment.featureFlags[.audioDevices] { audioModel.start(); systemFeedback.start() }
         if environment.featureFlags[.caffeine] { caffeineModel.start() }
         if environment.featureFlags[.activities] { startBatteryActivities() }
         if environment.featureFlags[.shelf] { filesModel.start() }
@@ -189,6 +192,7 @@ public final class NotchiumApplicationController {
         mediaModel.stop()
         calendarModel.stop()
         audioModel.stop()
+        systemFeedback.stop()
         caffeineModel.stop()
         filesModel.stop()
         clipboardModel.stop()
