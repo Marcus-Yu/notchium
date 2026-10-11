@@ -19,19 +19,25 @@ struct CoreAudioOutputControls: VolumeKeyHardware {
             return Double(value)
         }
         let muteElements = Self.writableElements(deviceID, kAudioDevicePropertyMute)
-        let mutes = muteElements.compactMap { element -> Bool? in
+        // A read-only mute property still matters: do not swallow volume keys on an output
+        // that is muted but cannot be unmuted by this backend.
+        let readableMutes = muteElements.isEmpty ? Self.readableElements(deviceID, kAudioDevicePropertyMute) : muteElements
+        let mutes = readableMutes.compactMap { element -> Bool? in
             var address = Self.address(kAudioDevicePropertyMute, element: element)
             return Self.value(deviceID, address: &address, initial: UInt32(0)).map { $0 != 0 }
         }
+        // An existing mute control with failed readback is unknown, not unmuted. Volume
+        // interception must fail before writing when it cannot establish this state.
+        guard readableMutes.isEmpty || mutes.count == readableMutes.count else { return nil }
         return VolumeHardwareState(deviceID: deviceID, volumeElements: volumeElements,
             volumes: values.count == volumeElements.count ? values : [], muteElements: muteElements,
-            muted: !mutes.isEmpty && mutes.count == muteElements.count ? mutes.contains(true) : nil)
+            muted: !mutes.isEmpty && mutes.count == readableMutes.count ? mutes.contains(true) : nil)
     }
 
     func writeVolume(_ values: [Double], state: VolumeHardwareState) -> Bool {
         guard values.count == state.volumeElements.count, !values.isEmpty else { return false }
         for (element, scalar) in zip(state.volumeElements, values) {
-            guard scalar.isFinite, (0...1).contains(scalar) else { return false }
+            guard defaultOutputID() == state.deviceID, scalar.isFinite, (0...1).contains(scalar) else { return false }
             var value = Float32(scalar)
             var address = Self.address(kAudioDevicePropertyVolumeScalar, element: element)
             guard AudioObjectSetPropertyData(state.deviceID, &address, 0, nil, 4, &value) == noErr else { return false }
@@ -42,6 +48,7 @@ struct CoreAudioOutputControls: VolumeKeyHardware {
     func writeMute(_ muted: Bool, state: VolumeHardwareState) -> Bool {
         guard state.supportsMute else { return false }
         for element in state.muteElements {
+            guard defaultOutputID() == state.deviceID else { return false }
             var value: UInt32 = muted ? 1 : 0
             var address = Self.address(kAudioDevicePropertyMute, element: element)
             guard AudioObjectSetPropertyData(state.deviceID, &address, 0, nil, 4, &value) == noErr else { return false }
@@ -73,6 +80,24 @@ struct CoreAudioOutputControls: VolumeKeyHardware {
         guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, buffer) == noErr else { return 0 }
         return UnsafeMutableAudioBufferListPointer(buffer.assumingMemoryBound(to: AudioBufferList.self))
             .reduce(0) { $0 + Int($1.mNumberChannels) }
+    }
+
+    static func observedVolume(_ id: UInt32, elements: [UInt32]) -> Double? {
+        let values = elements.compactMap { element -> Double? in
+            var address = Self.address(kAudioDevicePropertyVolumeScalar, element: element)
+            guard let value: Float32 = Self.value(id, address: &address, initial: Float32(0)),
+                  value.isFinite, (0...1).contains(value) else { return nil }
+            return Double(value)
+        }
+        return !values.isEmpty && values.count == elements.count ? values.max() : nil
+    }
+
+    private static func readableElements(_ id: UInt32, _ selector: UInt32) -> [UInt32] {
+        for element: UInt32 in [kAudioObjectPropertyElementMain, 1, 2] {
+            var address = Self.address(selector, element: element)
+            if AudioObjectHasProperty(id, &address) { return [element] }
+        }
+        return []
     }
 
     private static func value<T>(_ id: UInt32, address: inout AudioObjectPropertyAddress, initial: T) -> T? {
