@@ -22,7 +22,11 @@ extension NotchiumApplicationController {
         if CommandLine.arguments.contains("--notchium-reminders-denied") { reminders.authorization = .denied }
         let services: ServiceRegistry
         let qualityFixture = CommandLine.arguments.contains("--notchium-quality-fixture")
-        if qualityFixture {
+        if CommandLine.arguments.contains("--notchium-system-feedback-fixture") {
+            // Explicit hardware qualification: real audio output and key handling, with mock
+            // calendar, file, clipboard and provider services. No permission request at launch.
+            services = .mock(audioDevices: RealAudioDevicesService())
+        } else if qualityFixture {
             services = qualityServices()
         } else if CommandLine.arguments.contains("--notchium-stability-fixture") {
             let media = MockMediaProvider(snapshot: .init(playbackState: .paused,
