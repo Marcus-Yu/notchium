@@ -15,6 +15,10 @@ let package = Package(
     targets: [
         .target(name: "NotchiumCore"),
         .target(
+            name: "NotchiumProactiveFeature",
+            dependencies: ["NotchiumCore"]
+        ),
+        .target(
             name: "NotchiumDiagnostics",
             dependencies: ["NotchiumCore"]
         ),
@@ -123,6 +127,10 @@ let package = Package(
                 "NotchiumPersistence",
                 "NotchiumServices",
             ]
+        ),
+        .testTarget(
+            name: "NotchiumProactiveFeatureTests",
+            dependencies: ["NotchiumCore", "NotchiumProactiveFeature"]
         ),
         .testTarget(
             name: "NotchiumFeatureTests",
