@@ -10,24 +10,21 @@ final class Stage21DisplayStateTests: XCTestCase {
         var evidence = DisplayInteractionEvidence(pointerLocation: CGPoint(x: 100, y: 100))
         state.rebuild([builtIn], evidence: evidence)
         XCTAssertEqual(state.ownedDisplayID, builtIn.id)
-        XCTAssertNotNil(state.shellPlacement)
         state.rebuild([builtIn, external], evidence: evidence)
         evidence.pointerLocation = CGPoint(x: 2000, y: 100)
         state.resolve(evidence)
+        XCTAssertEqual(state.ownedDisplayID, builtIn.id, "Pointer movement must never hide the MacBook notch")
+        state.rebuild([external], evidence: evidence)
         XCTAssertEqual(state.ownedDisplayID, external.id)
-        XCTAssertNil(state.shellPlacement)
-        XCTAssertNil(state.geometry?.physicalNotchGap)
-        state.interact(on: external.id, evidence: evidence)
-        state.rebuild([builtIn], evidence: evidence)
-        XCTAssertEqual(state.ownedDisplayID, builtIn.id)
-        state.rebuild([external], evidence: evidence) // Clamshell
-        XCTAssertEqual(state.ownedDisplayID, external.id)
+        XCTAssertEqual(state.shellPlacement?.mode, .virtualPill)
         state.rebuild([builtIn, external], evidence: evidence)
-        XCTAssertEqual(state.ownedDisplayID, external.id)
+        XCTAssertEqual(state.ownedDisplayID, builtIn.id, "Opening the lid restores the default")
         let generation = state.topologyGeneration
         state.rebuild([builtIn, external], evidence: evidence)
         XCTAssertEqual(state.topologyGeneration, generation)
         let rearranged = externalDisplay(id: 2, frame: CGRect(x: -1080, y: 300, width: 1080, height: 1920))
+        state.preferences.selection = .selected
+        state.preferences.selectedDisplayKey = external.selectionKey
         state.rebuild([builtIn, rearranged], evidence: evidence)
         XCTAssertEqual(state.topologyGeneration, generation + 1)
         XCTAssertEqual(state.geometry?.frame, rearranged.frame)
@@ -44,38 +41,43 @@ final class Stage21DisplayStateTests: XCTestCase {
         XCTAssertNil(state.geometry)
     }
 
-    func testDirectOwnershipWinsUntilSessionEndsAndFallbackIsCentralized() {
+    func testDefaultIgnoresPointerFrontmostAndPrimaryExternalDisplay() {
         var state = DisplayPresentationState()
-        let builtIn = builtInDisplay()
+        let builtIn = builtInDisplay(primary: false)
         let external = externalDisplay(id: 2, frame: CGRect(x: 1512, y: 0, width: 1440, height: 900))
-        var evidence = DisplayInteractionEvidence(frontmostDisplayID: external.id)
-        state.rebuild([builtIn, external], evidence: evidence)
-        XCTAssertEqual(state.ownedDisplayID, external.id)
-        state.interact(on: builtIn.id, evidence: evidence)
+        let evidence = DisplayInteractionEvidence(pointerLocation: CGPoint(x: 1800, y: 500),
+                                                  frontmostDisplayID: external.id)
+        state.rebuild([external, builtIn], evidence: evidence)
         XCTAssertEqual(state.ownedDisplayID, builtIn.id)
-        evidence.pointerLocation = CGPoint(x: external.frame.midX, y: external.frame.midY)
-        state.resolve(evidence)
-        XCTAssertEqual(state.ownedDisplayID, builtIn.id)
-        state.releaseDirectOwnership()
+        XCTAssertEqual(state.shellPlacement?.mode, .physicalNotch)
+        state.preferences.selection = .selected
+        state.preferences.selectedDisplayKey = external.selectionKey
         state.resolve(evidence)
         XCTAssertEqual(state.ownedDisplayID, external.id)
         state.rebuild([builtIn], evidence: evidence)
         XCTAssertEqual(state.ownedDisplayID, builtIn.id)
+        state.rebuild([external, builtIn], evidence: evidence)
+        XCTAssertEqual(state.ownedDisplayID, external.id)
     }
 
-    func testRecycledOnlineIDCannotRetainAnotherMonitorsDirectLease() {
+    func testPersistentSelectionSurvivesChangedOnlineIDAndRejectsRecycledID() {
         var state = DisplayPresentationState()
-        let first = NotchiumDisplaySnapshot(id: .init(rawValue: 1), name: "First", frame: builtInDisplay().frame,
-            isBuiltIn: true, isPrimary: true, persistentID: UUID())
-        let replacement = NotchiumDisplaySnapshot(id: first.id, name: "Replacement", frame: first.frame,
+        let uuid = UUID()
+        let first = NotchiumDisplaySnapshot(id: .init(rawValue: 2), name: "Monitor", frame: externalDisplay().frame,
+            isBuiltIn: false, isPrimary: true, persistentID: uuid)
+        let replacement = NotchiumDisplaySnapshot(id: first.id, name: "Different monitor", frame: first.frame,
             isBuiltIn: false, isPrimary: true, persistentID: UUID())
-        let external = externalDisplay(id: 2)
-        let evidence = DisplayInteractionEvidence(frontmostDisplayID: external.id)
-        state.rebuild([first, external], evidence: evidence)
-        state.interact(on: first.id, evidence: evidence)
+        let reconnected = NotchiumDisplaySnapshot(id: .init(rawValue: 9), name: first.name, frame: first.frame,
+            isBuiltIn: false, isPrimary: false, persistentID: uuid)
+        state.preferences.selection = .selected
+        state.preferences.selectedDisplayKey = first.selectionKey
+        let evidence = DisplayInteractionEvidence()
+        state.rebuild([first, builtInDisplay()], evidence: evidence)
         XCTAssertEqual(state.ownedDisplayID, first.id)
-        state.rebuild([replacement, external], evidence: evidence)
-        XCTAssertEqual(state.ownedDisplayID, external.id)
+        state.rebuild([replacement, builtInDisplay()], evidence: evidence)
+        XCTAssertEqual(state.ownedDisplayID, builtInDisplay().id)
+        state.rebuild([replacement, reconnected, builtInDisplay()], evidence: evidence)
+        XCTAssertEqual(state.ownedDisplayID, reconnected.id)
     }
 
     func testFullscreenIsDisplayScopedMaximizedIsNormalAndSleepInvalidates() {
@@ -84,7 +86,7 @@ final class Stage21DisplayStateTests: XCTestCase {
         let external = externalDisplay(id: 2, frame: CGRect(x: 1512, y: 0, width: 1440, height: 900))
         var evidence = DisplayInteractionEvidence(frontmostDisplayID: builtIn.id)
         state.rebuild([builtIn, external], evidence: evidence)
-        XCTAssertEqual(state.presentationContext, .normal) // Geometry alone is not fullscreen.
+        XCTAssertEqual(state.presentationContext, .normal)
         evidence.isFullscreen = true
         evidence.fullscreenDisplayID = builtIn.id
         state.resolve(evidence)
@@ -92,7 +94,8 @@ final class Stage21DisplayStateTests: XCTestCase {
         evidence.isPresentationLike = true
         state.resolve(evidence)
         XCTAssertEqual(state.presentationContext, .presentationLike)
-        evidence.pointerLocation = CGPoint(x: external.frame.midX, y: external.frame.midY)
+        XCTAssertEqual(state.context(for: external.id, evidence: evidence), .normal)
+        evidence.fullscreenDisplayID = external.id
         state.resolve(evidence)
         XCTAssertEqual(state.presentationContext, .normal)
         let generation = state.topologyGeneration
@@ -100,9 +103,6 @@ final class Stage21DisplayStateTests: XCTestCase {
         XCTAssertEqual(state.presentationContext, .sleeping)
         XCTAssertGreaterThan(state.topologyGeneration, generation)
         state.setSleeping(false, evidence: evidence)
-        evidence.isFullscreen = false
-        evidence.isPresentationLike = false
-        state.resolve(evidence)
         XCTAssertEqual(state.presentationContext, .normal)
     }
 }
