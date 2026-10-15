@@ -274,8 +274,8 @@ No release is accepted with skipped tests justified only by unavailable develope
 ## 12. Public API and dependency policy
 
 - Private frameworks, private selectors, undocumented notifications, reverse-engineered IORegistry/SMC/Bluetooth keys, symbol lookup of private functions, and copied private headers are prohibited.
-- No shelling out to system utilities to obtain metrics or control hardware. This includes `powermetrics`, `nettop`, `top`, `ps`, `ioreg`, private brightness tools, and scripting external apps.
-- No Apple Events or Accessibility automation is used to scrape media state, browser URLs, meeting state, or unrelated application content.
+- No shelling out to system utilities to obtain metrics or control hardware. This includes `powermetrics`, `nettop`, `top`, `ps`, `ioreg`, and private brightness tools. Local Spotify control uses in-process Apple Events under the explicit product direction in `docs/SPOTIFY_PLAYBACK_PIPELINE.md`.
+- Spotify’s published scripting dictionary may be used for local metadata and playback control with explicit macOS Automation authorization. Do not scrape Spotify’s UI or use private APIs. Apple Events or Accessibility automation must not scrape other media, browser URLs, meeting state, or unrelated application content.
 - No Network Extension entitlement is requested for productivity tracking or per-process statistics.
 - Third-party dependencies require a documented need, license/security review, update owner, data-flow review, and removal plan. Prefer Apple frameworks and small first-party adapters.
 
