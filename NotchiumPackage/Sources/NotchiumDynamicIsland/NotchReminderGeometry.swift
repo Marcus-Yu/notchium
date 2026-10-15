@@ -5,7 +5,7 @@ public enum NotchReminderGeometry {
 
     public static func width(for layout: NotchPanelLayout) -> CGFloat {
         let mediaWidth = CollapsedMediaGeometry(
-            hardwareWidth: layout.hardwareNotchGeometry?.frame.width ?? 0,
+            hardwareWidth: layout.collapsedVisibleFrame.width,
             hardwareHeight: layout.collapsedVisibleFrame.height
         ).width
         // A bounded amount of breathing room, independent of the event title.
