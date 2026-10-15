@@ -7,6 +7,7 @@ import SwiftUI
 import NotchiumQuickActionsFeature
 import NotchiumMediaFeature
 import NotchiumServices
+import NotchiumDynamicIsland
 
 public struct NotchiumSettingsView: View {
     @State private var selection: SettingsCategory? = .general
@@ -21,6 +22,7 @@ public struct NotchiumSettingsView: View {
     private let focusModeModel: FocusModeModel?
     private let pomodoroModel: PomodoroModel?
     private let systemFeedback: SystemFeedbackCoordinator?
+    private let displayCoordinator: NotchiumDisplayCoordinator?
 
     public init(environment: AppEnvironment, audioMeter: SystemAudioMeter? = nil,
                 waveformAppearance: WaveformAppearanceModel? = nil,
@@ -31,7 +33,9 @@ public struct NotchiumSettingsView: View {
                 clipboardModel: ClipboardModel? = nil,
                 focusModeModel: FocusModeModel? = nil,
                 pomodoroModel: PomodoroModel? = nil,
-                systemFeedback: SystemFeedbackCoordinator? = nil) {
+                systemFeedback: SystemFeedbackCoordinator? = nil,
+                displayCoordinator: NotchiumDisplayCoordinator? = nil) {
+        self.displayCoordinator = displayCoordinator
         self.systemFeedback = systemFeedback
         self.clipboardModel = clipboardModel
         self.focusModeModel = focusModeModel
@@ -105,6 +109,7 @@ public struct NotchiumSettingsView: View {
     @ViewBuilder private func settings(for category: SettingsCategory) -> some View {
         switch category {
         case .general:
+            if let displayCoordinator { NotchDisplaySettingsSection(coordinator: displayCoordinator) }
             if let menuBarInsertion {
                 Section("Menu Bar") {
                     Toggle("Show menu-bar icon", isOn: menuBarInsertion)
