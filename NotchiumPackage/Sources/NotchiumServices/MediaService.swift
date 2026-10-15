@@ -10,6 +10,19 @@ public enum MediaConnectionState: String, Equatable, Sendable {
 public enum MediaExperienceState: String, Equatable, Sendable {
     case initializing, authorizing, unauthenticated, inactive, playing, paused, error
 }
+public enum LocalSpotifyStatus: String, Equatable, Sendable {
+    case notInstalled, notRunning, needsPermission, denied, ready
+    public var message: String {
+        switch self {
+        case .notInstalled: "Install Spotify to use local playback controls."
+        case .notRunning: "Open Spotify to view and control playback."
+        case .needsPermission: "Allow Notchium to control Spotify on this Mac."
+        case .denied: "Allow Spotify in System Settings → Privacy & Security → Automation → Notchium."
+        case .ready: "Local Spotify control is enabled."
+        }
+    }
+}
+
 public enum MediaCommand: Equatable, Sendable {
     case playPause, play, pause, previous, next, seek(TimeInterval), setVolume(Double), toggleShuffle, cycleRepeat
     case setShuffle(Bool), setRepeatMode(MediaRepeatMode)
@@ -58,23 +71,6 @@ public struct MediaCapabilities: Codable, Equatable, Sendable {
     }
 }
 
-public struct SpotifyDevice: Identifiable, Equatable, Sendable {
-    public let id: String
-    public let name: String
-    public let type: String
-    public let isActive: Bool
-    public let isRestricted: Bool
-    public let volumePercent: Int?
-    public let supportsVolume: Bool
-
-    public init(id: String, name: String, type: String, isActive: Bool,
-                isRestricted: Bool, volumePercent: Int?, supportsVolume: Bool) {
-        self.id = id; self.name = name; self.type = type; self.isActive = isActive
-        self.isRestricted = isRestricted; self.volumePercent = volumePercent
-        self.supportsVolume = supportsVolume
-    }
-}
-
 public struct QueueTrack: Identifiable, Codable, Equatable, Sendable {
     public let id: String
     public let uri: String
@@ -102,6 +98,7 @@ public struct MediaState: Equatable, Sendable {
     public var volumePercent: Int?
     public var title: String?
     public var artist: String?
+    public var album: String?
     public var artwork: URL?
     public var source: MediaSource?
     public var elapsed: TimeInterval
@@ -116,12 +113,12 @@ public struct MediaState: Equatable, Sendable {
     public var queue: [QueueTrack]
     public var queueIssue: String?
     public var issue: String?
-    public var rateLimitedUntil: Date? = nil
+    public var localSpotifyStatus: LocalSpotifyStatus?
 
     public init(availability: FeatureAvailability = .available,
                 connectionState: MediaConnectionState = .authenticated,
                 playbackState: MediaPlaybackState = .stopped, title: String? = nil,
-                artist: String? = nil, elapsed: TimeInterval = 0, duration: TimeInterval? = nil,
+                artist: String? = nil, album: String? = nil, elapsed: TimeInterval = 0, duration: TimeInterval? = nil,
                 trackID: String? = nil, activeDeviceID: String? = nil,
                 activeDeviceName: String? = nil, activeDeviceType: String? = nil,
                 volumePercent: Int? = nil,
@@ -129,10 +126,11 @@ public struct MediaState: Equatable, Sendable {
                 capabilities: MediaCapabilities = .init(), shuffle: Bool? = nil,
                 repeatMode: MediaRepeatMode? = nil, queue: [QueueTrack] = [], queueIssue: String? = nil,
                 issue: String? = nil,
-                timestamp: Date = Date(), playbackRate: Double? = nil, sampledUptime: TimeInterval? = nil, observationStartedUptime: TimeInterval? = nil) {
+                timestamp: Date = Date(), playbackRate: Double? = nil, sampledUptime: TimeInterval? = nil, observationStartedUptime: TimeInterval? = nil, localSpotifyStatus: LocalSpotifyStatus? = nil) {
         self.availability = availability; self.connectionState = connectionState
+        self.localSpotifyStatus = localSpotifyStatus
         self.playbackState = playbackState
-        self.title = title; self.artist = artist; self.elapsed = elapsed; self.duration = duration
+        self.title = title; self.artist = artist; self.album = album; self.elapsed = elapsed; self.duration = duration
         self.trackID = trackID; self.activeDeviceID = activeDeviceID
         self.activeDeviceName = activeDeviceName; self.activeDeviceType = activeDeviceType
         self.volumePercent = volumePercent
@@ -190,6 +188,7 @@ public struct CachedMediaTrack: Codable, Equatable, Sendable {
     public let trackID: String?
     public let title: String
     public let artist: String?
+    public let album: String?
     public let artwork: URL?
     public let source: MediaSource
     public let elapsed: TimeInterval
@@ -209,6 +208,7 @@ public struct CachedMediaTrack: Codable, Equatable, Sendable {
         trackID = state.trackID
         self.title = title
         artist = state.artist
+        album = state.album
         artwork = state.artwork
         self.source = source
         elapsed = state.elapsedTime
@@ -216,7 +216,7 @@ public struct CachedMediaTrack: Codable, Equatable, Sendable {
         capabilities = state.capabilities
         shuffle = state.shuffle
         repeatMode = state.repeatMode
-        queue = state.queue
+        queue = [] // Upcoming tracks cannot be restored as a current queue.
         activeDeviceID = state.activeDeviceID
         activeDeviceName = state.activeDeviceName
         activeDeviceType = state.activeDeviceType
@@ -227,11 +227,13 @@ public struct CachedMediaTrack: Codable, Equatable, Sendable {
         var capabilities = capabilities
         // A cached track can always attempt resume; the provider owns availability recovery.
         capabilities.canPlayPause = true
+        capabilities.canReadQueue = false
         return MediaState(
             connectionState: .authenticated,
             playbackState: .paused,
             title: title,
             artist: artist,
+            album: album,
             elapsed: elapsed,
             duration: duration,
             trackID: trackID,
@@ -244,7 +246,7 @@ public struct CachedMediaTrack: Codable, Equatable, Sendable {
             capabilities: capabilities,
             shuffle: shuffle,
             repeatMode: repeatMode,
-            queue: queue,
+            queue: [],
             issue: issue,
             timestamp: date,
             playbackRate: 0
@@ -264,17 +266,15 @@ public struct NoopMediaSnapshotStore: MediaSnapshotStoring {
 }
 
 public enum MediaFailure: Error, Equatable, LocalizedError, Sendable {
-    case unsupported, disconnected, invalidResponse, authorization, keychain, busy, spotifyUnavailable, rateLimited(Int)
+    case unsupported, disconnected, invalidResponse, authorization, busy, spotifyUnavailable
     public var errorDescription: String? {
         switch self {
         case .unsupported: "This media operation is unavailable."
-        case .disconnected: "Connect Spotify in Settings."
+        case .disconnected: "Enable local Spotify control in Settings."
         case .invalidResponse: "The media provider could not return playback state."
-        case .authorization: "Spotify authorization failed. Connect again."
-        case .keychain: "Spotify credentials could not be stored in Keychain."
+        case .authorization: "Allow Notchium to control Spotify in System Settings → Privacy & Security → Automation."
         case .busy: "A media command is already in progress."
         case .spotifyUnavailable: "Spotify couldn’t be opened on this Mac."
-        case .rateLimited(let seconds): "Spotify rate limit reached. Retry in \(seconds) seconds."
         }
     }
 }
@@ -290,8 +290,8 @@ public protocol MediaProviding: Sendable {
     func loadQueue() async throws
     func refreshQueue() async throws
     func addToQueue(uri: String) async throws
-    func devices() async throws -> [SpotifyDevice]
-    func transferPlayback(to deviceID: String) async throws
+    func enableLocalControl() async throws
+    func openSpotify() async throws
     func resumePlayback() async throws
 }
 
@@ -315,8 +315,8 @@ public extension MediaProviding {
     func loadQueue() async throws { throw MediaFailure.unsupported }
     func refreshQueue() async throws { try await loadQueue() }
     func addToQueue(uri: String) async throws { throw MediaFailure.unsupported }
-    func devices() async throws -> [SpotifyDevice] { throw MediaFailure.unsupported }
-    func transferPlayback(to deviceID: String) async throws { throw MediaFailure.unsupported }
+    func enableLocalControl() async throws { throw MediaFailure.unsupported }
+    func openSpotify() async throws { throw MediaFailure.unsupported }
     func resumePlayback() async throws { try await play() }
 }
 
