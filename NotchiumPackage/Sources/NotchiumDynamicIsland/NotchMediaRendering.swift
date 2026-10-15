@@ -32,6 +32,8 @@ public struct CollapsedMediaGeometry: Equatable {
     public let leadingWidth: CGFloat
     public let trailingWidth: CGFloat
     public var width: CGFloat { leadingWidth + hardwareWidth + trailingWidth }
+    /// The top curves flare outside the unchanged artwork and waveform allocations.
+    var shellWidth: CGFloat { width + NotchCompactGeometry.shoulderRadius * 2 }
     public var artworkSize: CGFloat { max(0, min(24, height - 8)) }
     public init(hardwareWidth: CGFloat, hardwareHeight: CGFloat) {
         self.hardwareWidth = hardwareWidth
