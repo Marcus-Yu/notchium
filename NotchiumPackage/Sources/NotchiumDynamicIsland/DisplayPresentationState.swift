@@ -29,66 +29,43 @@ public struct DisplayPresentationState: Equatable, Sendable {
     public private(set) var ownedDisplayID: NotchiumDisplayID?
     public private(set) var presentationContext: NotchPresentationContext = .normal
     public private(set) var sleeping = false
-    private var directDisplayID: NotchiumDisplayID?
+    public var preferences = NotchDisplayPreferences()
 
     public var geometry: NotchiumDisplaySnapshot? {
         availableDisplays.first { $0.id == ownedDisplayID }
     }
 
-    /// Stage 21 does not synthesize hardware on an external/notchless screen.
+    public var shellPlacements: [NotchShellPlacement] {
+        NotchDisplayPlacementPolicy.placements(displays: availableDisplays, preferences: preferences)
+    }
+
     public var shellPlacement: NotchShellPlacement? {
-        guard let geometry, geometry.isBuiltIn,
-              geometry.isEligiblePhysicalNotchDisplay, geometry.physicalNotchGap != nil else { return nil }
-        return .init(display: geometry, mode: .physicalNotch)
+        shellPlacements.first
     }
 
     mutating func rebuild(_ displays: [NotchiumDisplaySnapshot], evidence: DisplayInteractionEvidence) {
-        // Online CG IDs may be reused for a different physical monitor. A changed public
-        // UUID invalidates the prior owner's lease even if its numeric ID was recycled.
-        if let previous = geometry,
-           let replacement = displays.first(where: { $0.id == previous.id }),
-           previous.persistentID != replacement.persistentID {
-            directDisplayID = nil
-            ownedDisplayID = nil
-        }
         if displays != availableDisplays {
             topologyGeneration &+= 1
             availableDisplays = displays
         }
-        if !displays.contains(where: { $0.id == directDisplayID }) { directDisplayID = nil }
         resolve(evidence)
     }
-
-    mutating func interact(on displayID: NotchiumDisplayID, evidence: DisplayInteractionEvidence) {
-        guard availableDisplays.contains(where: { $0.id == displayID }) else { return }
-        directDisplayID = displayID
-        resolve(evidence)
-    }
-
-    mutating func releaseDirectOwnership() { directDisplayID = nil }
 
     mutating func resolve(_ evidence: DisplayInteractionEvidence) {
-        let pointer = evidence.pointerLocation.flatMap { point in
-            availableDisplays.first { $0.frame.contains(point) }?.id
-        }
-        let candidates = [directDisplayID, pointer, evidence.frontmostDisplayID,
-                          ownedDisplayID, availableDisplays.first(where: \.isPrimary)?.id,
-                          availableDisplays.first?.id]
-        ownedDisplayID = candidates.compactMap { $0 }.first { id in
-            availableDisplays.contains { $0.id == id }
-        }
-        if sleeping { presentationContext = .sleeping; return }
+        ownedDisplayID = shellPlacement?.display.id
+        presentationContext = context(for: ownedDisplayID, evidence: evidence)
+    }
+
+    func context(for displayID: NotchiumDisplayID?, evidence: DisplayInteractionEvidence) -> NotchPresentationContext {
+        if sleeping { return .sleeping }
         // System presentation options describe the active application. Apply them only to
         // its display; fullscreen on a different monitor must not quiet this desktop.
         let contextDisplay = evidence.fullscreenDisplayID ?? evidence.frontmostDisplayID
-        guard contextDisplay == ownedDisplayID, ownedDisplayID != nil else {
-            presentationContext = .normal
-            return
-        }
-        if evidence.isPresentationLike { presentationContext = .presentationLike }
-        else if evidence.isImmersiveMedia { presentationContext = .immersiveMedia }
-        else if evidence.isFullscreen { presentationContext = .fullscreenApp }
-        else { presentationContext = .normal }
+        guard contextDisplay == displayID, displayID != nil else { return .normal }
+        if evidence.isPresentationLike { return .presentationLike }
+        if evidence.isImmersiveMedia { return .immersiveMedia }
+        if evidence.isFullscreen { return .fullscreenApp }
+        return .normal
     }
 
     mutating func setSleeping(_ sleeping: Bool, evidence: DisplayInteractionEvidence) {
