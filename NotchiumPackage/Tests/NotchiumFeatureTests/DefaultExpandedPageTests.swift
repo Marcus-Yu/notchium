@@ -7,25 +7,27 @@ import NotchiumServices
 @testable import NotchiumMediaFeature
 
 @MainActor final class DefaultExpandedPageTests: XCTestCase {
-    func testPlaybackAndCachedPausedTrackChooseFreshDefault() {
-        let model = presentation()
-        let media = MediaSessionController(provider: MockMediaProvider(), coordinator: model.activityCoordinator,
-                                           localDeviceNames: ["this mac"])
-        defer { media.stop(); model.reset() }
-        for playing in [false, true, false] {
-            // Playing on this Mac (the local Spotify Connect device); remote playback opens Home.
-            media.receive(.init(connectionState: .authenticated, playbackState: playing ? .playing : .paused,
-                                title: "Track", trackID: "track", activeDeviceID: "mac",
-                                activeDeviceName: "This Mac", activeDeviceType: "Computer", source: .spotify))
-            model.setExpanded(true)
-            XCTAssertEqual(model.pageModel.selectedPage, playing ? .music : .home)
-            model.present(.collapsed, animated: false) // Complete collapse before a fresh expansion.
+    func testPlaybackAndCachedPausedTrackOpenHomeOnEveryFreshExpansion() {
+        for state in [NotchStableState.hovered, .expanded] {
+            let model = presentation()
+            let media = MediaSessionController(provider: MockMediaProvider(), coordinator: model.activityCoordinator,
+                                               localDeviceNames: ["this mac"])
+            defer { media.stop(); model.reset() }
+            for playing in [false, true, false] {
+                media.receive(.init(connectionState: .authenticated, playbackState: playing ? .playing : .paused,
+                                    title: "Track", trackID: "track", activeDeviceID: "mac",
+                                    activeDeviceName: "This Mac", activeDeviceType: "Computer", source: .spotify))
+                model.setExpanded(true, target: state)
+                XCTAssertEqual(model.pageModel.selectedPage, .home)
+                model.pageModel.selectedPage = .music
+                model.present(.collapsed, animated: false) // Complete collapse before a fresh expansion.
+            }
+            media.receive(.init(connectionState: .authenticated, source: .spotify))
+            XCTAssertTrue(media.isShowingCachedTrack)
+            XCTAssertNotNil(model.activityCoordinator.persistentActivity)
+            model.setExpanded(true, target: state)
+            XCTAssertEqual(model.pageModel.selectedPage, .home)
         }
-        media.receive(.init(connectionState: .authenticated, source: .spotify))
-        XCTAssertTrue(media.isShowingCachedTrack)
-        XCTAssertNotNil(model.activityCoordinator.persistentActivity)
-        model.setExpanded(true)
-        XCTAssertEqual(model.pageModel.selectedPage, .home)
     }
 
     func testMusicAlertWinsUntilDismissedWithoutPlayback() {
@@ -44,7 +46,7 @@ import NotchiumServices
         }
     }
 
-    func testCalendarAndAudioDoNotBecomeFreshDefaultsOrHidePlayingMusic() {
+    func testCalendarAndAudioKeepHomeAsTheFreshDefaultDuringPlayback() {
         for kind in [NotchActivityKind.calendar, .audioDevice] {
             for playing in [false, true] {
                 let model = presentation()
@@ -54,7 +56,7 @@ import NotchiumServices
                 model.activityCoordinator.present(activity(kind))
                 XCTAssertEqual(model.activityCoordinator.activeTransient?.kind, kind)
                 model.setExpanded(true)
-                XCTAssertEqual(model.pageModel.selectedPage, playing ? .music : .home)
+                XCTAssertEqual(model.pageModel.selectedPage, .home)
                 model.reset()
             }
         }
