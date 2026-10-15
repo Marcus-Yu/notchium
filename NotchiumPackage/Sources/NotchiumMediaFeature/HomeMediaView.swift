@@ -22,7 +22,7 @@ struct HomeMediaView: View {
                     VStack(alignment: .leading, spacing: compact ? 6 : 10) {
                         Image(systemName: "music.note").font(.system(size: compact ? 20 : 24, weight: .light))
                             .foregroundStyle(ExpandedPageStyle.secondary)
-                        Text(model.homeMediaConnected ? "Nothing playing" : "Connect Spotify")
+                        Text(model.homeMediaConnected ? "Nothing playing" : "Enable Spotify")
                             .font(.system(size: compact ? 12 : 13, weight: .medium))
                         Text(model.homeMediaConnected ? "Your next listening moment." : "Your music, right here.")
                             .font(.system(size: compact ? 10 : 11)).foregroundStyle(.white.opacity(0.45))
