@@ -59,7 +59,37 @@ final class DynamicIslandPresentationTests: XCTestCase {
 
         let history = await clock.sleepHistory()
         XCTAssertTrue(history.contains(.milliseconds(120)))
-        XCTAssertTrue(history.contains(.milliseconds(200)))
+        XCTAssertTrue(history.contains(.milliseconds(600)))
+    }
+
+    func testHoverExitKeepsThePageOpenForTheFullGracePeriod() async {
+        let clock = TestAppClock(now: Date(timeIntervalSince1970: 0), automaticallyAdvances: false)
+        let model = DynamicIslandPresentationModel(phase: .hovered, clock: clock)
+        defer { model.reset() }
+        model.setHovered(true)
+        await clock.waitForPendingSleeps()
+        await clock.advance(by: .milliseconds(120))
+        await drainMainActorTasks()
+        model.pageModel.selectedPage = .music
+
+        model.setHovered(false)
+        await clock.waitForPendingSleeps()
+        await clock.advance(by: .milliseconds(300))
+        await drainMainActorTasks()
+        // Further movement outside must not restart the grace period.
+        for _ in 0..<20 { model.setHovered(false) }
+        await clock.advance(by: .milliseconds(299))
+        await drainMainActorTasks()
+        XCTAssertEqual(model.phase, .hovered)
+        XCTAssertEqual(model.pageModel.selectedPage, .music)
+
+        await clock.advance(by: .milliseconds(1))
+        await waitUntil { model.visualState == .collapsed }
+        XCTAssertEqual(model.phase, .transitioning(from: .hovered, to: .collapsed))
+        await clock.waitForPendingSleeps()
+        await clock.advance(by: .milliseconds(400))
+        await waitUntil { model.phase == .collapsed }
+        XCTAssertEqual(model.phase, .collapsed)
     }
 
     func testCancelledHoverEntryNeverWins() async {
@@ -125,17 +155,35 @@ final class DynamicIslandPresentationTests: XCTestCase {
     }
 
     func testHoverReentryCancelsPendingCollapse() async {
-        let clock = ControlledAppClock()
+        let clock = TestAppClock(now: Date(timeIntervalSince1970: 0), automaticallyAdvances: false)
         let model = DynamicIslandPresentationModel(phase: .hovered, clock: clock)
+        defer { model.reset() }
         model.setHovered(true)
+        await clock.waitForPendingSleeps()
+        await clock.advance(by: .milliseconds(120))
+        await drainMainActorTasks()
+        model.pageModel.selectedPage = .calendar
 
         model.setHovered(false)
-        await waitForPendingSleep(clock)
-        model.setHovered(true)
-        await clock.releaseAll()
+        await clock.waitForPendingSleeps()
+        await clock.advance(by: .milliseconds(300))
         await drainMainActorTasks()
-
+        model.setHovered(true)
+        await drainMainActorTasks()
+        await clock.waitForPendingSleeps()
+        await clock.advance(by: .milliseconds(600))
+        await drainMainActorTasks()
         XCTAssertEqual(model.visualState, .hovered)
+        XCTAssertEqual(model.pageModel.selectedPage, .calendar)
+
+        model.setHovered(false)
+        await clock.waitForPendingSleeps()
+        await clock.advance(by: .milliseconds(599))
+        await drainMainActorTasks()
+        XCTAssertEqual(model.phase, .hovered, "A new exit gets a full grace period")
+        await clock.advance(by: .milliseconds(1))
+        await waitUntil { model.visualState == .collapsed }
+        XCTAssertEqual(model.visualState, .collapsed)
     }
 
     func testStaleTransitionCompletionIsRejected() async {
