@@ -12,16 +12,16 @@ final class NavigationOwnershipTests: XCTestCase {
         model.activityCoordinator.present(.init(id: UUID(), kind: .media, title: "Track", subtitle: nil,
             lifetime: .persistent, duration: nil, payload: .mediaPlayback(isPlaying: true)))
         model.setExpanded(true)
-        XCTAssertEqual(model.pageModel.selectedPage, .music)
-        model.pageModel.selectedPage = .home
+        XCTAssertEqual(model.pageModel.selectedPage, .home)
+        model.pageModel.selectedPage = .music
         XCTAssertTrue(model.pageModel.manualSelectionDuringExpansion)
         model.collapse()
         model.setExpanded(true)
-        XCTAssertEqual(model.pageModel.selectedPage, .home)
+        XCTAssertEqual(model.pageModel.selectedPage, .music)
         await clock.waitForPendingSleeps()
         await clock.advance(by: .seconds(1))
         await drainMainActorTasks()
-        XCTAssertEqual(model.pageModel.selectedPage, .home)
+        XCTAssertEqual(model.pageModel.selectedPage, .music)
         model.collapse()
         await clock.waitForPendingSleeps()
         await clock.advance(by: .seconds(1))
@@ -29,7 +29,7 @@ final class NavigationOwnershipTests: XCTestCase {
         XCTAssertEqual(model.phase, .collapsed)
         XCTAssertFalse(model.pageModel.manualSelectionDuringExpansion)
         model.setExpanded(true)
-        XCTAssertEqual(model.pageModel.selectedPage, .music)
+        XCTAssertEqual(model.pageModel.selectedPage, .home)
     }
 
     func testLatestClickWinsAcrossActivityUpdatesAndDefaultReconciliation() {
