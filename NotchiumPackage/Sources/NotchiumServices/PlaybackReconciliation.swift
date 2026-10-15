@@ -8,7 +8,6 @@ struct PlaybackReconciliation: Sendable {
         case position(Double)
         case playingPosition(Double)
         case playing(Bool)
-        case device(String)
         case event(SpotifyPlaybackEvent)
     }
     let origin: MediaState
@@ -81,8 +80,6 @@ struct PlaybackReconciliation: Sendable {
                 && value.elapsedTime <= position + elapsed + 2
         case .playing(let playing):
             return value.hasMedia && value.isPlaying == playing
-        case .device(let id):
-            return value.activeDeviceID == id
         case .event(let hint):
             if let id = hint.trackID, value.trackID != id { return false }
             if let playing = hint.isPlaying, value.isPlaying != playing { return false }
