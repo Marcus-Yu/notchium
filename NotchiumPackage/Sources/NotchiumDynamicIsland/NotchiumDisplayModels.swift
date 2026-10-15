@@ -121,14 +121,17 @@ public struct NotchHardwareGeometry: Equatable, Sendable {
 public enum NotchSurfaceMode: String, CaseIterable, Equatable, Sendable {
     case physicalNotch
     case virtualPill
+    case simulatedNotch
 }
 
 public struct NotchShellPlacement: Equatable, Sendable {
     public let display: NotchiumDisplaySnapshot
     public let mode: NotchSurfaceMode
+    public let simulatedNotchSize: CGSize?
 
-    public init(display: NotchiumDisplaySnapshot, mode: NotchSurfaceMode) {
+    public init(display: NotchiumDisplaySnapshot, mode: NotchSurfaceMode, simulatedNotchSize: CGSize? = nil) {
         self.display = display
         self.mode = mode
+        self.simulatedNotchSize = simulatedNotchSize
     }
 }
