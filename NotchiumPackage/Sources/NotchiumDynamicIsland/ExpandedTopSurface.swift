@@ -55,10 +55,12 @@ struct NotchShellSurface: Shape {
             resolvedHeight = max(resolvedHeight, hardware.maxY - rect.minY)
             let flank = max(0, min(hardware.minX - (centerX - resolvedWidth / 2),
                                    centerX + resolvedWidth / 2 - hardware.maxX))
-            // Keep both the concave shoulder and the continuous lower corner
-            // outside the hardware, even as media's flanks retract to zero.
+            // Keep shoulders outside the hardware. Lower corners converge to the
+            // passive curve: flattening them to zero makes a tiny positive spring
+            // rebound draw a square overlay after the passive path was already empty.
             resolvedShoulder = min(resolvedShoulder, flank)
-            resolvedBottom = min(resolvedBottom, (flank - resolvedShoulder) / NotchShape.lowerCornerExtentMultiplier)
+            resolvedBottom = min(resolvedBottom, passiveShape.bottomCornerRadius
+                + (flank - resolvedShoulder) / NotchShape.lowerCornerExtentMultiplier)
         }
         // Use the same curve topology at zero shoulder radius. Switching to a
         // quadratic rounded rectangle at that endpoint made media corners pop.
