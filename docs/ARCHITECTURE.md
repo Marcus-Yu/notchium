@@ -47,7 +47,7 @@ The Xcode application target knows only the `NotchiumFeature` package product. F
 | `NotchiumServices` | Platform-facing protocols, value models, Stage 1 real adapters, mocks, and the immutable service registry. | SwiftUI presentation or hidden dependency construction. |
 | `NotchiumPersistence` | Retention contracts and real/mock persistence boundaries. | Feature-specific UI or cloud synchronization. |
 | `NotchiumDesignSystem` | Shared system-native measurements and surface treatment. | Feature state or system services. |
-| `NotchiumDynamicIsland` | Public display projection and selection, physical/virtual shell geometry, one-panel lifecycle, three-level interaction state, Liquid Glass shell views, and DEBUG fixtures. | Product-feature state, Ambient Edge/Snap overlays, or private display APIs. |
+| `NotchiumDynamicIsland` | Public display projection and selection, physical/virtual/simulated shell geometry, per-display panel lifecycles, three-level interaction state, Liquid Glass shell views, and DEBUG fixtures. | Product-feature state, Ambient Edge/Snap overlays, or private display APIs. |
 | `Notchium*Feature` | A separately compiled declaration of one product feature and its requirements. | Other features' state or direct platform API construction. |
 | `NotchiumDebug` | Debug-only provider modes, simulated permissions, capability inspection, and cleanup controls. Synthetic activities are submitted to the live `ActivityCoordinator` by the composition-owned Activities tab. | Production feature flags or sensitive logs. |
 | `NotchiumFeature` | Root composition, lifecycle coordination, feature catalog, menu fallback, and architecture-only settings. | Feature business logic or an all-purpose app view model. |
@@ -81,11 +81,13 @@ Stage 25A adds Foundation-only proactive value contracts in `NotchiumCore` and d
 
 ## Stage 21 display and presentation ownership
 
-`NotchiumDisplayCoordinator` owns one `DisplayPresentationState` and one `NotchiumPanelController`. The state holds immutable descriptors for every display, the current owner, topology generation, sleep state and display-scoped presentation context. Online Core Graphics IDs route the panel; public display UUIDs invalidate a direct lease if a numeric ID is recycled for a different monitor. Domain and feature code never retain `NSScreen` or select `NSScreen.main`.
+`NotchiumDisplayCoordinator` owns one display topology and persisted display preferences. It selects the built-in display by default, even when the pointer, active app or primary menu bar is on an external monitor. Users can select all displays or one specific display. Saved choices use public Core Graphics UUIDs; disconnected choices fall back to the built-in/primary display until reconnection. Online Core Graphics IDs route live panels. Feature code never retains `NSScreen` or selects `NSScreen.main`.
 
-Direct interaction owns its display while an open or auxiliary session remains active. Passive activity uses pointer location, then the frontmost application's on-screen window, then the surviving owner/primary display. The coordinator samples window evidence on native Space, application activation and presentation-options KVO events. A passive submission reads the pointer against cached descriptors, and re-reads window/assertion evidence only while fullscreen. One 80 ms cancellation-aware task coalesces native changes, with lifecycle and reconciliation generations rejecting obsolete work.
+Each selected display has one `NotchDisplaySession`, `NotchiumPanelController`, and independent `DynamicIslandPresentationModel`/page model. Existing sessions retain their own hosting view and navigation when their geometry changes. Removed sessions cancel interaction work without clearing shared activities. Reassigning a panel to another physical display closes its previous interaction, so expansion is never copied to another screen. Settings changes apply immediately; display observations remain event driven with the existing 80 ms coalescer, sleep/wake handling and generation checks.
 
-The panel consumes the selected display's layout and stays the same window/hosting view across migration. A notchless owner uses the existing menu-bar fallback; Stage 21 adds no external island. Topology and fullscreen changes preserve pinned pages and auxiliary leases. Hover sessions close through the existing motion path on a Space change, except one held after native AirDrop returned to it; system sleep closes the session and hides the panel. Only a genuinely new open session runs automatic-page arbitration. `ActivityCoordinator` applies the environmental filter before its existing ranking, retaining quiet entries and their absolute deadlines. See [STAGE21_DISPLAY_PRESENTATION.md](STAGE21_DISPLAY_PRESENTATION.md) for detection limitations and validation.
+One authoritative `ActivityCoordinator` owns submissions, coalescing and absolute deadlines. Each display consumes a projection of those entries with its own presentation context, notification interaction and arbitration. Projections have no expiry task and forward data mutations to the source. Renderers reuse existing feature models/providers. Music aggregates visibility by presentation identity so an offscreen or removed Music page cannot hide another display's visible player. Keyboard opening targets the pointer's selected display, then the last interacted display, then the first selected display.
+
+Physical-notch geometry stays hardware aligned. Notchless displays support a compact pill or an opt-in simulated notch proportional to the built-in notch and display dimensions. Both use the existing fixed host and expanded shell geometry. See [NOTCH_SHELL.md](NOTCH_SHELL.md) for current behavior and [STAGE21_DISPLAY_PRESENTATION.md](STAGE21_DISPLAY_PRESENTATION.md) for the original context-detection design and limitations.
 
 The required flow is:
 
@@ -95,7 +97,7 @@ feature/provider
 ActivityCoordinator
     ↓ prioritized, coalesced, expiring presentation state
 PresentationRouter
-    ├── built-in physical-notch island
+    ├── independent physical/pill/simulated shell per selected display
     ├── optional Ambient Edge per selected display
     ├── menu-bar fallback
     └── owned system notification when separately authorized
@@ -107,7 +109,9 @@ The future ownership model is conceptually:
 
 ```text
 NotchiumDisplayCoordinator
-    └── NotchiumPanelController?     // one built-in physical-notch shell
+    └── NotchDisplaySession per selected display
+        ├── NotchiumPanelController
+        └── DynamicIslandPresentationModel
 
 FuturePresentationCoordinator
     ├── AmbientEdgeOverlay?          // separate later-stage window
@@ -195,9 +199,9 @@ The package and Xcode targets use Swift 6.0 language mode and complete strict-co
 
 The shell uses SwiftUI until macOS window behavior requires AppKit. `NotchiumPanelController` is that bridge and owns one borderless, nonactivating `NSPanel`.
 
-`NotchiumDisplayCoordinator` requires a built-in display, nonzero public top safe-area inset, and valid `NSScreen.auxiliaryTopLeftArea` and `auxiliaryTopRightArea` values with a positive gap. Without an eligible display it hides the panel and retains the menu-bar fallback. The controller keeps one transparent fixed-size host panel top-anchored to the full screen frame. SwiftUI animates one shape and permanently excludes the hardware footprint from drawing; collapsed physical mode has an empty drawable path. Public pointer monitors drive the narrow hardware-derived hover zone. The panel uses documented Spaces and fullscreen collection behavior, never animates its frame, and never becomes key.
+`NotchiumDisplayCoordinator` prefers the built-in screen and resolves physical-notch mode only with positive safe-area and auxiliary-area geometry. Selected notchless screens use a pill or proportional simulated notch. Each session keeps its transparent fixed-size host top-anchored to the full screen frame. Physical mode excludes the hardware footprint from drawing and has an empty passive path; simulated mode draws its footprint. Public pointer monitors drive each display's hover zone. Panels use documented Spaces/fullscreen behavior and never animate their frames. Explicit keyboard opening temporarily permits key-window focus.
 
-`DynamicIslandPresentationModel` owns `collapsed`, temporarily `hovered`, and pinned `expanded` states plus transition phases. Injected clock tasks implement 120 ms hover entry and 600 ms exit grace, with cancellation and generation checks. Hover and click use the same 0.60/0.88/0.10 native spring, with a 0.18 s Reduce Motion fallback. Pinned state ignores hover exit; a second click, outside click, or Esc closes it. Stage 21 Space-change notifications cancel pending hover activation and close hover sessions through the existing collapse path while retaining pinned and auxiliary sessions. A coalesced reconciliation reasserts the same panel; display migration preserves the current page without a fresh expansion. Hover requires fresh entry to reopen. See [NOTCH_SHELL.md](NOTCH_SHELL.md) for notification timing and the pending hardware acceptance gate.
+`DynamicIslandPresentationModel` owns `collapsed`, temporarily `hovered`, and pinned `expanded` states plus transition phases. Injected clock tasks implement 120 ms hover entry and 600 ms exit grace, with cancellation and generation checks. Hover and click use the same 0.60/0.88/0.10 native spring, with a 0.18 s Reduce Motion fallback. Pinned state ignores hover exit; a second click, outside click, or Esc closes it. Stage 21 Space-change notifications cancel pending hover activation and close hover sessions through the existing collapse path while retaining pinned and auxiliary sessions. A coalesced reconciliation reasserts each active panel; geometry changes preserve its current page, while migration to a different display closes the old interaction. Hover requires fresh entry to reopen. See [NOTCH_SHELL.md](NOTCH_SHELL.md) for notification timing and the pending hardware acceptance gate.
 
 ## Stage 7 activity and utility ownership
 
