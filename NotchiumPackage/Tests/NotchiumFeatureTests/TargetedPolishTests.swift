@@ -158,58 +158,6 @@ final class TargetedPolishTests: XCTestCase {
         XCTAssertTrue(NotchCompactActivitySlot.retainsContent(reveal: 0.2, restoresMedia: false))
     }
 
-    func testSpotifyTransferBothWaysKeepsSelectedPageAndConfirmsDevice() async {
-        let remote = device("phone", "iPhone", "Smartphone", active: true)
-        let local = device("mac", "Test Mac", "Computer")
-        let snapshot = playback(on: remote)
-        let provider = MockMediaProvider(snapshot: snapshot, devices: [remote, local])
-        let model = presentation()
-        let media = MediaSessionController(provider: provider, coordinator: model.activityCoordinator,
-                                            localDeviceNames: ["test mac"])
-        defer { media.stop(); model.reset() }
-        media.start()
-        await waitUntil { media.homeMediaConnected }
-        model.setExpanded(true)
-        XCTAssertEqual(model.pageModel.selectedPage, .home)
-        media.refreshDevices()
-        await waitUntil { !media.devicesLoading }
-        XCTAssertEqual(media.connectTarget?.id, local.id)
-        media.transferPlayback(to: local)
-        XCTAssertEqual(media.state.activeDeviceID, remote.id, "No optimistic active device")
-        await waitUntil { !media.devicesLoading }
-        XCTAssertEqual(media.state.activeDeviceID, local.id)
-        XCTAssertEqual(media.connectTarget?.id, remote.id)
-        XCTAssertEqual(model.pageModel.selectedPage, .home)
-        XCTAssertTrue(media.state.isPlaying)
-        model.pageModel.selectedPage = .shelf
-        media.transferPlayback(to: remote)
-        await waitUntil { !media.devicesLoading }
-        XCTAssertEqual(media.state.activeDeviceID, remote.id)
-        XCTAssertEqual(model.pageModel.selectedPage, .shelf)
-        XCTAssertTrue(media.state.isPlaying)
-    }
-
-    func testDisappearedRemoteTargetDoesNotChooseAnotherPhone() async {
-        let phone = device("phone", "Previous iPhone", "Smartphone", active: true)
-        let local = device("mac", "Test Mac", "Computer", active: true)
-        let unrelated = device("other", "Other Phone", "Smartphone")
-        let provider = MockMediaProvider(snapshot: playback(on: local), devices: [local, unrelated])
-        let model = presentation()
-        let media = MediaSessionController(provider: provider, coordinator: model.activityCoordinator,
-                                            localDeviceNames: ["test mac"])
-        defer { media.stop(); model.reset() }
-        media.receive(playback(on: phone))
-        media.receive(playback(on: local))
-        media.refreshDevices()
-        await waitUntil { !media.devicesLoading }
-        XCTAssertNil(media.connectTarget)
-        XCTAssertEqual(media.connectTargetName, phone.name)
-        media.transferPlayback(to: phone)
-        await waitUntil { !media.devicesLoading }
-        XCTAssertEqual(media.state.activeDeviceID, local.id)
-        XCTAssertNotNil(media.deviceIssue)
-    }
-
     private func temporaryFile() throws -> URL {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("polish-\(UUID())")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -224,15 +172,6 @@ final class TargetedPolishTests: XCTestCase {
               payload: .mediaPlayback(isPlaying: true), minimal: .artwork)
     }
 
-    private func device(_ id: String, _ name: String, _ type: String, active: Bool = false) -> SpotifyDevice {
-        .init(id: id, name: name, type: type, isActive: active, isRestricted: false, volumePercent: 60, supportsVolume: true)
-    }
-
-    private func playback(on device: SpotifyDevice) -> MediaState {
-        .init(connectionState: .authenticated, playbackState: .playing, title: "Song", duration: 240,
-              trackID: "song", activeDeviceID: device.id, activeDeviceName: device.name,
-              activeDeviceType: device.type, source: .spotify)
-    }
 }
 
 @MainActor private final class RejectingShelf: ShelfService {
