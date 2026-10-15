@@ -38,9 +38,8 @@ extension NotchiumApplicationController {
                 .init(availability: .available, outputs: [.init(id: "audit", name: "Audit Speakers",
                     isDefaultOutput: true, volume: 0.5, isMuted: false, canSetVolume: true, canSetMute: true)])))
         } else if CommandLine.arguments.contains("--notchium-media-settings-fixture") {
-            let transport = SettingsFixtureTransport()
-            let authorization = SpotifyAuthorization(store: SettingsFixtureTokenStore(), transport: transport)
-            services = .mock(media: RealMediaProvider(authorization: authorization, transport: transport))
+            services = .mock(media: RealMediaProvider(controller: .init(
+                executor: SettingsFixtureScriptExecutor(), application: SettingsFixtureSpotifyApplication())))
         } else { services = .mock() }
         return NotchiumApplicationController(environment: .mock(clock: ContinuousAppClock(), services: services,
             featureFlags: qualityFixture ? .stageNineteenUtilities : .stageFifteenFiles),
@@ -48,15 +47,14 @@ extension NotchiumApplicationController {
     }
 }
 
-/// Settings UI tests retain the real connection controls without reading user credentials
-/// or making network requests. Authorization writes fail rather than pretending to save.
-private struct SettingsFixtureTokenStore: SpotifyTokenStoring {
-    func read() throws -> Data? { nil }
-    func write(_ data: Data) throws { throw MediaFailure.keychain }
-    func remove() throws {}
+/// Settings controls remain real while all OS integration is replaced.
+private struct SettingsFixtureScriptExecutor: SpotifyScriptExecuting {
+    func permission() async -> SpotifyAutomationPermission { .notDetermined }
+    func execute(_ source: String) async throws -> [String] { throw MediaFailure.unsupported }
 }
-
-private struct SettingsFixtureTransport: MediaHTTPTransport {
-    func send(_ request: URLRequest) async throws -> MediaHTTPResponse { .init(status: 503) }
+private struct SettingsFixtureSpotifyApplication: SpotifyApplicationLaunching {
+    func isSpotifyInstalled() async -> Bool { true }
+    func isSpotifyRunning() async -> Bool { true }
+    func launchSpotify() async throws {}
 }
 #endif
