@@ -31,11 +31,6 @@ public final class MediaSessionController {
     private var authoritativeState = MediaState(availability: .unavailable(.permissionNotDetermined),
                                                 connectionState: .initializing, source: .spotify)
     public private(set) var errorMessage: String?
-    public private(set) var devices: [SpotifyDevice] = []
-    public private(set) var devicesLoading = false
-    public private(set) var deviceIssue: String?
-    public private(set) var transferringDeviceID: String?
-    public private(set) var previousRemoteDevice: SpotifyDevice?
     public private(set) var pendingControls: Set<String> = []
     public var isBusy: Bool { !pendingControls.isEmpty }
     public func isPending(_ command: MediaCommand) -> Bool { pendingControls.contains(command.controlID) }
@@ -50,7 +45,6 @@ public final class MediaSessionController {
     @ObservationIgnored private var queueTask: Task<Void, Never>?
     @ObservationIgnored private var visibleQueueTask: Task<Void, Never>?
     @ObservationIgnored private var playbackActivityRefreshTask: Task<Void, Never>?
-    @ObservationIgnored private var devicesTask: Task<Void, Never>?
     @ObservationIgnored private var volumeThrottleTask: Task<Void, Never>?
     @ObservationIgnored private var volumeCommandTask: Task<Void, Never>?
     @ObservationIgnored private var cacheLoadTask: Task<Void, Never>?
@@ -66,6 +60,9 @@ public final class MediaSessionController {
     @ObservationIgnored private var playbackAction: (date: Date, uptime: TimeInterval, revision: Int)?
     private var lastCachedTrack: CachedMediaTrack?
     private var isUpNextVisible = false
+    @ObservationIgnored private var mountedPresentationSources: Set<String> = []
+    @ObservationIgnored private var expandedPresentationSources: Set<String> = []
+    @ObservationIgnored private var upNextPresentationSources: Set<String> = []
     private let activityID = UUID()
     @ObservationIgnored private let localDeviceNames: Set<String>
 
@@ -77,7 +74,7 @@ public final class MediaSessionController {
         snapshotStore: any MediaSnapshotStoring = NoopMediaSnapshotStore(),
         audioMeter: SystemAudioMeter = SystemAudioMeter(captureEnabled: false),
         waveformAppearance: WaveformAppearanceModel = WaveformAppearanceModel(),
-        localDeviceNames: Set<String> = SystemSpotifyApplicationLauncher().localDeviceNames()
+        localDeviceNames: Set<String> = SystemSpotifyApplicationLauncher.localDeviceNames
     ) {
         self.localDeviceNames = localDeviceNames
         self.audioMeter = audioMeter
@@ -99,7 +96,6 @@ public final class MediaSessionController {
         queueTask?.cancel()
         visibleQueueTask?.cancel()
         playbackActivityRefreshTask?.cancel()
-        devicesTask?.cancel()
         volumeThrottleTask?.cancel()
         volumeCommandTask?.cancel()
         cacheLoadTask?.cancel()
@@ -125,10 +121,11 @@ public final class MediaSessionController {
         commandTasks.values.forEach { $0.cancel() }; commandTasks.removeAll(); pendingControls.removeAll()
         queueTask?.cancel(); queueTask = nil
         visibleQueueTask?.cancel(); visibleQueueTask = nil; isUpNextVisible = false
+        mountedPresentationSources.removeAll()
+        expandedPresentationSources.removeAll()
+        upNextPresentationSources.removeAll()
         audioMeter.setWaveformPresentationEnabled(true)
         playbackActivityRefreshTask?.cancel(); playbackActivityRefreshTask = nil
-        devicesTask?.cancel(); devicesTask = nil; devices = []; devicesLoading = false; deviceIssue = nil
-        transferringDeviceID = nil; previousRemoteDevice = nil
         volumeThrottleTask?.cancel(); volumeThrottleTask = nil
         volumeCommandTask?.cancel(); volumeCommandTask = nil; queuedVolumeRequest = nil
         cacheLoadTask?.cancel(); cacheLoadTask = nil
@@ -158,27 +155,11 @@ public final class MediaSessionController {
         let previous = state
         let previousConnectionState = authoritativeState.connectionState
         authoritativeState = value
-        rememberConnectDevice(value)
-        if transferringDeviceID == value.activeDeviceID, transferringDeviceID != nil {
-            transferringDeviceID = nil
-            devicesLoading = devicesTask != nil
-        } else if transferringDeviceID != nil, value.connectionState != .authenticated || value.issue != nil {
-            transferringDeviceID = nil
-            devicesLoading = false
-            deviceIssue = value.issue ?? "Spotify disconnected"
-        }
         let reconciled = applyingControlFeedback(to: value)
         let (next, showingCachedTrack) = presentationState(for: reconciled)
         if previousConnectionState == value.connectionState,
            isUnchangedPausedPresentation(next, showingCachedTrack: showingCachedTrack) { return }
         applyPresentation(next, showingCachedTrack: showingCachedTrack)
-        if previous.activeDeviceID != next.activeDeviceID {
-            devices = devices.map {
-                .init(id: $0.id, name: $0.name, type: $0.type,
-                      isActive: $0.id == next.activeDeviceID, isRestricted: $0.isRestricted,
-                      volumePercent: $0.volumePercent, supportsVolume: $0.supportsVolume)
-            }
-        }
         if isUpNextVisible, previous.trackID != next.trackID, next.source == .spotify,
            next.capabilities.canReadQueue, !isPending(.next), !isPending(.previous) {
             scheduleQueueRefresh()
@@ -197,6 +178,8 @@ public final class MediaSessionController {
     }
 
     private func presentationState(for value: MediaState) -> (MediaState, Bool) {
+        if value.connectionState == .authorizing { return (value, false) }
+        if let status = value.localSpotifyStatus, status != .ready { return (value, false) }
         if let cached = CachedMediaTrack(state: value) {
             cache(cached)
             return (value, false)
@@ -298,9 +281,12 @@ public final class MediaSessionController {
     var isPlaybackLocal: Bool {
         guard state.hasMedia else { return false }
         if audioMeter.isAudioActive { return true }
-        return isLocalDevice(name: state.activeDeviceName, type: state.activeDeviceType)
+        return state.activeDeviceID == LocalSpotifyController.deviceID
+            || isLocalDevice(name: state.activeDeviceName, type: state.activeDeviceType)
     }
     private func updateCollapsedVisibility(_ value: MediaState) {
+        // Track metadata stays available in Music, but only active playback owns
+        // collapsed artwork and flanks. A paused local session must leave the hardware bare.
         let isVisible = value.hasMedia && value.isPlaying && audioMeter.isAudioActive
         guard collapsedMediaVisible != isVisible else { return }
         withAnimation(.easeInOut(duration: 0.12)) { collapsedMediaVisible = isVisible }
@@ -545,102 +531,39 @@ public final class MediaSessionController {
     public func addToQueue(uri: String) async throws {
         try await provider.addToQueue(uri: uri)
     }
-    public func setExpandedVisible(_ visible: Bool) async {
+    public func enableLocalControl() { runLocalAction { try await $0.enableLocalControl() } }
+    public func openSpotify() { runLocalAction { try await $0.openSpotify() } }
+    private func runLocalAction(_ action: @escaping @Sendable (any MediaProviding) async throws -> Void) {
+        guard commandTasks["localControl"] == nil else { return }
+        let provider = provider
+        let generation = generation
+        commandTasks["localControl"] = Task { [weak self] in
+            defer { if self?.generation == generation { self?.commandTasks["localControl"] = nil } }
+            do { try await action(provider) }
+            catch { if self?.generation == generation { self?.errorMessage = error.localizedDescription } }
+        }
+    }
+
+    public func setExpandedVisible(_ visible: Bool, source: String = "legacy") async {
         guard !Task.isCancelled else { return }
-        await provider.setExpandedVisible(visible)
+        mountedPresentationSources.insert(source)
+        if visible { expandedPresentationSources.insert(source) }
+        else { expandedPresentationSources.remove(source) }
+        updateWaveformPresentation()
+        await provider.setExpandedVisible(!expandedPresentationSources.isEmpty)
+    }
+
+    public func removePresentation(source: String) async {
+        mountedPresentationSources.remove(source)
+        expandedPresentationSources.remove(source)
+        upNextPresentationSources.remove(source)
+        updateUpNextVisibility()
+        await provider.setExpandedVisible(!expandedPresentationSources.isEmpty)
     }
 
     private func isLocalDevice(name: String?, type: String?) -> Bool {
         guard type?.caseInsensitiveCompare("computer") == .orderedSame, let name else { return false }
         return localDeviceNames.contains(name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
-    }
-
-    private func rememberConnectDevice(_ value: MediaState) {
-        guard value.connectionState == .authenticated, let id = value.activeDeviceID,
-              let name = value.activeDeviceName,
-              !isLocalDevice(name: name, type: value.activeDeviceType) else { return }
-        previousRemoteDevice = .init(id: id, name: name, type: value.activeDeviceType ?? "unknown",
-                                     isActive: true, isRestricted: false,
-                                     volumePercent: value.volumePercent, supportsVolume: value.capabilities.canSetVolume)
-    }
-
-    public var connectPlaybackIsLocal: Bool {
-        isLocalDevice(name: authoritativeState.activeDeviceName, type: authoritativeState.activeDeviceType)
-    }
-
-    public var connectTarget: SpotifyDevice? {
-        if connectPlaybackIsLocal {
-            guard let previousRemoteDevice else { return nil }
-            return devices.first { $0.id == previousRemoteDevice.id && !$0.isRestricted }
-        }
-        return devices.first { isLocalDevice(name: $0.name, type: $0.type) && !$0.isRestricted }
-    }
-
-    public var connectTargetName: String {
-        connectTarget?.name ?? (connectPlaybackIsLocal ? previousRemoteDevice?.name ?? "Previous device" : "This Mac")
-    }
-
-
-    public func refreshDevices() {
-        guard transferringDeviceID == nil else { return }
-        devicesTask?.cancel()
-        devicesLoading = true
-        deviceIssue = nil
-        let provider = provider
-        let generation = generation
-        devicesTask = Task { [weak self] in
-            do {
-                let devices = try await provider.devices()
-                guard let self, self.generation == generation, !Task.isCancelled else { return }
-                self.devices = devices
-                self.devicesLoading = false
-                self.devicesTask = nil
-            } catch {
-                guard let self, self.generation == generation, !Task.isCancelled else { return }
-                self.devices = []
-                self.devicesLoading = false
-                self.deviceIssue = "Devices unavailable"
-                self.devicesTask = nil
-            }
-        }
-    }
-
-    public func transferPlayback(to device: SpotifyDevice) {
-        guard !devicesLoading, transferringDeviceID == nil,
-              !device.isRestricted, device.id != authoritativeState.activeDeviceID else { return }
-        let provider = provider
-        let generation = generation
-        devicesLoading = true
-        transferringDeviceID = device.id
-        deviceIssue = nil
-        devicesTask?.cancel()
-        devicesTask = Task { [weak self] in
-            do {
-                try await provider.transferPlayback(to: device.id)
-                await provider.refresh()
-                let devices = try? await provider.devices()
-                guard let self, self.generation == generation, !Task.isCancelled else { return }
-                // Device identity arrives in the same authoritative snapshot as playback.
-                if let devices {
-                    self.devices = devices
-                    if self.transferringDeviceID != nil, !devices.contains(where: { $0.id == device.id && !$0.isRestricted }) {
-                        self.transferringDeviceID = nil
-                        self.deviceIssue = "Device unavailable"
-                    }
-                } else {
-                    self.devices = []
-                    self.deviceIssue = "Devices unavailable"
-                }
-                self.devicesLoading = self.transferringDeviceID != nil
-                self.devicesTask = nil
-            } catch {
-                guard let self, self.generation == generation, !Task.isCancelled else { return }
-                self.devicesLoading = false
-                self.transferringDeviceID = nil
-                self.deviceIssue = "Couldn’t connect to that device"
-                self.devicesTask = nil
-            }
-        }
     }
 
     private struct VolumeRequest {
@@ -764,13 +687,27 @@ public final class MediaSessionController {
         }
     }
 
-    public func setUpNextVisible(_ visible: Bool) {
+    public func setUpNextVisible(_ visible: Bool, source: String = "legacy") {
+        mountedPresentationSources.insert(source)
+        if visible { upNextPresentationSources.insert(source) }
+        else { upNextPresentationSources.remove(source) }
+        updateUpNextVisibility()
+    }
+
+    private func updateWaveformPresentation() {
+        audioMeter.setWaveformPresentationEnabled(!isUpNextVisible
+            || !mountedPresentationSources.subtracting(upNextPresentationSources).isEmpty)
+    }
+
+    private func updateUpNextVisibility() {
+        let visible = !upNextPresentationSources.isEmpty
+        updateWaveformPresentation()
         guard isUpNextVisible != visible else { return }
         isUpNextVisible = visible
-        audioMeter.setWaveformPresentationEnabled(!visible)
+        updateWaveformPresentation()
         visibleQueueTask?.cancel()
         visibleQueueTask = nil
-        guard visible else { return }
+        guard visible, state.capabilities.canReadQueue else { return }
         let provider = provider
         let generation = generation
         let clock = visibilityClock
