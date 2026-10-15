@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 	<dict>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Notchium controls Spotify on this Mac to show the current song and let you play, pause, skip, seek, and adjust playback volume.</string>
 	<key>NSDesktopFolderUsageDescription</key>
 	<string>Notchium watches for new screenshots in your screenshot folder so you can add them to Shelf.</string>
 	<key>NSDownloadsFolderUsageDescription</key>
