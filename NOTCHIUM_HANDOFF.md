@@ -142,7 +142,7 @@ Generic activity kinds include media, systemHUD, charging, audioDevice, download
 
 Generic same-family replacement rejects lower priority; higher priority preempts and can retain a previous generic family entry. Generic transient timers can pause on hover and expire pending entries. **Do not confuse those generic timers with unified notification lifetimes:** notifications have no second activity duration and use their own absolute non-pausing timer.
 
-A stable media activity can survive paused/cached state, while collapsed media visibility is separately gated by live local audio. Music is the fresh expansion default only for playing media or an explicitly Music-targeting transient; otherwise Home.
+A stable media activity can survive paused/cached state, while collapsed media visibility is separately gated by live local audio. Playback keeps Home as the fresh expansion default. Explicitly Music-targeting transients and Focus Timer eligibility retain their opening policies.
 
 Music + Calendar reminder: Calendar becomes foreground, Music remains underlying and its eligible collapsed flanks remain visible; expiry exposes the same Music without provider restart. Home + Audio HUD: page selection remains Home; the compact notification is hidden while expanded and expires normally. Closing shows only remaining unexpired feedback, then the underlying state.
 
@@ -176,7 +176,7 @@ Visual contract: the physical black notch appears to grow downward as one contin
 
 `NotchPanel` is borderless, nonactivating, transparent/nonopaque, shadowless, immovable, cannot become key/main, and uses `.screenSaver` level. Collection behavior is `.canJoinAllSpaces`, `.stationary`, `.fullScreenAuxiliary`, `.ignoresCycle`. It does not hide on deactivation. The frame stays stable; SwiftUI animates the internal shape. AppKit frame constraints are overridden to permit the menu-bar/notch region.
 
-Hover entry is 120 ms; exit grace 200 ms. Click pins; pinned ignores pointer exit; outside click/appropriate Escape closes. Space change collapses/unpins using the existing animation and reasserts the existing panel without resetting services. OS Space-change notification timing does not guarantee first-frame swipe behavior.
+Hover entry is 120 ms; exit grace 600 ms, canceled by pointer re-entry. Click pins; pinned ignores pointer exit; outside click/appropriate Escape closes. Space change collapses/unpins using the existing animation and reasserts the existing panel without resetting services. OS Space-change notification timing does not guarantee first-frame swipe behavior.
 
 Source-keyed auxiliary retention protects nested `NSMenu` tracking, picker, and reminder popover interactions. Escape defers to children; ordinary notch activation remains usable during a notification. Reminder focus uses only the native child popover/key window and SwiftUI focus, not `NSApp.activate`.
 
@@ -278,7 +278,7 @@ Native macOS conventions override generic web/mobile recipes. Main shell geometr
 | Mechanism | Current value |
 | --- | --- |
 | Canonical expanded shell / host | 524 × 266 / 740 × 322 pt |
-| Hover enter / exit grace | 120 / 200 ms |
+| Hover enter / exit grace | 120 / 600 ms |
 | Main shell | spring 0.40 response / 0.80 damping / 0 blend |
 | Reduce Motion shell | 120 ms ease-out |
 | Opening content reveal | 75% height growth; immediate visibility switch |
