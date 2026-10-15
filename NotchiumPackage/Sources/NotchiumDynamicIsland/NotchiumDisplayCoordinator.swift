@@ -1,202 +1,172 @@
 import AppKit
-import Combine
 import NotchiumCore
 import Observation
 
 @MainActor
 @Observable
 public final class NotchiumDisplayCoordinator: NSObject {
+    /// The first selected display's interaction model and the composition root's renderer bindings.
     public let presentationModel: DynamicIslandPresentationModel
+    public let settings: NotchDisplaySettings
     public private(set) var displayState = DisplayPresentationState()
-    public private(set) var shellPlacement: NotchShellPlacement?
+    public private(set) var shellPlacements: [NotchShellPlacement] = []
+    public var shellPlacement: NotchShellPlacement? { shellPlacements.first }
 
     @ObservationIgnored private let clock: any AppClock
+    @ObservationIgnored private let activitySource: ActivityCoordinator
     @ObservationIgnored private let environmentSource: any DisplayEnvironmentReading
+    @ObservationIgnored private let displaySource: any NotchiumDisplaySnapshotting
+    @ObservationIgnored private let panelControllerFactory: @MainActor (DynamicIslandPresentationModel) -> any NotchPanelControlling
+    @ObservationIgnored private let primarySession: NotchDisplaySession
+    @ObservationIgnored private var additionalSessions: [NotchiumDisplayID: NotchDisplaySession] = [:]
+    @ObservationIgnored private var lastInteractedDisplayID: NotchiumDisplayID?
     @ObservationIgnored private var evidence = DisplayInteractionEvidence()
     @ObservationIgnored private var reconciliationTask: Task<Void, Never>?
     @ObservationIgnored private var needsTopologyRebuild = false
     @ObservationIgnored private var needsSpaceReassertion = false
-    @ObservationIgnored private var lastSurfaceState: NotchStableState?
-    @ObservationIgnored private var panelIsHidden = true
-    @ObservationIgnored private var lastPanelLayout: NotchPanelLayout?
-    @ObservationIgnored private var lastPanelPlacement: NotchShellPlacement?
-    @ObservationIgnored private var lastRenderConfiguration: NotchShellRenderConfiguration?
-    @ObservationIgnored private let displaySource: any NotchiumDisplaySnapshotting
-    @ObservationIgnored private let panelController: any NotchPanelControlling
-    @ObservationIgnored private var pageObservation: AnyCancellable?
     @ObservationIgnored private var isStarted = false
-    private var isSleeping: Bool { displayState.sleeping }
     @ObservationIgnored private var lifecycleGeneration = 0
-    @ObservationIgnored private var presentationObservationGeneration = 0
     @ObservationIgnored private var screenCorrectionGeneration = 0
+    @ObservationIgnored private var settingsObservationGeneration = 0
+    private var isSleeping: Bool { displayState.sleeping }
 #if DEBUG
-    public let debugModel: NotchShellDebugModel
+    public private(set) var debugModel = NotchShellDebugModel(arguments: [])
     @ObservationIgnored private var debugObservationGeneration = 0
-#endif
 
-#if DEBUG
-    public init(
-        clock: any AppClock,
-        debugModel: NotchShellDebugModel
-    ) {
-        let presentationModel = DynamicIslandPresentationModel(clock: clock)
-        self.presentationModel = presentationModel
-        self.debugModel = debugModel
-        self.clock = clock
-        environmentSource = AppKitDisplayEnvironmentSource()
-        displaySource = AppKitDisplaySource()
-        panelController = NotchiumPanelController(model: presentationModel)
-        super.init()
+    public convenience init(clock: any AppClock, debugModel: NotchShellDebugModel,
+                            settings: NotchDisplaySettings = NotchDisplaySettings(storage: .standard)) {
+        self.init(clock: clock, displaySource: AppKitDisplaySource(),
+                  environmentSource: AppKitDisplayEnvironmentSource(),
+                  panelControllerFactory: { NotchiumPanelController(model: $0) },
+                  debugModel: debugModel, settings: settings)
     }
 #else
-    public init(clock: any AppClock) {
-        let presentationModel = DynamicIslandPresentationModel(clock: clock)
-        self.presentationModel = presentationModel
-        self.clock = clock
-        environmentSource = AppKitDisplayEnvironmentSource()
-        displaySource = AppKitDisplaySource()
-        panelController = NotchiumPanelController(model: presentationModel)
-        super.init()
+    public convenience init(clock: any AppClock,
+                            settings: NotchDisplaySettings = NotchDisplaySettings(storage: .standard)) {
+        self.init(clock: clock, displaySource: AppKitDisplaySource(),
+                  environmentSource: AppKitDisplayEnvironmentSource(),
+                  panelControllerFactory: { NotchiumPanelController(model: $0) }, settings: settings)
     }
 #endif
 
 #if DEBUG
-    init(
+    convenience init(
         clock: any AppClock,
         displaySource: any NotchiumDisplaySnapshotting,
         environmentSource: (any DisplayEnvironmentReading)? = nil,
-        panelControllerFactory: @MainActor (DynamicIslandPresentationModel) -> any NotchPanelControlling,
-        debugModel: NotchShellDebugModel = NotchShellDebugModel(arguments: [])
+        panelControllerFactory: @escaping @MainActor (DynamicIslandPresentationModel) -> any NotchPanelControlling,
+        debugModel: NotchShellDebugModel = NotchShellDebugModel(arguments: []),
+        settings: NotchDisplaySettings = NotchDisplaySettings()
     ) {
-        let presentationModel = DynamicIslandPresentationModel(clock: clock)
-        self.presentationModel = presentationModel
-        self.clock = clock
-        self.environmentSource = environmentSource ?? EmptyDisplayEnvironmentSource()
-        self.displaySource = displaySource
-        panelController = panelControllerFactory(presentationModel)
+        self.init(clock: clock, displaySource: displaySource, environmentSource: environmentSource,
+                  panelControllerFactory: panelControllerFactory, displaySettings: settings)
         self.debugModel = debugModel
-        super.init()
     }
 #else
-    init(
+    convenience init(
         clock: any AppClock,
         displaySource: any NotchiumDisplaySnapshotting,
         environmentSource: (any DisplayEnvironmentReading)? = nil,
-        panelControllerFactory: @MainActor (DynamicIslandPresentationModel) -> any NotchPanelControlling
+        panelControllerFactory: @escaping @MainActor (DynamicIslandPresentationModel) -> any NotchPanelControlling,
+        settings: NotchDisplaySettings = NotchDisplaySettings()
     ) {
-        let presentationModel = DynamicIslandPresentationModel(clock: clock)
-        self.presentationModel = presentationModel
-        self.clock = clock
-        self.environmentSource = environmentSource ?? EmptyDisplayEnvironmentSource()
-        self.displaySource = displaySource
-        panelController = panelControllerFactory(presentationModel)
-        super.init()
+        self.init(clock: clock, displaySource: displaySource, environmentSource: environmentSource,
+                  panelControllerFactory: panelControllerFactory, displaySettings: settings)
     }
 #endif
+
+    private init(
+        clock: any AppClock,
+        displaySource: any NotchiumDisplaySnapshotting,
+        environmentSource: (any DisplayEnvironmentReading)?,
+        panelControllerFactory: @escaping @MainActor (DynamicIslandPresentationModel) -> any NotchPanelControlling,
+        displaySettings: NotchDisplaySettings
+    ) {
+        let activities = ActivityCoordinator(clock: clock)
+        let presentationModel = DynamicIslandPresentationModel(
+            clock: clock, activityCoordinator: ActivityCoordinator(projecting: activities))
+        self.presentationModel = presentationModel
+        activitySource = activities
+        self.clock = clock
+        self.settings = displaySettings
+        self.environmentSource = environmentSource ?? EmptyDisplayEnvironmentSource()
+        self.displaySource = displaySource
+        self.panelControllerFactory = panelControllerFactory
+        primarySession = NotchDisplaySession(model: presentationModel, panel: panelControllerFactory(presentationModel))
+        super.init()
+#if DEBUG
+        primarySession.onLayout = { [weak self] placement, layout in
+            self?.debugModel.updateRuntimeGeometry(placement: placement, layout: layout)
+        }
+#endif
+    }
+
+    /// Returns only an active display's model; feature providers are shared across these sessions.
+    public func presentationModel(for displayID: NotchiumDisplayID) -> DynamicIslandPresentationModel? {
+        session(for: displayID)?.model
+    }
 
     public func start() {
         guard !isStarted else { return }
         isStarted = true
         lifecycleGeneration &+= 1
+        displayState.preferences = settings.preferences
         displayState.setSleeping(false, evidence: evidence)
-        presentationModel.activityCoordinator.onSubmission = { [weak self] in
-            self?.resolvePassiveOwnership()
-        }
-        let lifecycleGeneration = lifecycleGeneration
+        activitySource.onSubmission = { [weak self] in self?.refreshPresentationEvidence() }
+        let generation = lifecycleGeneration
         environmentSource.start { [weak self] in
-            guard let self, lifecycleGeneration == self.lifecycleGeneration else { return }
+            guard let self, generation == self.lifecycleGeneration else { return }
             self.scheduleReconciliation(topology: false)
         }
-        panelController.setInteractionHandler { [weak self] point in
-            guard let self, let display = self.displayState.availableDisplays.first(where: { $0.frame.contains(point) }) else { return }
-            self.claimDisplay(display.id)
-        }
-        pageObservation = presentationModel.pageModel.$selectedPage.removeDuplicates().dropFirst().sink { [weak self] _ in
-            // Published emits before assignment; reconcile after the selection has changed.
-            Task { @MainActor [weak self] in
-                guard let self, self.isStarted, !self.isSleeping,
-                      lifecycleGeneration == self.lifecycleGeneration else { return }
-                self.reconcilePanel(animated: true)
-            }
-        }
-
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(screenConfigurationChanged),
-            name: NSApplication.didChangeScreenParametersNotification,
-            object: nil
-        )
-
-        let workspaceCenter = NSWorkspace.shared.notificationCenter
-        workspaceCenter.addObserver(self, selector: #selector(workspaceScreensDidSleep),
-                                    name: NSWorkspace.willSleepNotification, object: nil)
-        workspaceCenter.addObserver(self, selector: #selector(frontmostApplicationChanged),
-                                    name: NSWorkspace.didActivateApplicationNotification, object: nil)
-        workspaceCenter.addObserver(
-            self,
-            selector: #selector(workspaceDidWake),
-            name: NSWorkspace.didWakeNotification,
-            object: nil
-        )
-        workspaceCenter.addObserver(
-            self,
-            selector: #selector(workspaceScreensDidSleep),
-            name: NSWorkspace.screensDidSleepNotification,
-            object: nil
-        )
-        workspaceCenter.addObserver(
-            self,
-            selector: #selector(workspaceScreensDidWake),
-            name: NSWorkspace.screensDidWakeNotification,
-            object: nil
-        )
-        workspaceCenter.addObserver(
-            self,
-            selector: #selector(activeSpaceDidChange(_:)),
-            name: NSWorkspace.activeSpaceDidChangeNotification,
-            object: nil
-        )
-
-        observePresentationChanges()
+        configureInteraction(primarySession)
+        NotificationCenter.default.addObserver(self, selector: #selector(screenConfigurationChanged),
+            name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        let center = NSWorkspace.shared.notificationCenter
+        center.addObserver(self, selector: #selector(workspaceScreensDidSleep), name: NSWorkspace.willSleepNotification, object: nil)
+        center.addObserver(self, selector: #selector(frontmostApplicationChanged), name: NSWorkspace.didActivateApplicationNotification, object: nil)
+        center.addObserver(self, selector: #selector(workspaceScreensDidWake), name: NSWorkspace.didWakeNotification, object: nil)
+        center.addObserver(self, selector: #selector(workspaceScreensDidSleep), name: NSWorkspace.screensDidSleepNotification, object: nil)
+        center.addObserver(self, selector: #selector(workspaceScreensDidWake), name: NSWorkspace.screensDidWakeNotification, object: nil)
+        center.addObserver(self, selector: #selector(activeSpaceDidChange(_:)), name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
+        observeSettingsChanges()
 #if DEBUG
         observeDebugChanges()
         presentationModel.present(debugModel.presentation, animated: false)
 #endif
         refreshDisplayConfiguration()
-        if shellPlacement == nil { panelController.hide() }
+        if shellPlacement == nil { primarySession.panel.hide() }
     }
 
     public func stop() {
         guard isStarted else { return }
         isStarted = false
         lifecycleGeneration &+= 1
-        pageObservation?.cancel(); pageObservation = nil
+        screenCorrectionGeneration &+= 1
+        settingsObservationGeneration &+= 1
+#if DEBUG
+        debugObservationGeneration &+= 1
+#endif
         environmentSource.stop()
         reconciliationTask?.cancel(); reconciliationTask = nil
         needsTopologyRebuild = false
         needsSpaceReassertion = false
-        presentationModel.activityCoordinator.onSubmission = nil
-        panelController.setInteractionHandler(nil)
-        presentationObservationGeneration &+= 1
-        screenCorrectionGeneration &+= 1
-#if DEBUG
-        debugObservationGeneration &+= 1
-#endif
+        activitySource.onSubmission = nil
         NotificationCenter.default.removeObserver(self)
         NSWorkspace.shared.notificationCenter.removeObserver(self)
-        presentationModel.reset()
-        panelController.hide()
-        panelIsHidden = true
-        shellPlacement = nil
-        lastPanelLayout = nil
-        lastPanelPlacement = nil
-        lastRenderConfiguration = nil
+        primarySession.stop()
+        additionalSessions.values.forEach { $0.stop() }
+        additionalSessions.removeAll()
+        activitySource.clearAll()
+        shellPlacements = []
+        lastInteractedDisplayID = nil
         displayState = DisplayPresentationState()
     }
 
     isolated deinit {
         reconciliationTask?.cancel()
         environmentSource.stop()
+        primarySession.stop()
+        additionalSessions.values.forEach { $0.stop() }
         NotificationCenter.default.removeObserver(self)
         NSWorkspace.shared.notificationCenter.removeObserver(self)
     }
@@ -209,13 +179,13 @@ public final class NotchiumDisplayCoordinator: NSObject {
 #else
         let snapshots = liveSnapshots
 #endif
-        preserveOpenOwnership()
         evidence = environmentSource.evidence(displays: snapshots)
+        displayState.preferences = settings.preferences
         displayState.rebuild(snapshots, evidence: evidence)
         applyDisplayState()
     }
 
-    /// Explicit interaction owns one display until this open/auxiliary session ends.
+    /// Interaction chooses the keyboard destination without moving or expanding another panel.
     public func claimDisplay(_ id: NotchiumDisplayID) {
         guard isStarted, !isSleeping else { return }
         screenCorrectionGeneration &+= 1
@@ -224,71 +194,92 @@ public final class NotchiumDisplayCoordinator: NSObject {
             needsTopologyRebuild = false
             refreshDisplayConfiguration()
         }
+        guard session(for: id) != nil else { return }
+        lastInteractedDisplayID = id
         evidence = environmentSource.evidence(displays: displayState.availableDisplays)
-        displayState.interact(on: id, evidence: evidence)
+        displayState.resolve(evidence)
         applyDisplayState()
-        if needsSpaceReassertion, shellPlacement != nil { panelController.orderFrontRegardless() }
+        if needsSpaceReassertion { reassertPanels() }
         needsSpaceReassertion = false
     }
 
-    /// An explicit menu command opens the existing owned panel for keyboard operation.
     public func openForKeyboard() {
         guard isStarted, !isSleeping else { return }
-        presentationModel.present(.expanded, animated: false)
-        preserveOpenOwnership()
-        reconcilePanel(animated: false)
-        panelController.focusExpandedPanel()
+        let pointerDisplay = environmentSource.pointerLocation.flatMap { point in
+            shellPlacements.first { $0.display.frame.contains(point) }?.display.id
+        }
+        guard let target = pointerDisplay.flatMap({ session(for: $0) })
+            ?? lastInteractedDisplayID.flatMap({ session(for: $0) })
+            ?? shellPlacement.flatMap({ session(for: $0.display.id) }) else { return }
+        target.model.present(.expanded, animated: false)
+        target.reconcile(animated: false)
+        target.panel.focusExpandedPanel()
     }
 
-    private func preserveOpenOwnership() {
-        if presentationModel.visualState != .collapsed || presentationModel.isAuxiliaryInteractionPresented {
-            if let id = displayState.ownedDisplayID { displayState.interact(on: id, evidence: evidence) }
-        } else {
-            displayState.releaseDirectOwnership()
+    private var sessions: [NotchDisplaySession] { [primarySession] + Array(additionalSessions.values) }
+
+    private func session(for id: NotchiumDisplayID) -> NotchDisplaySession? {
+        if shellPlacement?.display.id == id { return primarySession }
+        return additionalSessions[id]
+    }
+
+    private func configureInteraction(_ session: NotchDisplaySession) {
+        session.panel.setInteractionHandler { [weak self, weak session] _ in
+            guard let id = session?.placement?.display.id else { return }
+            self?.claimDisplay(id)
         }
     }
 
-    private func resolvePassiveOwnership() {
+    private func refreshPresentationEvidence() {
         guard isStarted, !isSleeping else { return }
-        preserveOpenOwnership()
-        // Playback starts and pauses inside a fullscreen Space without a Space, activation or
-        // presentation-option change, so an activity arriving there re-reads current truth.
+        // Media can enter or leave immersive playback without a Space/activation change.
         if evidence.isFullscreen {
             evidence = environmentSource.evidence(displays: displayState.availableDisplays)
-        } else {
-            evidence.pointerLocation = environmentSource.pointerLocation
+            displayState.resolve(evidence)
+            applyDisplayState()
         }
-        displayState.resolve(evidence)
-        applyDisplayState()
     }
 
     private func applyDisplayState() {
-        let placement = displayState.shellPlacement
+        var placements = displayState.shellPlacements
 #if DEBUG
-        let selected = debugModel.override(placement: placement)
+        placements = placements.compactMap { debugModel.override(placement: $0) }
+        let configuration = debugModel.renderConfiguration
 #else
-        let selected = placement
+        let configuration = NotchShellRenderConfiguration.automatic
 #endif
-        let moved = selected?.display.id != shellPlacement?.display.id || selected?.mode != shellPlacement?.mode
-        shellPlacement = selected
-        updatePresentationContext()
-        // Migration retains the existing model, hosting view, page session and activity IDs.
-        // The AppKit controller orders out/repositions/orders in without animating coordinates.
-        reconcilePanel(animated: !moved)
-    }
-
-    private func updatePresentationContext() {
-        let context = displayState.presentationContext
+        shellPlacements = placements
+        let additionalIDs = Set(placements.dropFirst().map { $0.display.id })
+        for id in Array(additionalSessions.keys) where !additionalIDs.contains(id) {
+            additionalSessions.removeValue(forKey: id)?.stop()
+        }
+        primarySession.update(placement: placements.first,
+            context: displayState.presentationContext, configuration: configuration, animated: false)
+        for placement in placements.dropFirst() {
+            let session: NotchDisplaySession
+            if let existing = additionalSessions[placement.display.id] {
+                session = existing
+            } else {
+                let model = DynamicIslandPresentationModel(clock: clock,
+                    activityCoordinator: ActivityCoordinator(projecting: activitySource))
+                model.useRenderers(from: presentationModel)
+                session = NotchDisplaySession(model: model, panel: panelControllerFactory(model))
+                additionalSessions[placement.display.id] = session
+                configureInteraction(session)
+            }
+            session.update(placement: placement,
+                context: displayState.context(for: placement.display.id, evidence: evidence),
+                configuration: configuration, animated: false)
+        }
 #if DEBUG
-        if presentationModel.activityCoordinator.presentationContext != context {
-            print("[Notchium Presentation] context=\(context) owner=\(String(describing: displayState.ownedDisplayID?.rawValue)) generation=\(displayState.topologyGeneration)")
+        if let placement = placements.first {
+            debugModel.updateRuntimeGeometry(placement: placement,
+                layout: NotchGeometryResolver.layout(for: placement, state: presentationModel.surfaceState))
         }
 #endif
-        presentationModel.activityCoordinator.setPresentationContext(context)
-        panelController.setPresentationContext(context)
     }
 
-    /// One cancellation-aware coalescer for topology, Space, activation and KVO events.
+    /// One coalescer for topology, Spaces, activation and presentation-option changes.
     func scheduleReconciliation(topology: Bool, reassertSpace: Bool = false) {
         guard isStarted, !isSleeping else { return }
         needsTopologyRebuild = needsTopologyRebuild || topology
@@ -297,7 +288,6 @@ public final class NotchiumDisplayCoordinator: NSObject {
         let generation = screenCorrectionGeneration
         reconciliationTask?.cancel()
         reconciliationTask = Task { [weak self, clock] in
-            guard !Task.isCancelled else { return }
             do { try await clock.sleep(for: .milliseconds(80)) } catch { return }
             guard !Task.isCancelled, let self, self.isStarted, !self.isSleeping,
                   generation == self.screenCorrectionGeneration else { return }
@@ -308,18 +298,20 @@ public final class NotchiumDisplayCoordinator: NSObject {
             self.needsSpaceReassertion = false
             if rebuild { self.refreshDisplayConfiguration() }
             else {
-                self.preserveOpenOwnership()
                 self.evidence = self.environmentSource.evidence(displays: self.displayState.availableDisplays)
                 self.displayState.resolve(self.evidence)
                 self.applyDisplayState()
             }
-            if reassert, self.shellPlacement != nil { self.panelController.orderFrontRegardless() }
+            if reassert { self.reassertPanels() }
         }
+    }
+
+    private func reassertPanels() {
+        for session in sessions where session.placement != nil { session.panel.orderFrontRegardless() }
     }
 
     @objc private func screenConfigurationChanged() { scheduleReconciliation(topology: true) }
     @objc private func frontmostApplicationChanged() { scheduleReconciliation(topology: false) }
-    @objc private func workspaceDidWake() { workspaceScreensDidWake() }
 
     @objc private func workspaceScreensDidSleep() {
         guard isStarted else { return }
@@ -328,106 +320,32 @@ public final class NotchiumDisplayCoordinator: NSObject {
         needsTopologyRebuild = false
         needsSpaceReassertion = false
         displayState.setSleeping(true, evidence: evidence)
-        updatePresentationContext()
-        presentationModel.present(.collapsed, animated: false)
-        panelController.hide()
-        panelIsHidden = true
-        lastPanelLayout = nil
-        lastPanelPlacement = nil
-        lastRenderConfiguration = nil
+        sessions.forEach { $0.sleep() }
     }
 
     @objc private func workspaceScreensDidWake() {
         guard isStarted else { return }
         displayState.setSleeping(false, evidence: evidence)
         refreshDisplayConfiguration()
-        // A single settling reconciliation catches delayed WindowServer wake geometry.
         scheduleReconciliation(topology: true)
     }
 
     @objc private func activeSpaceDidChange(_ notification: Notification) {
         guard isStarted, !isSleeping else { return }
-        presentationModel.prepareForSystemTransition()
+        sessions.forEach { $0.model.prepareForSystemTransition() }
         scheduleReconciliation(topology: false, reassertSpace: true)
     }
 
-    private func reconcilePanel(animated: Bool) {
-        guard isStarted, !isSleeping else { return }
-        guard let shellPlacement else {
-            if !panelIsHidden { panelController.hide() }
-            panelIsHidden = true
-            lastPanelLayout = nil
-            lastPanelPlacement = nil
-            lastRenderConfiguration = nil
-            return
-        }
-
-#if DEBUG
-        let renderConfiguration = debugModel.renderConfiguration
-#else
-        let renderConfiguration = NotchShellRenderConfiguration.automatic
-#endif
-        let surfaceState = presentationModel.surfaceState
-        guard shellPlacement != lastPanelPlacement || surfaceState != lastSurfaceState
-                || renderConfiguration != lastRenderConfiguration || panelIsHidden else { return }
-        let layout = NotchGeometryResolver.layout(for: shellPlacement, state: surfaceState)
-#if DEBUG
-        debugModel.updateRuntimeGeometry(placement: shellPlacement, layout: layout)
-#endif
-        lastSurfaceState = surfaceState
-        guard layout != lastPanelLayout || shellPlacement != lastPanelPlacement
-                || renderConfiguration != lastRenderConfiguration else { return }
-#if DEBUG
-        printGeometry(placement: shellPlacement, layout: layout)
-#endif
-        panelIsHidden = false
-        lastPanelLayout = layout
-        lastPanelPlacement = shellPlacement
-        lastRenderConfiguration = renderConfiguration
-        panelController.reconcile(
-            placement: shellPlacement,
-            layout: layout,
-            renderConfiguration: renderConfiguration,
-            animated: animated
-        )
-    }
-
-#if DEBUG
-    private func printGeometry(
-        placement: NotchShellPlacement,
-        layout: NotchPanelLayout
-    ) {
-        let display = placement.display
-        print("""
-        [Notchium Geometry]
-        Screen frame: \(display.frame)
-        Visible frame: \(display.visibleFrame)
-        Safe top: \(display.safeAreaInsets.top)
-        Aux left: \(String(describing: display.auxiliaryTopLeftArea))
-        Aux right: \(String(describing: display.auxiliaryTopRightArea))
-        Hardware notch: \(String(describing: layout.hardwareNotchGeometry?.frame))
-        Collapsed: \(layout.collapsedVisibleFrame)
-        Panel: \(layout.panelFrame)
-        Has hardware notch: \(layout.hasHardwareNotch)
-        """)
-    }
-#endif
-
-    private func observePresentationChanges() {
-        presentationObservationGeneration &+= 1
-        let generation = presentationObservationGeneration
-        withObservationTracking {
-            _ = presentationModel.presentationState
-            _ = presentationModel.phase
-            _ = presentationModel.reduceMotion
-            _ = presentationModel.isAuxiliaryInteractionPresented
-        } onChange: { [weak self] in
+    private func observeSettingsChanges() {
+        settingsObservationGeneration &+= 1
+        let generation = settingsObservationGeneration
+        withObservationTracking { _ = settings.preferences } onChange: { [weak self] in
             Task { @MainActor in
-                guard let self, self.isStarted,
-                      generation == self.presentationObservationGeneration else { return }
-                self.preserveOpenOwnership()
-                self.reconcilePanel(animated: true)
-                self.observePresentationChanges()
+                guard let self, self.isStarted, generation == self.settingsObservationGeneration else { return }
+                self.displayState.preferences = self.settings.preferences
+                self.displayState.resolve(self.evidence)
+                if !self.isSleeping { self.applyDisplayState() }
+                self.observeSettingsChanges()
             }
         }
     }
@@ -436,15 +354,12 @@ public final class NotchiumDisplayCoordinator: NSObject {
     private func observeDebugChanges() {
         debugObservationGeneration &+= 1
         let generation = debugObservationGeneration
-        withObservationTracking {
-            _ = debugModel.revision
-        } onChange: { [weak self] in
+        withObservationTracking { _ = debugModel.revision } onChange: { [weak self] in
             Task { @MainActor in
-                guard let self, self.isStarted,
-                      generation == self.debugObservationGeneration else { return }
+                guard let self, self.isStarted, generation == self.debugObservationGeneration else { return }
                 self.refreshDisplayConfiguration()
                 self.presentationModel.present(self.debugModel.presentation, animated: false)
-                self.reconcilePanel(animated: false)
+                self.primarySession.reconcile(animated: false)
                 self.observeDebugChanges()
             }
         }
