@@ -43,16 +43,10 @@ public final class ActivityCoordinator: ObservableObject {
     public var retainsMediaPresentation: Bool { mediaBaseline != nil }
 
     /// Fresh expansion policy is independent of transient presentation priority.
-    /// A retained paused track is useful on Home, but does not make Music the default.
+    /// Playback stays on Home; a Music-targeting transient can still choose its destination.
     public var preferredExpandedPage: NotchPage {
         if let activeTransient,
            activeTransient.kind == .media || activeTransient.destination == .music {
-            return .music
-        }
-        // Only playback on this Mac makes Music the fresh default; remote Connect playback
-        // (e.g. a phone) opens on Home.
-        if mediaBaseline?.kind == .media,
-           case .mediaPlayback(isPlaying: true, isLocal: true) = mediaBaseline?.payload {
             return .music
         }
         return .home
