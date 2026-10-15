@@ -8,7 +8,7 @@ struct UpNextView: View {
     var body: some View {
         Group {
             if state.queueIssue != nil || !state.capabilities.canReadQueue {
-                queueMessage("Queue unavailable", detail: "Open Spotify to see what’s next.")
+                queueMessage("Queue unavailable", detail: "Local control can’t read the queue. View it in Spotify.")
             } else if state.queue.isEmpty {
                 queueMessage("Nothing queued", detail: "Add songs to your queue in Spotify.")
             } else {
