@@ -114,7 +114,14 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
     }
 
     @objc private func menuBegan(_ notification: Notification) {
-        guard model.surfaceState != .collapsed, let menu = notification.object as? NSMenu else { return }
+        guard let menu = notification.object as? NSMenu else { return }
+        beginMenuTracking(menu, at: NSEvent.mouseLocation)
+    }
+
+    func beginMenuTracking(_ menu: NSMenu, at point: CGPoint) {
+        guard model.surfaceState != .collapsed,
+              let currentLayout,
+              panel.isKeyWindow || currentLayout.visibleSurfaceFrame.contains(point) else { return }
         model.setAuxiliaryInteractionPresented(true, source: "menu.\(ObjectIdentifier(menu))")
     }
 
