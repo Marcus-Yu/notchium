@@ -2,17 +2,21 @@
 
 **Status:** Stage 2 polish implemented; hardware motion acceptance remains pending.
 
-**Minimum OS:** macOS 26. **Target:** built-in notched MacBook only.
+**Minimum OS:** macOS 26. **Displays:** built-in by default; all displays or a specific monitor can be selected in Settings → General → Displays.
 
-Stage 2 implements the shell and placeholder content only. No Stage 3 providers, permissions, external-display shell, private APIs, or custom animation engine are enabled.
+The shell uses public display APIs and native SwiftUI/AppKit presentation. The original Stage 2 geometry remains the foundation; current display behavior is described below.
 
 ## Display and panel ownership
 
-`AppKitDisplaySource` reads every display into immutable snapshots. Stage 21 centrally resolves an owned display from direct interaction or pointer/frontmost-window evidence. The shell is eligible only when that owner is a built-in display with valid auxiliary top areas and a positive notch gap. A notchless owner hides the panel and retains the menu-bar fallback. Existing virtual geometry helpers and explicit DEBUG overrides remain fixtures, not live external-display support.
+`AppKitDisplaySource` reads every display into immutable snapshots. `NotchiumDisplayCoordinator` defaults to the built-in display, regardless of pointer position, active application or which monitor is primary. Settings → General → Displays offers the built-in display, all displays, or one connected monitor. A missing saved monitor temporarily falls back to the built-in display, then the primary/first available display; its public Core Graphics UUID remains saved for reconnection. With no screens, panels hide and the menu-bar fallback remains available.
 
-The measured hardware footprint, screen coordinate calculations, fixed transparent host (740 × 322 pt), and panel positioning are preserved. Music, Calendar, and Audio share the 524 × 266 pt expanded shell, 12 pt physical top corners, and 26 pt bottom corners defined by `ExpandedNotchLayout` in `NotchPanelLayout.swift`. Navigation stays 32 pt high across pages. All four pages use `ExpandedPageStyle` for their interior rhythm: 30 pt horizontal inset, 8 pt top inset and 12 pt bottom safe zone. Music uses a 76 pt artwork/metadata/progress composition, a compact native 20 pt Player/Up Next picker, a centered 32 pt transport row, and a separate volume/output row. Calendar uses whitespace between its columns; Audio constrains its system slider row so two mixer rows remain usable. See [expanded page composition](EXPANDED_PAGE_COMPOSITION.md). `NotchiumPanelController` consumes the coordinator-provided panel frame and updates it only when it changes. It never animates the NSPanel frame. The top edge remains at the absolute screen top.
+Each selected display owns a `NotchDisplaySession`, one `NotchiumPanelController`, and an independent `DynamicIslandPresentationModel`. Hover, expansion, page selection, auxiliary interaction and notification gestures stay local. One activity source owns identities and expiry timers; display projections apply fullscreen policy separately and forward dismissals to that source. Feature models and providers are reused. Music-page visibility is aggregated across presentations, so closing one display cannot mark another visible player as hidden.
 
-`NotchPanel` is borderless, nonopaque, non-key, clear, shadowless, nonactivating, and uses `.canJoinAllSpaces`, `.stationary`, `.fullScreenAuxiliary`, and `.ignoresCycle`. Stage 21 Space-change notifications cancel pending hover timers and close hovered sessions with the existing motion. Pinned pages and leased auxiliary sessions remain open. An 80 ms coalesced reconciliation refreshes display-scoped presentation context and reasserts the existing panel. Display migration retains the hosting view and page session and never animates coordinates across the desktop. Fullscreen uses the same native collection behavior and current panel-level owners. See [Stage 21](STAGE21_DISPLAY_PRESENTATION.md).
+A physical notch always uses measured safe-area and auxiliary-area geometry. Notchless displays use a compact pill by default. The “Create a notch shape on displays without a notch” option draws a top-attached notch, scaling its width and height by the physical MacBook notch-to-screen proportions in logical points. Without notched hardware, the reference is 212 × 38 pt on a 1512 × 982 pt display. Simulated shapes have no hardware exclusion; collapsed Music uses their central width and keeps artwork/waveform in the flanks.
+
+The measured hardware footprint, screen coordinate calculations, fixed transparent host (740 × 322 pt), and panel positioning are preserved. Music, Calendar, and Audio share the 524 × 266 pt expanded shell, 12 pt physical top corners, and 26 pt bottom corners defined by `ExpandedNotchLayout` in `NotchPanelLayout.swift`. Navigation stays 32 pt high across pages. All four pages use `ExpandedPageStyle` for their interior rhythm: 30 pt horizontal inset, 8 pt top inset and 12 pt bottom safe zone. Music uses an 84 pt artwork/metadata/progress composition, a centered 32 pt transport row, and a full-width volume/source row, with no Player/Up Next selector. Calendar uses whitespace between its columns; Audio constrains its system slider row so two mixer rows remain usable. See [expanded page composition](EXPANDED_PAGE_COMPOSITION.md). `NotchiumPanelController` consumes the coordinator-provided panel frame and updates it only when it changes. It never animates the NSPanel frame. The top edge remains at the absolute screen top.
+
+`NotchPanel` is borderless, nonopaque, non-key, clear, shadowless, nonactivating, and uses `.canJoinAllSpaces`, `.stationary`, `.fullScreenAuxiliary`, and `.ignoresCycle`. Stage 21 Space-change notifications cancel pending hover timers and close hovered sessions with the existing motion. Pinned pages and leased auxiliary sessions remain open. An 80 ms coalesced reconciliation refreshes display-scoped presentation context and reasserts the selected panels. Geometry changes on the same display retain its hosting view and page session. Reassigning a panel to a different display closes its previous interaction rather than copying expansion to another screen, and never animates coordinates across the desktop. Fullscreen uses the same native collection behavior and current panel-level owners. See [Stage 21](STAGE21_DISPLAY_PRESENTATION.md).
 
 `NSWorkspace.activeSpaceDidChangeNotification` reports a Space change; Apple does not guarantee notification delivery at the beginning of the three-finger gesture. Hover-session collapse starts on notification delivery; pinned sessions stay open. First-frame swipe timing requires hardware verification.
 
@@ -20,9 +24,14 @@ The measured hardware footprint, screen coordinate calculations, fixed transpare
 
 One persistent `NotchShape` interpolates width, height, shoulders, and bottom radius with SwiftUI's native animation system. Its top never moves. There is no shell scale transform, view replacement, crossfade, popup, or AppKit frame animation.
 
-The measured hardware rectangle is permanently subtracted from the drawable path, including its content clip. At the passive endpoint the drawable path is empty: no black overlay, chin, text, icon, reflection, or shadow remains. The invisible pointer target retains the existing hardware region and five-point input tolerance. DEBUG geometry outlines are also suppressed in passive mode.
+In physical-notch mode, the passive endpoint subtracts the measured hardware rectangle and has an empty drawable path: no black overlay, chin, text, icon, reflection, or shadow remains. Active surfaces stay solid across the hardware region and share their silhouette with the content clip. The invisible pointer target retains the existing hardware region and five-point input tolerance. DEBUG geometry outlines are also suppressed in passive mode.
 
 Expansion reveals the shape's growing perimeter directly around the hardware footprint. The black fill remains dominant. One restrained native glass surface sits inside the expanded content, with an opaque fallback for Reduce Transparency. Content has a fixed expanded layout below the hardware region, avoiding resize-induced text movement.
+
+Collapsed Music, focus timers and other compact activities share shallow 6 pt concave top
+shoulders that meet the screen edge. Music's shoulders flare outside its existing artwork and
+waveform width, including when secondary indicators extend the shell. Height and content
+placement are unchanged; the idle physical-notch endpoint remains empty.
 
 ## Interaction and motion
 
@@ -44,10 +53,12 @@ Content hide and reveal are immediate (0 ms); opening reveal is geometry-based r
 Motion reference: [current BoringNotch ContentView](https://github.com/TheBoredTeam/boring.notch/blob/main/boringNotch/ContentView.swift), inspected September 25, 2026. The reference uses a shared interactive spring (response 0.38, damping 0.8) and separate open/close springs (0.42/0.8 and 0.45/1.0). Notchium independently implements the requested symmetric 0.40/0.80 spring and black-only choreography. No GPL source was copied.
 
 The active surface and its content mask cannot shrink below the measured hardware
-footprint during spring undershoot. Shoulders and lower corners stay outside that
-footprint while media flanks retract, and zero-shoulder media uses the same continuous
-lower curves as expansion. Collapsed media, compact activities and notification rows
-use the measured hardware center, matching the silhouette and pointer geometry on
+footprint during spring undershoot. Shoulders stay outside that footprint while
+media flanks retract. Lower corners converge to the passive notch's
+radius instead of flattening to zero; a fractional positive spring rebound therefore
+cannot flash a square overlay after the empty endpoint. Zero-shoulder media uses the
+same continuous lower curves as expansion. Collapsed media, compact activities and
+notification rows use the measured hardware center, matching the silhouette and pointer geometry on
 asymmetric display snapshots. The passive hardware endpoint remains empty.
 
 ## Validation and acceptance
