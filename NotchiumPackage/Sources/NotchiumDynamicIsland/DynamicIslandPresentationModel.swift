@@ -186,15 +186,16 @@ public final class DynamicIslandPresentationModel {
     public init(
         phase: NotchPresentationPhase = .collapsed,
         clock: any AppClock = ContinuousAppClock(),
-        pageSelectionNow: @escaping () -> ContinuousClock.Instant = { ContinuousClock().now }
+        pageSelectionNow: @escaping () -> ContinuousClock.Instant = { ContinuousClock().now },
+        activityCoordinator: ActivityCoordinator? = nil
     ) {
         self.phase = phase
         self.clock = clock
         self.pageSelectionNow = pageSelectionNow
-        activityCoordinator = ActivityCoordinator(clock: clock)
+        self.activityCoordinator = activityCoordinator ?? ActivityCoordinator(clock: clock)
         pageModel = NotchPageModel()
         if phase.visualState != .collapsed { pageModel.beginExpansion(default: .home) }
-        activityObservation = activityCoordinator.presentationDidResolve
+        activityObservation = self.activityCoordinator.presentationDidResolve
             .sink { [weak self] _ in
                 self?.activityRevision &+= 1
             }
@@ -326,9 +327,9 @@ public final class DynamicIslandPresentationModel {
         }
     }
 
-    public func reset() {
-        cameraController?.closePreview()
-        activityCoordinator.clearAll()
+    public func reset(clearingActivities: Bool = true) {
+        if visualState != .collapsed { cameraController?.closePreview() }
+        if clearingActivities { activityCoordinator.clearAll() }
         fileDrag = .idle
         pendingHoverTask?.cancel()
         pendingCollapseTask?.cancel()
@@ -344,6 +345,19 @@ public final class DynamicIslandPresentationModel {
         isHeldAfterSystemPresentation = false
         pageModel.endExpansion()
         phase = .collapsed
+    }
+
+    /// Renderers reference the existing feature models; navigation and interaction stay local.
+    func useRenderers(from model: DynamicIslandPresentationModel) {
+        mediaRenderer = model.mediaRenderer
+        calendarRenderer = model.calendarRenderer
+        audioRenderer = model.audioRenderer
+        caffeineController = model.caffeineController
+        quickActionsRenderer = model.quickActionsRenderer
+        shelfRenderer = model.shelfRenderer
+        pomodoroRenderer = model.pomodoroRenderer
+        clipboardRenderer = model.clipboardRenderer
+        cameraController = model.cameraController
     }
 
     public func setReduceMotion(_ reduceMotion: Bool) {
