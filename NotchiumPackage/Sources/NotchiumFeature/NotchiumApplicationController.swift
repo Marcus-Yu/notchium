@@ -60,7 +60,8 @@ public final class NotchiumApplicationController {
         self.shellDebugModel = shellDebugModel
         displayCoordinator = NotchiumDisplayCoordinator(
             clock: environment.clock,
-            debugModel: shellDebugModel
+            debugModel: shellDebugModel,
+            settings: NotchDisplaySettings(storage: CommandLine.arguments.contains("--ui-testing") ? nil : .standard)
         )
         developerPanelModel = DeveloperPanelModel(
             services: environment.services,
