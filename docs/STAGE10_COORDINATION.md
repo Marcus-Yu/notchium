@@ -14,7 +14,7 @@ also rejects lower-priority input; volume can no longer inherit an output-change
 | Medium | Calendar 30/60-minute reminder; output-device change |
 | Low transient | Volume, mute/unmute |
 | Persistent baseline | Music playback, retained independently of every transient |
-| Idle | Home when there is no playing Music default |
+| Idle | Home, including during Music playback |
 
 The Stage 9 notification slot still drops suppressed notifications instead of replaying
 stale feedback. Replacement publishes no empty intermediate slot. Expiry has one
@@ -24,7 +24,8 @@ dismiss a different notification. Generic developer activities retain their exis
 
 Home, Music, Calendar and Audio view trees remain mounted. Hidden pages are disabled,
 excluded from pointer hit testing, and hidden from accessibility. A transient does not
-change page selection. Fresh expansion still chooses playing Music or Home; explicit
+change page selection. Playback keeps Home as the fresh default; existing Music alerts
+and Focus Timer eligibility retain their opening policies. Explicit
 notification activation opens the requested destination. Music's Player/Up Next selection
 is retained instead of being reset when an unrelated shell transition settles.
 
