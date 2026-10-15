@@ -9,8 +9,8 @@ enum NotchSecondaryGeometry {
         switch notification?.presentationStyle {
         case .compact?: NotchCompactGeometry(layout: layout, activity: notification?.content.compactActivity).width
         case .calendar?: NotchNotificationGeometry.size(for: .calendar, layout: layout).width
-        default: CollapsedMediaGeometry(hardwareWidth: layout.hardwareNotchGeometry?.frame.width ?? 0,
-                                        hardwareHeight: layout.collapsedVisibleFrame.height).width
+        default: CollapsedMediaGeometry(hardwareWidth: layout.collapsedVisibleFrame.width,
+                                        hardwareHeight: layout.collapsedVisibleFrame.height).shellWidth
         }
     }
 
