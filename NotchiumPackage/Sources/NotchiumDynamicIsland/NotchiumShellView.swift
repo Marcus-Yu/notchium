@@ -102,7 +102,7 @@ private struct NotchShellOuterSurface: View {
             height: layout.collapsedVisibleFrame.height,
             centerX: layout.collapsedVisibleFrame.midX - layout.panelFrame.minX,
             topCornerRadius: 0,
-            bottomCornerRadius: layout.hasHardwareNotch ? 8 : 12,
+            bottomCornerRadius: layout.collapsedBottomCornerRadius,
             hardwareExclusion: layout.hardwareNotchGeometry.map {
                 CGRect(
                     x: $0.frame.minX - layout.panelFrame.minX,
@@ -113,7 +113,7 @@ private struct NotchShellOuterSurface: View {
             }
         )
         let mediaGeometry = CollapsedMediaGeometry(
-            hardwareWidth: layout.hardwareNotchGeometry?.frame.width ?? 0,
+            hardwareWidth: layout.collapsedVisibleFrame.width,
             hardwareHeight: layout.collapsedVisibleFrame.height
         )
         let showMedia = model.showsCollapsedMedia
@@ -132,7 +132,7 @@ private struct NotchShellOuterSurface: View {
         let expanded = model.surfaceState != .collapsed
         // The shell's width without any notification: the span a compact activity grows from.
         let baseWidth = expanded ? layout.expandedSize.width
-            : (showMedia ? mediaGeometry.width : layout.collapsedVisibleFrame.width)
+            : (showMedia ? mediaGeometry.shellWidth : layout.collapsedVisibleFrame.width)
         let integratedWidth = NotchSecondaryGeometry.shellWidth(layout: layout, notification: notification,
                                                                 hasIndicators: !model.presentedIndicators.isEmpty)
         let collapsedWidth = model.presentedIndicators.isEmpty
@@ -148,7 +148,8 @@ private struct NotchShellOuterSurface: View {
             passiveShape: passiveShape,
             shoulderRadius: compact ? NotchCompactGeometry.shoulderRadius
                 : (surfaced ? NotchNotificationGeometry.shoulderRadius
-                   : (expanded ? ExpandedShellSilhouette.shoulderRadius : 0)),
+                   : (expanded ? ExpandedShellSilhouette.shoulderRadius
+                      : (showMedia || !model.presentedIndicators.isEmpty ? NotchCompactGeometry.shoulderRadius : 0))),
             extensionHeight: model.expandedMinorActivity == nil ? 0 : NotchExpandedMinorGeometry.height
         )
 
