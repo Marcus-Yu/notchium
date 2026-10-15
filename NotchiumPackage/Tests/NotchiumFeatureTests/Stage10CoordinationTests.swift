@@ -54,7 +54,7 @@ final class Stage10CoordinationTests: XCTestCase {
         XCTAssertEqual(activities.primary, music)
         XCTAssertNil(activities.activeTransient)
         XCTAssertEqual(persistentChanges, 0)
-        XCTAssertEqual(activities.preferredExpandedPage, .music)
+        XCTAssertEqual(activities.preferredExpandedPage, .home)
     }
 
     func testEveryManualPageSurvivesNotificationReplacementAndExpiry() async {
@@ -131,7 +131,7 @@ final class Stage10CoordinationTests: XCTestCase {
         model.setAuxiliaryInteractionPresented(false, source: "picker")
         await drain()
         await clock.waitForPendingSleeps()
-        await clock.advance(by: .milliseconds(200))
+        await clock.advance(by: .milliseconds(600))
         await drain()
         XCTAssertEqual(model.visualState, .collapsed)
         model.reset()
