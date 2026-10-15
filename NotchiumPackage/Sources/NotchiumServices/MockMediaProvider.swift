@@ -15,7 +15,6 @@ public actor MockMediaProvider: MediaProviding {
     public private(set) var requestedSeekPosition: Double?
     public private(set) var queueRefreshCount = 0
     public private(set) var queuedURIs: [String] = []
-    public private(set) var availableDevices: [SpotifyDevice] = []
     private var subscribers: [UUID: AsyncStream<MediaState>.Continuation] = [:]
     public private(set) var refreshCount = 0
     public func refresh() async { refreshCount += 1; publish(snapshot) }
@@ -36,11 +35,9 @@ public actor MockMediaProvider: MediaProviding {
         .init(id: "hours", uri: "spotify:track:hours", title: "Hours", artist: "Tycho",
               artworkURL: URL(string: "notchium-fixture://artwork/hours"), duration: 198)
     ]
-    public init(snapshot: MediaState = .init(), queueFailure: MediaFailure? = nil,
-                devices: [SpotifyDevice] = []) {
+    public init(snapshot: MediaState = .init(), queueFailure: MediaFailure? = nil) {
         self.snapshot = snapshot
         self.queueFailure = queueFailure
-        availableDevices = devices
     }
     public func availability() -> FeatureAvailability { snapshot.availability }
     public func updates() -> AsyncStream<MediaState> {
@@ -145,24 +142,6 @@ public actor MockMediaProvider: MediaProviding {
             addedTracks.append(track)
         }
         try await loadQueue()
-    }
-
-    public func devices() -> [SpotifyDevice] { availableDevices }
-
-    public func transferPlayback(to deviceID: String) throws {
-        guard let selected = availableDevices.first(where: { $0.id == deviceID }),
-              !selected.isRestricted else { throw MediaFailure.unsupported }
-        availableDevices = availableDevices.map {
-            .init(id: $0.id, name: $0.name, type: $0.type, isActive: $0.id == deviceID,
-                  isRestricted: $0.isRestricted, volumePercent: $0.volumePercent,
-                  supportsVolume: $0.supportsVolume)
-        }
-        snapshot.activeDeviceID = selected.id
-        snapshot.activeDeviceName = selected.name
-        snapshot.activeDeviceType = selected.type
-        snapshot.volumePercent = selected.volumePercent
-        snapshot.capabilities.canSetVolume = selected.supportsVolume
-        publish(snapshot)
     }
 
     private func queueFollowingCurrentTrack() -> [QueueTrack] {
