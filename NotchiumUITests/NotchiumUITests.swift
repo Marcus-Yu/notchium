@@ -3,6 +3,40 @@ import XCTest
 
 @MainActor
 final class NotchiumUITests: XCTestCase {
+    func testDisplaySettingsOfferSelectionAndNotchCreation() throws {
+        let app = XCUIApplication()
+        defer { app.terminate() }
+        app.launchArguments = fixtureArguments(display: "externalMock", surface: "automatic",
+            presentation: "expanded", appearance: "system")
+        app.launch()
+        let gear = shellElement("notchium.shell.settings", in: app)
+        XCTAssertTrue(gear.waitForExistence(timeout: 5), app.debugDescription)
+        gear.click()
+        let settings = app.windows["com_apple_SwiftUI_Settings_window"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 5))
+        let picker = settings.popUpButtons["notchium.settings.display.selection"]
+        if !picker.exists {
+            let general = settings.descendants(matching: .any)["notchium.settings.category.general"].firstMatch
+            XCTAssertTrue(general.waitForExistence(timeout: 5))
+            general.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
+        }
+        XCTAssertTrue(picker.waitForExistence(timeout: 5), settings.debugDescription)
+        XCTAssertEqual(picker.value as? String, "Built-in display (Default)")
+        picker.click()
+        app.menuItems["All displays"].click()
+        XCTAssertEqual(picker.value as? String, "All displays")
+        let createsNotch = settings.descendants(matching: .any)["notchium.settings.display.createNotch"].firstMatch
+        XCTAssertTrue(createsNotch.waitForExistence(timeout: 5), settings.debugDescription)
+        XCTAssertEqual(createsNotch.value as? String, "0")
+        createsNotch.click()
+        XCTAssertEqual(createsNotch.value as? String, "1")
+        attachScreenshot(named: "display-settings")
+        settings.buttons[XCUIIdentifierCloseWindow].click()
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(waitForState("collapsed", in: app, timeout: 5))
+        attachScreenshot(named: "simulated-external-notch")
+    }
+
     func testMirrorValueDescribesPreviewBeforeCameraPermission() throws {
         let app = XCUIApplication()
         defer { app.terminate() }
@@ -255,7 +289,7 @@ final class NotchiumUITests: XCTestCase {
             // Click the actual row bounds; macOS 27's automatic List scrolling can target
             // the identity-binding scroll container instead of this visible link.
             mediaCategory.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
-            XCTAssertTrue(settings.descendants(matching: .any)["notchium.settings.spotifyClientID"]
+            XCTAssertTrue(settings.descendants(matching: .any)["notchium.settings.spotifyLocalControl"]
                 .waitForExistence(timeout: 5), settings.debugDescription)
             // The second click restores the minimized window; the third reopens it.
             if attempt == 0 {
