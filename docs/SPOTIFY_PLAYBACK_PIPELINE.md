@@ -1,130 +1,88 @@
-# Spotify playback pipeline
+# Local Spotify playback pipeline
 
-## Ownership
+## Ownership and execution
 
-`RealMediaProvider` owns playback observations. There is exactly one playback GET and ingestion
-function, `readPlayback(reason:)`, used by polling, explicit refresh, command completion,
-Spotify Desktop notifications, resume, and Connect transfer. `MediaState` carries track ID, title, artist, artwork URL, duration, elapsed baseline,
-rate, device, wall-clock observation time, monotonic sample time, and request start time.
+`RealMediaProvider` remains the sole source of `MediaState`. `MediaProviding`, the app-owned
+`MediaSessionController`, `PlaybackReconciliation`, audio meter and activity coordinator remain
+in place. `LocalSpotifyController` is a stateless, injected adapter. `SpotifyScriptExecuting`,
+`SpotifyApplicationLaunching`, `SpotifyLocalPreferencesStoring`, playback/lifecycle events and
+`AppClock` are replaceable in tests.
 
-```mermaid
-flowchart TD
-    Controls[Notchium controls] --> Transport[Spotify Web API commands]
-    Desktop[Spotify buttons / media keys] --> Events[Spotify Desktop playback notification]
-    Events --> Refresh[Coalesced refresh request]
-    Transport --> Refresh
-    Poll[Adaptive fallback polling / Connect changes] --> Read[readPlayback]
-    Refresh --> Read
-    Read --> Snapshot[One accepted MediaState]
-    Snapshot --> Presentation[MediaSessionController: immediate feedback and cached presentation]
-    Presentation --> UI[Notch UI]
-```
+`SystemSpotifyScriptExecutor` confines script compilation, execution, result descriptors and
+nonprompting Automation checks to one utility serial DispatchQueue. No AppleScript or HTTP playback request
+runs on MainActor. Script results are converted to Sendable strings before crossing executors.
+Each snapshot reads title, artist, album, artwork URL, duration, position, volume, shuffle,
+repeat and playback state together, checks track identity and playback state again, and retries
+at most once if the track changes during the read. Execution has a five-second Apple Events
+timeout. A pending macOS permission dialog is outside that script timeout. Permission checks target the running Spotify PID; explicit enable activates Notchium and sends the normal protected Apple Event to trigger consent, avoiding the observed stall in the prompting form of the preflight API.
 
-The controller no longer owns a pending track-transition state machine, a seek confirmation
-predicate, or a competing playback-state intent. A local action can immediately rebase the
-presentation snapshot for seek or play/pause. A request-start timestamp barrier excludes
-already-buffered pre-action snapshots. Every later authoritative observation replaces playback
-fields together. The last authoritative snapshot exists only for failure recovery and inactive
-cached presentation. Shuffle/repeat/volume feedback does not override track or progress fields.
-Connect device identity also arrives through the playback snapshot instead of being rebuilt in
-the controller after a transfer command.
+Commands are serialized by the same executor. The provider invalidates pre-command reads and
+superseded results with observation revisions and lifecycle generations. Per-control guards
+reject duplicate in-flight commands. The existing reconciliation gate retains coherent metadata
+through skips and seeks, with three bounded confirmation retries (250 ms, 500 ms, 1 s).
+Seeking sets player position only: paused stays paused. Repeat is off/all; repeat-one is rejected.
+A synchronous Apple Event already executing cannot be interrupted, but its late result cannot
+repopulate a shut-down provider.
 
-## Commands, ordering, and bounded reconciliation
+## Refresh and resources
 
-Transport sends commands through `SpotifyPlaybackAPI`; it does not build track metadata or
-progress snapshots. A command invalidates older reads, sends its request, and requests the same
-authoritative read used by external events. Completion invalidates reads begun during command
-execution too. Request guards finish independently of reconciliation.
+`com.spotify.client.PlaybackStateChanged` is a refresh hint, never a source of UI metadata.
+In-flight refreshes coalesce into one trailing read. Workspace launch/quit and sleep/wake
+notifications refresh availability and cancel stale work. Sleep suspends reads. Opening Music
+refreshes immediately. One fallback timer corrects position drift and changes such as volume:
+15 seconds while playing, 30 while paused/stopped. No metadata scripts or fallback timers run
+when Spotify is absent, closed, awaiting consent, or denied. Workspace observers remain so a
+later Spotify launch is detected. No helper process is introduced.
 
-`PlaybackReconciliation` is one provider-owned, short-lived read expectation. Next and Previous
-share the same track-change condition. Seek accepts the requested position plus the possible
-elapsed interval since the action, including a delayed restart at zero. Playback and device
-expectations use their respective fields. External events can supersede a command expectation,
-except that a same-track desktop hint cannot weaken a seek: only a hint reporting a different
-position (an external seek) replaces it. Unchanged observations trigger at most three retries,
-separated by 250 ms, 500 ms, and 1 second. Confirmation clears the expectation. Exhausting the
-budget also clears it, so normal polling cannot remain filtered by a completed command; a seek
-expectation instead survives until confirmation, a track change, or the monotonic ten-second
-safety bound, because Spotify can report the old progress for seconds after a seek. The session
-serializes seeks: a release during an in-flight seek is shown immediately and sent afterwards. Errors and Spotify's shared Retry-After cooldown remain bounded.
+Artwork retains the existing HTTPS `i.scdn.co` loader, bounded thumbnail memory cache, shared
+in-flight requests and fallback artwork. Artwork is the only media network traffic. The waveform
+continues using the existing Core Audio meter and separate audio-recording consent.
 
-A monotonically increasing observation revision rejects older reads, including errors and
-responses returning after a newer action or event. Publication rechecks the revision after its
-asynchronous cooldown lookup. The input revision owns a retry budget; ordinary reads cannot
-cancel it. Lifecycle generations apply only to authorization/disconnect/shutdown boundaries.
-No transition or confirmation flag disables the fallback poller.
+## First use and recovery
 
-## Previous and progress
+Open Spotify, then choose **Enable Local Control** in Music or Settings → Media. The adapter
+checks installation/running state without launching Spotify. Only that user action requests the
+normal macOS Automation dialog. After Allow, the first script result populates Music immediately.
+`SpotifyLocalControlEnabled` records the user's intent; later launches check consent without
+prompting. Denial offers **Open System Settings** and the path Privacy & Security → Automation →
+Notchium → Spotify. Settings **Check Access** and reopening Music recheck without prompting.
+**Disable Local Control** stops protected work; it does not revoke the system's TCC grant.
+**Open Spotify** is an explicit user action. Reads never intentionally open Spotify.
 
-Previous retains the existing three-second choice: above the threshold, rebase the local
-snapshot to zero and send seek-to-zero; otherwise send Previous. There is no pendingPrevious
-state. Spotify's [Previous endpoint](https://developer.spotify.com/documentation/web-api/reference/skip-users-playback-to-previous-track)
-documents skipping to the prior queue entry, not the required restart threshold. The installed
-Spotify scripting dictionary likewise describes its Previous command as a skip, so this
-refactor does not assume native commands implement the desired threshold.
+`NSAppleEventsUsageDescription` explains metadata and playback control. Development entitlements
+include Automation; the sandbox profile also declares Spotify's published playback/library
+scripting groups. The existing free Release stays ad-hoc signed without entitlements or hardened
+runtime. Verify the actual DMG: development TCC approval is not proof of release approval. Ad-hoc
+updates have no stable Developer ID identity, so consent persistence across changed binaries
+requires manual qualification. The App Store profile has not been qualified.
 
-The visible progress clock uses `elapsed + monotonic elapsed time × playbackRate`, bounded by
-the current duration. Every new snapshot or optimistic rebase replaces the timestamp and
-baseline together. Wall-clock timestamps remain for persistence and deterministic fixtures;
-the live progress view supplies uptime, so changing system time cannot move the progress bar.
+The old `SpotifyClientID` preference is removed when local control is explicitly enabled or
+disabled. Legacy Keychain items with service `Notchium.Spotify`, account `oauth` are intentionally
+left unused. No Keychain reads, deletes or migration prompts occur; unrelated Clipboard keys
+and preferences are untouched. Cached queue rows are never restored as a live queue.
 
-## Desktop and media-key events
+## Supported functionality and limits
 
-`SpotifyDesktopPlaybackEvents` observes only `com.spotify.client.PlaybackStateChanged` through
-Foundation's [DistributedNotificationCenter](https://developer.apple.com/documentation/foundation/distributednotificationcenter).
-The event is an empirical Spotify Desktop integration, demonstrated by this
-[notification listener and payload](https://gist.github.com/loretoparisi/6092634d34e97a062029b078215b6bdc),
-not a guaranteed Spotify Web API contract. Track ID, playback state, and position are optional
-refresh hints. Notification metadata never becomes the displayed track, and it never overrides
-which Spotify Connect device is active.
+Supported: local running detection; title/artist/album/artwork; playing/paused state; duration
+and interpolated position; play/pause, previous/next, paused seeking, volume, shuffle and repeat
+all/off where Spotify reports those modes enabled. Home transport, previous-as-restart, paused
+collapsed artwork, waveform behavior, Pomodoro coordination, activity ranking/expiration,
+focus suppression, fullscreen and display behavior retain their existing owners.
 
-The listener consumes signals independently of network requests, so a new event invalidates an
-old in-flight response immediately. The first event requests a refresh immediately; further
-events share a bounded buffer and a 250 ms trailing refresh window. One listener is owned by
-the authenticated provider. Disconnect, shutdown, and authorization changes cancel listener,
-observer, and refresh tasks. Missing or malformed events fall back to ordinary polling.
+Spotify's installed `Spotify.sdef` exposes no queue, enqueue, device enumeration, device transfer,
+or repeat-one operation. Media presents only the current player, with no Up Next section,
+even if a legacy cache contains upcoming tracks. No queue polling, predicted tracks, private API or
+UI scraping is used. Remote Spotify Connect device discovery/transfer and queue addition are
+removed. Spotify's desktop app may itself reflect an active Connect session; the local dictionary
+does not identify or select a remote output device.
 
-Spotify buttons and media keys that change Spotify Desktop playback produce the same kind of
-signal. No global keyboard monitor or Accessibility permission is added. If another device or
-client does not emit this local event, Web API polling reconciles it. Poll intervals remain
-5 seconds playing / 15 seconds inactive when collapsed, and 2.5 seconds playing / 5 seconds
-paused / 10 seconds inactive when expanded. Core Audio still supplies only local audio activity
-and waveform, with its existing inactive-playback wakeup routed to this same refresh pipeline.
+Queue investigation: [Spotify Web API queue](https://developer.spotify.com/documentation/web-api/reference/get-queue)
+requires OAuth. [Soloist's local integration](https://developer.spotify.com/documentation/soloist/howtos/basic-integration)
+requires a separate daemon/API key and controls Soloist, not the installed desktop app. It is not
+a supported way to retrieve this user's Spotify Desktop queue. No supported desktop queue route
+was found in the installed dictionary or the examined official documentation.
 
-Commands, authoritative metadata/progress, queue, volume, OAuth, and Connect discovery/transfer
-continue using the Web API. Local AppleScript transport was inspected but is not enabled: it
-would introduce a separate Automation permission path and lacks a verified restart contract.
-The fast local integration in this refactor is event delivery, with Web API reconciliation.
+## Verification
 
-## Validation
-
-Deterministic tests cover shared Next/Previous acceptance, delayed restart, monotonic expiry,
-request-start rejection, buffered pre-action samples, notification parsing, actual observer
-callback delivery through an injected NotificationCenter, one listener and teardown, an event
-arriving during an old playback read, and external Spotify/media-key event sequences. They
-also cover Previous → Next → Previous → Pause → Play, subsequent external position changes,
-and five simulated minutes of automatic polling after Previous.
-
-The macOS Swift package build and test suite are the automated validation. Physical Spotify
-buttons/media keys, signed-app notification delivery on the user's current Spotify version,
-and long-duration live playback remain manual checks; simulated events are not live testing.
-
-Final automated run: **199 tests passed**, zero failures, with the fixed-port OAuth loopback
-and display-dependent `NSScreen` test excluded for the previously observed environment limits.
-`swift test` built the package successfully; `git diff --check` passed. This is not a signed
-application build or a physical media-key test.
-
-## Files changed in this refactor
-
-- `NotchiumPackage/Sources/NotchiumServices/RealMediaProvider.swift`
-- `NotchiumPackage/Sources/NotchiumServices/MediaService.swift`
-- `NotchiumPackage/Sources/NotchiumServices/PlaybackReconciliation.swift` (new)
-- `NotchiumPackage/Sources/NotchiumServices/SpotifyPlaybackEvents.swift` (new)
-- `NotchiumPackage/Sources/NotchiumMediaFeature/MediaFeatureModel.swift`
-- `NotchiumPackage/Sources/NotchiumMediaFeature/MediaProgressView.swift`
-- `NotchiumPackage/Tests/NotchiumFeatureTests/MediaControlTests.swift`
-- `NotchiumPackage/Tests/NotchiumFeatureTests/MediaProgressTests.swift`
-- `NotchiumPackage/Tests/NotchiumFeatureTests/SpotifyMediaTests.swift`
-- `NotchiumPackage/Tests/NotchiumFeatureTests/PlaybackPipelineTests.swift` (new)
-- `docs/MEDIA_CENTER.md`
-- `docs/SPOTIFY_PLAYBACK_PIPELINE.md` (new)
+See [local Spotify validation](SPOTIFY_LOCAL_VALIDATION.md) for exact builds, test evidence,
+distribution checks and outstanding manual acceptance work.
