@@ -27,7 +27,13 @@ public final class ActivityCoordinator: ObservableObject {
     let presentationDidResolve = PassthroughSubject<Void, Never>()
 
     /// Focus integration: while true, routine notifications stay quiet (see `ActivityPriorityPolicy`).
-    public var reducesInterruptions = false
+    public var reducesInterruptions: Bool {
+        get { source?.reducesInterruptions ?? localReducesInterruptions }
+        set {
+            if let source { source.reducesInterruptions = newValue }
+            else { localReducesInterruptions = newValue }
+        }
+    }
 
     public private(set) var presentationContext: NotchPresentationContext = .normal
     /// Composition-owned callback resolves passive display ownership before submission.
@@ -74,6 +80,12 @@ public final class ActivityCoordinator: ObservableObject {
     }
 
     private var entries: [NotchActivityKey: Entry] = [:]
+    // Display projections filter the same source entries with their own context. Only the
+    // source owns writes and deadlines; expanding a display never creates another provider.
+    private let source: ActivityCoordinator?
+    private var sourceObservation: AnyCancellable?
+    private let entriesDidResolve = PassthroughSubject<Void, Never>()
+    private var localReducesInterruptions = false
     private var primaryKey: NotchActivityKey?
     /// A user-selected secondary holds the primary role until the next interruption.
     private var promotedKey: NotchActivityKey?
@@ -84,8 +96,23 @@ public final class ActivityCoordinator: ObservableObject {
 
     public init(clock: any AppClock) {
         self.clock = clock
+        source = nil
         notifications = NotificationCoordinator()
         notifications.activities = self
+    }
+
+    init(projecting source: ActivityCoordinator) {
+        self.source = source
+        clock = source.clock
+        notifications = NotificationCoordinator()
+        notifications.activities = self
+        entries = source.entries
+        resolve()
+        sourceObservation = source.entriesDidResolve.sink { [weak self, weak source] in
+            guard let self, let source else { return }
+            self.entries = source.entries
+            self.resolve()
+        }
     }
 
     deinit { lifetimeTask?.cancel() }
@@ -95,6 +122,7 @@ public final class ActivityCoordinator: ObservableObject {
     /// Submits or updates a generic activity. Persistent/condition activities have no deadline;
     /// transient ones expire `duration` after their latest meaningful update (never if nil).
     public func present(_ activity: NotchActivity) {
+        if let source { source.present(activity); return }
         onSubmission?()
         upsert(activity, notification: nil, duration: activity.lifetime.isBaseline ? nil : activity.duration)
     }
@@ -103,6 +131,10 @@ public final class ActivityCoordinator: ObservableObject {
     /// cannot present yet stays live underneath until its own absolute deadline.
     @discardableResult
     func presentNotification(_ notification: NotchNotification, refreshingLifetime: Bool = false) -> Bool {
+        if let source {
+            source.presentNotification(notification, refreshingLifetime: refreshingLifetime)
+            return primaryKey == NotchActivityKey(notification.coalescingKey)
+        }
         onSubmission?()
         if reducesInterruptions, ActivityPriorityPolicy.isQuietedDuringFocus(notification.kind) { return false }
         var incoming = notification
@@ -182,6 +214,7 @@ public final class ActivityCoordinator: ObservableObject {
     }
 
     public func clearAll() {
+        if let source { source.clearAll(); return }
         entries.removeAll()
         promotedKey = nil
         resolve()
@@ -189,6 +222,7 @@ public final class ActivityCoordinator: ObservableObject {
     }
 
     private func remove(where predicate: (Entry) -> Bool) {
+        if let source { source.remove(where: predicate); return }
         let removed = entries.filter { predicate($0.value) }
         guard !removed.isEmpty else { return }
         removed.keys.forEach { entries.removeValue(forKey: $0) }
@@ -254,6 +288,7 @@ public final class ActivityCoordinator: ObservableObject {
         if queueCount != waiting { queueCount = waiting }
         if presentationMode != mode { presentationMode = mode }
         if changed { presentationDidResolve.send() }
+        entriesDidResolve.send()
     }
 
     /// `persistent`: live Music (kept under compact content); `best`: the highest baseline, which
