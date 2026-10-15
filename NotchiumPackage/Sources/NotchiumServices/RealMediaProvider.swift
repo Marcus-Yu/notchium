@@ -1,541 +1,214 @@
-import AppKit
 import Foundation
 import NotchiumCore
-import OSLog
 
-public protocol SpotifyApplicationLaunching: Sendable {
-    func isSpotifyRunning() async -> Bool
-    func launchSpotify() async throws
-    func localDeviceNames() async -> Set<String>
-}
-
-public final class SystemSpotifyApplicationLauncher: SpotifyApplicationLaunching, @unchecked Sendable {
-    private static let bundleIdentifier = "com.spotify.client"
-
-    public init() {}
-
-    public func isSpotifyRunning() -> Bool {
-        !NSRunningApplication.runningApplications(withBundleIdentifier: Self.bundleIdentifier).isEmpty
-    }
-
-    public func launchSpotify() async throws {
-        guard let applicationURL = NSWorkspace.shared.urlForApplication(
-            withBundleIdentifier: Self.bundleIdentifier
-        ) else { throw MediaFailure.spotifyUnavailable }
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.activates = false
-        _ = try await NSWorkspace.shared.openApplication(at: applicationURL, configuration: configuration)
-    }
-
-    public func localDeviceNames() -> Set<String> {
-        let hostName = ProcessInfo.processInfo.hostName
-        let localizedName = Host.current().localizedName
-        return Set([hostName, hostName.replacingOccurrences(of: ".local", with: ""), localizedName]
-            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-            .filter { !$0.isEmpty })
-    }
-}
-
-/// Approved public Spotify adapter.
-/// One app-scoped polling task exists while authenticated, independent of subscribers.
+/// One provider owns observations, command reconciliation, event coalescing and fallback refresh.
 public actor RealMediaProvider: MediaProviding {
-    private static let logger = Logger(subsystem: "com.marcusyu.notchium", category: "spotify")
-    private static let playingPollInterval: TimeInterval = 5
-    private static let inactivePollInterval: TimeInterval = 15
-    private static let transientFailurePollInterval: TimeInterval = 30
-    private static let reconciliationRefreshDelays: [Duration] = [
-        .milliseconds(250), .milliseconds(500), .seconds(1),
-    ]
-    private static let localDeviceRefreshDelays: [Duration] = [
-        .milliseconds(250), .milliseconds(500), .seconds(1), .seconds(2), .seconds(3),
-    ]
-    public let authorization: SpotifyAuthorization
-    private let api: SpotifyPlaybackAPI
+    private let controller: LocalSpotifyController
     private let clock: any AppClock
-    private let applicationLauncher: any SpotifyApplicationLaunching
+    private let playbackEvents: any SpotifyPlaybackEventProviding
+    private let lifecycleEvents: any SpotifyLifecycleEventProviding
     private var state = MediaState(availability: .unavailable(.permissionNotDetermined),
                                    connectionState: .initializing, source: .spotify)
     private var subscribers: [UUID: AsyncStream<MediaState>.Continuation] = [:]
-    private var pollTask: Task<Void, Never>?
-    private var reconciliationRefreshTask: Task<Void, Never>?
-    private var eventRefreshTask: Task<Void, Never>?
-    private var pendingControls: Set<String> = []
-    private var connectionGeneration: Int?
+    private var running = false
+    private var sleeping = false
+    private var expandedVisible = false
+    private var generation = 0
+    private var observationRevision = 0
+    private var inputRevision = 0
     private var playbackFetchInFlight = false
     private var refreshRequested = false
-    private var expandedVisible = false
-    private var queueFetchInFlight = false
-    private var queueFetchedAt: Date?
-    private var queueTrackID: String?
-    private var queueRevision = 0
-    #if DEBUG
-    private let diagnosticID = UUID().uuidString.prefix(8)
-    #endif
-    private var connected = false
-    private var generation = 0
-    private var inputRevision = 0
+    private var pendingControls: Set<String> = []
     private var reconciliation: PlaybackReconciliation?
-    private let playbackEvents: any SpotifyPlaybackEventProviding
+    private var pollTask: Task<Void, Never>?
     private var playbackEventsTask: Task<Void, Never>?
-    private var desktopRefreshTask: Task<Void, Never>?
-    private var desktopRefreshRequested = false
-    private var observationRevision = 0
-    private var publicationRevision = 0
-    private var awaitingInitialPlaybackState = false
+    private var lifecycleTask: Task<Void, Never>?
+    private var eventRefreshTask: Task<Void, Never>?
+    private var reconciliationTask: Task<Void, Never>?
 
-    public init(authorization: SpotifyAuthorization = SpotifyAuthorization(),
-                transport: any MediaHTTPTransport = URLSessionMediaTransport(),
+    public init(controller: LocalSpotifyController = LocalSpotifyController(),
                 clock: any AppClock = ContinuousAppClock(),
-                applicationLauncher: any SpotifyApplicationLaunching = SystemSpotifyApplicationLauncher(),
-                playbackEvents: any SpotifyPlaybackEventProviding = SpotifyDesktopPlaybackEvents()) {
-        self.authorization = authorization
-        api = SpotifyPlaybackAPI(authorization: authorization, transport: transport, clock: clock)
-        self.clock = clock
-        self.applicationLauncher = applicationLauncher
-        self.playbackEvents = playbackEvents
-        Self.logger.info("[Spotify] Manager initialized")
+                playbackEvents: any SpotifyPlaybackEventProviding = SpotifyDesktopPlaybackEvents(),
+                lifecycleEvents: any SpotifyLifecycleEventProviding = SpotifyWorkspaceEvents()) {
+        self.controller = controller; self.clock = clock
+        self.playbackEvents = playbackEvents; self.lifecycleEvents = lifecycleEvents
     }
     deinit {
-        playbackEventsTask?.cancel()
-        desktopRefreshTask?.cancel()
-        pollTask?.cancel()
-        reconciliationRefreshTask?.cancel()
-        eventRefreshTask?.cancel()
+        pollTask?.cancel(); playbackEventsTask?.cancel(); lifecycleTask?.cancel()
+        eventRefreshTask?.cancel(); reconciliationTask?.cancel()
     }
     public func availability() -> FeatureAvailability { state.availability }
     public func updates() -> AsyncStream<MediaState> {
         let id = UUID()
         let pair = AsyncStream<MediaState>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        subscribers[id] = pair.continuation; pair.continuation.yield(state)
+        subscribers[id] = pair.continuation
+        pair.continuation.yield(state)
         pair.continuation.onTermination = { [weak self] _ in Task { await self?.remove(id) } }
-        if connected { startPolling() }
         return pair.stream
     }
+    private func remove(_ id: UUID) { subscribers.removeValue(forKey: id) }
+    private func publish(_ next: MediaState) {
+        state = next
+        for subscriber in subscribers.values { subscriber.yield(next) }
+    }
+
     public func connect() async throws {
-        guard !connected, connectionGeneration != generation, state.connectionState != .authorizing else { return }
-        let generation = generation
-        connectionGeneration = generation
-        defer { if connectionGeneration == generation { connectionGeneration = nil } }
-        if state.connectionState != .initializing {
-            await publish(.init(availability: .unavailable(.permissionNotDetermined),
-                          connectionState: .initializing, source: .spotify))
-        }
-        do {
-            try await establishAuthenticatedSession(generation: generation)
-        } catch {
-            guard self.generation == generation else { throw CancellationError() }
-            if case MediaFailure.rateLimited(let seconds) = error {
-                // Stored credentials still exist when token restoration is throttled.
-                // Let the same playback loop retry token acquisition after the cooldown.
-                await api.recordCooldown(seconds: seconds)
-                guard self.generation == generation else { throw CancellationError() }
-                connected = true
-                awaitingInitialPlaybackState = true
-                await publish(.init(connectionState: .authenticated, source: .spotify))
-                startPolling()
-                return
-            }
-            connected = false
-            if error as? MediaFailure == .disconnected {
-                await publish(.init(availability: .unavailable(.permissionNotDetermined),
-                              connectionState: .unauthenticated, source: .spotify))
-            } else {
-                await publish(.init(availability: .unavailable(.temporarilyUnavailable),
-                              connectionState: .error, source: .spotify, issue: Self.message(error)))
-            }
-            throw error
-        }
+        guard !running else { return }
+        running = true
+        sleeping = false
+        startEvents()
+        await refresh()
     }
-    public func beginAuthorization(clientID: String) async throws -> URL {
-        endSession()
-        let generation = generation
-        await publish(.init(availability: .unavailable(.permissionNotDetermined),
-                      connectionState: .authorizing, source: .spotify))
-        do {
-            let url = try await authorization.begin(clientID: clientID)
-            guard self.generation == generation else { throw CancellationError() }
-            return url
-        } catch {
-            guard self.generation == generation else { throw CancellationError() }
-            await publish(.init(availability: .unavailable(.temporarilyUnavailable),
-                          connectionState: .error, source: .spotify, issue: Self.message(error)))
-            throw error
-        }
-    }
-    public func completeAuthorization(callback: URL) async throws {
-        let generation = generation
-        guard state.connectionState == .authorizing else { throw MediaFailure.authorization }
-        do {
-            try await authorization.complete(callback: callback)
-            try Task.checkCancellation()
-            guard self.generation == generation else { throw CancellationError() }
-            try await establishAuthenticatedSession(generation: generation)
-        } catch {
-            guard self.generation == generation else { throw CancellationError() }
-            connected = false
-            awaitingInitialPlaybackState = false
-            await publish(.init(availability: .unavailable(.temporarilyUnavailable),
-                          connectionState: .error, source: .spotify, issue: Self.message(error)))
-            throw error
-        }
-    }
-    public func cancelAuthorization() async {
-        guard state.connectionState == .authorizing else { return }
-        endSession()
-        await authorization.cancelAuthorizationAttempt()
-        await publish(.init(availability: .unavailable(.permissionNotDetermined),
-                      connectionState: .unauthenticated, source: .spotify))
-    }
-    public func failAuthorization() async {
-        guard state.connectionState == .authorizing else { return }
-        endSession()
-        await authorization.cancelAuthorizationAttempt()
-        await publish(.init(availability: .unavailable(.temporarilyUnavailable),
-                      connectionState: .error, source: .spotify,
-                      issue: MediaFailure.authorization.errorDescription))
-    }
-    private func establishAuthenticatedSession(generation: Int) async throws {
-        _ = try await authorization.accessToken()
-        try Task.checkCancellation()
-        guard self.generation == generation else { throw CancellationError() }
-        connected = true
-        queueFetchedAt = nil
-        awaitingInitialPlaybackState = true
-        await publish(.init(connectionState: .authenticated, source: .spotify))
-        Self.logger.info("[Spotify] Session authenticated")
-        startPolling()
-    }
-    public func shutdown() async {
-        endSession()
+    public func shutdown() {
+        running = false
+        generation &+= 1; observationRevision &+= 1; inputRevision &+= 1
+        pollTask?.cancel(); pollTask = nil
+        playbackEventsTask?.cancel(); playbackEventsTask = nil
+        lifecycleTask?.cancel(); lifecycleTask = nil
+        eventRefreshTask?.cancel(); eventRefreshTask = nil
+        reconciliationTask?.cancel(); reconciliationTask = nil
+        reconciliation = nil; refreshRequested = false; playbackFetchInFlight = false
+        pendingControls.removeAll()
     }
     public func disconnect() async throws {
-        endSession()
-        await publish(.init(availability: .unavailable(.permissionNotDetermined),
-                      connectionState: .unauthenticated, source: .spotify))
-        try await authorization.disconnect()
+        shutdown()
+        await controller.disable()
+        try await connect()
     }
-    private func remove(_ id: UUID) {
-        subscribers.removeValue(forKey: id)
-    }
-
-    /// Invalidates the current session generation and every request, poll and refresh it owns.
-    private func endSession() {
-        generation &+= 1
-        connected = false
-        pollTask?.cancel()
-        pollTask = nil
-        connectionGeneration = nil
-        pendingControls.removeAll()
-        playbackFetchInFlight = false
-        queueFetchInFlight = false
-        queueFetchedAt = nil
-        inputRevision &+= 1
+    public func enableLocalControl() async throws {
+        guard !pendingControls.contains("authorization") else { throw MediaFailure.busy }
+        if !running { try await connect() }
+        pendingControls.insert("authorization")
         observationRevision &+= 1
-        cancelEventRefresh()
-        awaitingInitialPlaybackState = false
-    }
-
-    @discardableResult
-    private func publish(_ value: MediaState) async -> Bool {
         let generation = generation
-        publicationRevision &+= 1
-        let revision = publicationRevision
-        let observation = observationRevision
-        var value = value
-        let until = connected ? await api.cooldownUntil() : nil
-        guard self.generation == generation, publicationRevision == revision,
-              observationRevision == observation else { return false }
-        if let until {
-            value.connectionState = .authenticated
-            value.availability = .available
-            value.rateLimitedUntil = until
-            value.issue = "Spotify API temporarily rate limited. Retry after \(until.formatted(date: .omitted, time: .shortened))."
-        } else if value.rateLimitedUntil != nil {
-            value.rateLimitedUntil = nil
-            value.issue = nil
-        }
-        if state != value { state = value }
-        for continuation in subscribers.values { continuation.yield(value) }
-        return true
-    }
-    private func startPolling() {
-        startPlaybackEvents()
-        guard pollTask == nil, connected else { return }
-        let generation = generation
-        pollTask = Task { [weak self, clock] in
-            #if DEBUG
-            Self.logger.debug("[SpotifyPoll] provider=\(self?.diagnosticID ?? "released", privacy: .public) generation=\(generation) started")
-            #endif
-            while !Task.isCancelled {
-                guard let delay = await self?.poll(generation: generation) else { break }
-                do { try await clock.sleep(for: delay) } catch { break }
+        publish(.init(connectionState: .authorizing, source: .spotify))
+        defer {
+            if self.generation == generation {
+                pendingControls.remove("authorization")
+                drainRefresh()
+                scheduleFallback()
             }
-            await self?.pollingEnded(generation: generation)
         }
+        await readPlayback(prompt: true)
     }
-    private func pollingEnded(generation: Int) {
-        if self.generation == generation { pollTask = nil }
-        #if DEBUG
-        Self.logger.debug("[SpotifyPoll] provider=\(self.diagnosticID, privacy: .public) generation=\(generation) ended")
-        #endif
-    }
-    private func poll(generation: Int) async -> Duration? {
-        guard connected, self.generation == generation else { return nil }
-        if let until = await api.cooldownUntil() {
-            guard connected, self.generation == generation, !Task.isCancelled else { return nil }
-            await publish(state)
-            return .seconds(max(0, until.timeIntervalSince(await clock.now())))
-        }
-        guard connected, self.generation == generation, !Task.isCancelled else { return nil }
-        guard pendingControls.isEmpty, !playbackFetchInFlight else {
-            return .seconds(Self.playingPollInterval)
-        }
-        playbackFetchInFlight = true
-        defer { finishPlaybackFetch(generation: generation) }
-        return .seconds(await readPlayback(reason: "poll"))
-    }
-
-    /// The only playback GET and ingestion path. Every caller uses the same revision,
-    /// whole-snapshot acceptance, queue preservation, and error/cooldown handling.
-    @discardableResult
-    private func readPlayback(reason: String) async -> TimeInterval {
-        let generation = generation
-        observationRevision &+= 1
-        let revision = observationRevision
-        let isInitialFetch = awaitingInitialPlaybackState
-        let startedAt = ProcessInfo.processInfo.systemUptime
-        do {
-            var next = try await api.state(reason: reason)
-            next.observationStartedUptime = startedAt
-            guard !Task.isCancelled, connected, self.generation == generation,
-                  revision == observationRevision else { return valuePollInterval(for: state) }
-            awaitingInitialPlaybackState = false
-            await ingestPlayback(next)
-        } catch {
-            guard !Task.isCancelled, self.generation == generation else { return Self.playingPollInterval }
-            if let until = await api.cooldownUntil() {
-                guard self.generation == generation else { return Self.playingPollInterval }
-                awaitingInitialPlaybackState = false
-                await publish(state)
-                return max(0, until.timeIntervalSince(await clock.now()))
-            }
-            guard revision == observationRevision else { return valuePollInterval(for: state) }
-            awaitingInitialPlaybackState = false
-            var next = state
-            if isInitialFetch && error as? MediaFailure != .disconnected {
-                next.availability = .unavailable(.temporarilyUnavailable)
-                next.connectionState = .error
-            }
-            if error as? MediaFailure == .authorization || error as? MediaFailure == .disconnected {
-                next.capabilities = .init()
-            }
-            if error as? MediaFailure != .disconnected { next.issue = Self.message(error) }
-            await publish(next)
-            return Self.transientFailurePollInterval
-        }
-        return valuePollInterval(for: state)
-    }
-
-    private func valuePollInterval(for state: MediaState) -> TimeInterval {
-        guard expandedVisible else {
-            return state.isPlaying ? Self.playingPollInterval : Self.inactivePollInterval
-        }
-        return state.isPlaying ? 2.5 : (state.hasMedia ? 5 : 10)
+    public func openSpotify() async throws {
+        try await controller.openSpotify()
+        if !running { try await connect() }
+        await refresh()
     }
     public func setExpandedVisible(_ visible: Bool) async {
-        guard !Task.isCancelled else { return }
-        guard expandedVisible != visible else { return }
+        guard expandedVisible != visible, !Task.isCancelled else { return }
         expandedVisible = visible
         if visible { await refresh() }
     }
-    public func seek(to seconds: Double, resumePlayback: Bool) async throws {
-        try await perform(.seek(seconds), resumeAfterSeek: resumePlayback)
-    }
-
-    public func perform(_ command: MediaCommand) async throws {
-        try await perform(command, resumeAfterSeek: false)
-    }
-
-    private func perform(_ command: MediaCommand, resumeAfterSeek: Bool) async throws {
-        guard !pendingControls.contains(command.controlID) else { throw MediaFailure.busy }
-        guard connected else { throw MediaFailure.disconnected }
-        if resumeAfterSeek && pendingControls.contains(MediaCommand.play.controlID) { throw MediaFailure.busy }
-        pendingControls.insert(command.controlID)
-        if resumeAfterSeek { pendingControls.insert(MediaCommand.play.controlID) }
-        invalidatePlaybackReads()
-        let input = inputRevision
-        let origin = state
-        let generation = generation
-        if let expectation = PlaybackReconciliation(command: command, origin: origin,
-                                                      uptime: ProcessInfo.processInfo.systemUptime) {
-            reconciliation = expectation
-        }
-        if resumeAfterSeek, case .seek(let position) = command {
-            reconciliation = .init(origin: origin, target: .playingPosition(position),
-                                   startedAt: ProcessInfo.processInfo.systemUptime)
-        }
-        defer {
-            if self.generation == generation {
-                pendingControls.remove(command.controlID)
-                if resumeAfterSeek { pendingControls.remove(MediaCommand.play.controlID) }
-                if connected, self.generation == generation, pendingControls.isEmpty {
-                    if reconciliation != nil {
-                        scheduleReconciliationRefresh(generation: generation, action: inputRevision)
-                    }
-                    drainRequestedRefresh()
-                }
-            }
-        }
-        do {
-            try await api.perform(command, state: origin)
-            try Task.checkCancellation()
-            guard self.generation == generation, connected else { throw CancellationError() }
-            if resumeAfterSeek { try await api.perform(.play, state: origin) }
-        } catch {
-            if self.generation == generation {
-                if inputRevision == input { reconciliation = nil }
-                await publish(state)
-            }
-            throw error
-        }
-        guard self.generation == generation, connected else { return }
-        observationRevision &+= 1 // also invalidate reads begun during command execution
-        // Keep drag writes lightweight; only a later Spotify read confirms volume.
-        if case .setVolume = command { return }
-        await readPlayback(reason: "control-confirmation")
-    }
-
-    private func invalidatePlaybackReads() {
-        inputRevision &+= 1
-        observationRevision &+= 1
-        reconciliationRefreshTask?.cancel()
-        reconciliationRefreshTask = nil
-    }
-
-    /// Resumes the current session, waking Spotify Desktop and transferring to this Mac when
-    /// Spotify has no active playback device. The control guard coalesces repeated Play taps.
-    public func resumePlayback() async throws {
-        guard !pendingControls.contains(MediaCommand.play.controlID) else { throw MediaFailure.busy }
-        guard connected else { throw MediaFailure.disconnected }
-        if state.hasMedia {
-            try await perform(.play)
-            return
-        }
-
-        pendingControls.insert(MediaCommand.play.controlID)
-        invalidatePlaybackReads()
-        reconciliation = .init(origin: state, target: .playing(true), startedAt: ProcessInfo.processInfo.systemUptime)
-        let generation = generation
-        defer {
-            if self.generation == generation {
-                pendingControls.remove(MediaCommand.play.controlID)
-                if connected, self.generation == generation, pendingControls.isEmpty {
-                    if reconciliation != nil {
-                        scheduleReconciliationRefresh(generation: generation, action: inputRevision)
-                    }
-                    drainRequestedRefresh()
-                }
-            }
-        }
-        let existingDevices = (try? await api.devices()) ?? []
-        try Task.checkCancellation()
-        guard self.generation == generation, connected else { throw CancellationError() }
-        let existingIDs = Set(existingDevices.map(\.id))
-        let wasRunning = await applicationLauncher.isSpotifyRunning()
-        if !wasRunning {
-            do { try await applicationLauncher.launchSpotify() }
-            catch { throw MediaFailure.spotifyUnavailable }
-        }
-
-        let localNames = await applicationLauncher.localDeviceNames()
-        guard let device = try await waitForLocalDevice(
-            existingIDs: existingIDs,
-            localNames: localNames,
-            allowSoleExistingComputer: wasRunning,
-            generation: generation
-        ) else { throw MediaFailure.spotifyUnavailable }
-
-        try Task.checkCancellation()
-        guard self.generation == generation, connected else { throw CancellationError() }
-        try await api.transferPlayback(to: device.id, play: true)
-        guard self.generation == generation, connected else { throw CancellationError() }
-        observationRevision &+= 1
-        await readPlayback(reason: "resume-confirmation")
-    }
-
-    private func waitForLocalDevice(
-        existingIDs: Set<String>,
-        localNames: Set<String>,
-        allowSoleExistingComputer: Bool,
-        generation: Int
-    ) async throws -> SpotifyDevice? {
-        for delay in [Duration.zero] + Self.localDeviceRefreshDelays {
-            if delay != .zero { try await clock.sleep(for: delay) }
-            try Task.checkCancellation()
-            guard self.generation == generation, connected else { throw CancellationError() }
-            let devices = try await api.devices()
-            try Task.checkCancellation()
-            guard self.generation == generation, connected else { throw CancellationError() }
-            let computers = devices.filter {
-                !$0.isRestricted && $0.type.caseInsensitiveCompare("computer") == .orderedSame
-            }
-            if let newlyAvailable = computers.first(where: { !existingIDs.contains($0.id) }) {
-                return newlyAvailable
-            }
-            if let namedLocal = computers.first(where: { localNames.contains($0.name.lowercased()) }) {
-                return namedLocal
-            }
-            if allowSoleExistingComputer, computers.count == 1 { return computers[0] }
-        }
-        return nil
-    }
     public func refresh() async {
-        guard connected else { return }
-        let generation = generation
-        guard pendingControls.isEmpty, !playbackFetchInFlight else {
+        guard running, !sleeping, !Task.isCancelled else { return }
+        guard !playbackFetchInFlight, pendingControls.isEmpty else {
             refreshRequested = true
             return
         }
         playbackFetchInFlight = true
-        defer { finishPlaybackFetch(generation: generation) }
-        if await api.cooldownUntil() != nil { return }
-        guard connected, self.generation == generation, !Task.isCancelled else { return }
-        await readPlayback(reason: "refresh")
-    }
-
-    private func finishPlaybackFetch(generation: Int) {
+        let generation = generation
+        await readPlayback()
         guard self.generation == generation else { return }
         playbackFetchInFlight = false
-        drainRequestedRefresh()
+        drainRefresh()
+        scheduleFallback()
     }
-
-    private func drainRequestedRefresh() {
-        guard refreshRequested, connected, pendingControls.isEmpty, !playbackFetchInFlight else { return }
+    private func readPlayback(prompt: Bool = false) async {
+        let generation = generation
+        observationRevision &+= 1
+        let revision = observationRevision
+        let started = ProcessInfo.processInfo.systemUptime
+        do {
+            var next = try await controller.read(prompt: prompt)
+            guard !Task.isCancelled, running, !sleeping, self.generation == generation,
+                  observationRevision == revision else { return }
+            next.timestamp = await clock.now()
+            guard !Task.isCancelled, self.generation == generation, observationRevision == revision else { return }
+            next.observationStartedUptime = started
+            next.sampledUptime = ProcessInfo.processInfo.systemUptime
+            if next.localSpotifyStatus == .ready {
+                guard reconciliation?.accepts(next, uptime: next.sampledUptime!) != false else { return }
+            }
+            reconciliation = nil
+            publish(next)
+        } catch {
+            guard !Task.isCancelled, running, self.generation == generation, observationRevision == revision else { return }
+            var next = state
+            next.issue = "Spotify couldn’t refresh playback. Try again."
+            if !next.hasMedia { next.connectionState = .error }
+            publish(next)
+        }
+    }
+    private func drainRefresh() {
+        guard refreshRequested, running, !sleeping, pendingControls.isEmpty, !playbackFetchInFlight else { return }
         refreshRequested = false
         let generation = generation
-        // Do not cancel the currently executing trailing refresh from its own defer.
         eventRefreshTask = Task { [weak self] in
             guard let self, await self.generation == generation, !Task.isCancelled else { return }
             await self.refresh()
         }
     }
-
-    private func cancelEventRefresh() {
-        reconciliationRefreshTask?.cancel()
-        reconciliationRefreshTask = nil
-        eventRefreshTask?.cancel()
-        eventRefreshTask = nil
-        playbackEventsTask?.cancel()
-        playbackEventsTask = nil
-        desktopRefreshTask?.cancel()
-        desktopRefreshTask = nil
-        desktopRefreshRequested = false
-        refreshRequested = false
-        reconciliation = nil
+    private func scheduleFallback() {
+        pollTask?.cancel(); pollTask = nil
+        // Notifications carry transport changes; periodic reads only correct drift/volume or
+        // recover transient failures while the authorized desktop app is actually available.
+        guard running, !sleeping, state.localSpotifyStatus == .ready || state.localSpotifyStatus == nil else { return }
+        let generation = generation
+        let delay: Duration = state.isPlaying ? .seconds(15) : .seconds(30)
+        pollTask = Task { [weak self, clock] in
+            do { try await clock.sleep(for: delay) } catch { return }
+            guard !Task.isCancelled, let self, await self.generation == generation else { return }
+            await self.fallbackFired()
+        }
+    }
+    private func fallbackFired() async {
+        pollTask = nil
+        await refresh()
     }
 
-    private func startPlaybackEvents() {
-        guard connected, playbackEventsTask == nil else { return }
+    public func perform(_ command: MediaCommand) async throws {
+        guard running, !sleeping else { throw MediaFailure.disconnected }
+        guard !pendingControls.contains(command.controlID) else { throw MediaFailure.busy }
+        pendingControls.insert(command.controlID)
+        observationRevision &+= 1; inputRevision &+= 1
+        reconciliationTask?.cancel(); reconciliationTask = nil
+        let generation = generation
+        let input = inputRevision
+        let origin = state
+        if let expectation = PlaybackReconciliation(command: command, origin: origin,
+                                                     uptime: ProcessInfo.processInfo.systemUptime) {
+            reconciliation = expectation
+        }
+        defer {
+            if self.generation == generation {
+                pendingControls.remove(command.controlID)
+                if pendingControls.isEmpty {
+                    if reconciliation != nil { scheduleReconciliation(generation: generation, input: inputRevision) }
+                    drainRefresh()
+                    scheduleFallback()
+                }
+            }
+        }
+        do {
+            try await controller.perform(command, state: origin)
+            guard !Task.isCancelled, self.generation == generation else { throw CancellationError() }
+            observationRevision &+= 1
+            // Drag writes stay lightweight. The session requests one real read on release.
+            if case .setVolume = command { return }
+            await readPlayback()
+        } catch {
+            if self.generation == generation, inputRevision == input {
+                reconciliation = nil
+                refreshRequested = true
+            }
+            throw error
+        }
+    }
+    public func resumePlayback() async throws { try await perform(.play) }
+
+    private func startEvents() {
         let generation = generation
         playbackEventsTask = Task { [weak self, playbackEvents] in
             for await event in await playbackEvents.events() {
@@ -543,189 +216,46 @@ public actor RealMediaProvider: MediaProviding {
                 await self.playbackChanged(event)
             }
         }
+        lifecycleTask = Task { [weak self, lifecycleEvents] in
+            for await event in await lifecycleEvents.events() {
+                guard !Task.isCancelled, let self, await self.generation == generation else { return }
+                await self.lifecycleChanged(event)
+            }
+        }
     }
-
-    private func playbackChanged(_ event: SpotifyPlaybackEvent) {
-        guard connected else { return }
-        // Consume signals independently of network latency, invalidating old reads immediately.
-        invalidatePlaybackReads()
-        // Intermediate desktop signals must not replace an unfinished seek/resume expectation.
-        let preservesSeek = reconciliation?.preservesSeek(
-            through: event, uptime: ProcessInfo.processInfo.systemUptime) == true
-        if !preservesSeek && (reconciliation == nil || pendingControls.isEmpty) {
+    private func playbackChanged(_ event: SpotifyPlaybackEvent) async {
+        guard running, !sleeping else { return }
+        observationRevision &+= 1
+        // Desktop notifications are refresh hints, never authoritative playback metadata.
+        if reconciliation?.preservesSeek(through: event, uptime: ProcessInfo.processInfo.systemUptime) != true,
+           reconciliation == nil {
             reconciliation = .init(origin: state, target: .event(event),
                                    startedAt: ProcessInfo.processInfo.systemUptime)
         }
-        desktopRefreshRequested = true
-        scheduleDesktopRefresh()
-    }
-
-    private func scheduleDesktopRefresh() {
-        guard connected, desktopRefreshRequested, desktopRefreshTask == nil else { return }
-        desktopRefreshRequested = false
-        let generation = generation
-        let input = inputRevision
-        desktopRefreshTask = Task { [weak self, clock] in
-            await self?.refreshAfterEvent(generation: generation, input: input)
-            // The first signal is immediate; subsequent signals share one trailing request.
-            do { try await clock.sleep(for: .milliseconds(250)) } catch { return }
-            await self?.desktopRefreshEnded(generation: generation)
-        }
-    }
-
-    private func refreshAfterEvent(generation: Int, input: Int) async {
-        guard self.generation == generation, !Task.isCancelled else { return }
         await refresh()
-        guard self.generation == generation, inputRevision == input, pendingControls.isEmpty else { return }
-        if reconciliation != nil { scheduleReconciliationRefresh(generation: generation, action: input) }
+        if reconciliation != nil { scheduleReconciliation(generation: generation, input: inputRevision) }
     }
-
-    private func desktopRefreshEnded(generation: Int) {
-        guard self.generation == generation else { return }
-        desktopRefreshTask = nil
-        if reconciliation == nil { desktopRefreshRequested = false }
-        scheduleDesktopRefresh()
+    private func lifecycleChanged(_ event: SpotifyLifecycleEvent) async {
+        observationRevision &+= 1
+        reconciliation = nil
+        reconciliationTask?.cancel(); reconciliationTask = nil
+        pollTask?.cancel(); pollTask = nil
+        if event == .sleep {
+            sleeping = true
+            return
+        }
+        sleeping = false
+        await refresh()
     }
-
-    public func loadQueue() async throws {
-        try await fetchQueue(force: false)
-    }
-    public func refreshQueue() async throws {
-        try await fetchQueue(force: true)
-    }
-    private func fetchQueue(force: Bool) async throws {
-        guard state.capabilities.canReadQueue else { throw MediaFailure.unsupported }
-        guard connected else { throw MediaFailure.disconnected }
-        guard !queueFetchInFlight else { return }
-        queueFetchInFlight = true
-        let generation = generation
-        defer { if self.generation == generation { queueFetchInFlight = false } }
-        // Coalesce opens/track events during a request. If its snapshot became stale,
-        // fetch the latest queue once, without starting another task or timer.
-        for _ in 0..<2 {
-            let id = state.trackID
-            let revision = queueRevision
-            if !force, queueTrackID == id, let queueFetchedAt,
-               (await clock.now()).timeIntervalSince(queueFetchedAt) < 15 { return }
-            do {
-                let queue = try await api.queue()
-                let observedAt = await clock.now()
-                guard !Task.isCancelled, self.generation == generation, connected else { return }
-                guard state.trackID == id, queueRevision == revision else { continue }
-                queueFetchedAt = observedAt
-                queueTrackID = id
-                var next = state
-                next.queue = queue
-                next.queueIssue = nil
-                await publish(next)
-                return
-            } catch {
-                guard !Task.isCancelled, self.generation == generation else { return }
-                var next = state
-                next.queueIssue = "Unavailable"
-                await publish(next)
-                throw error
+    private func scheduleReconciliation(generation: Int, input: Int) {
+        reconciliationTask?.cancel()
+        reconciliationTask = Task { [weak self, clock] in
+            for delay in [Duration.milliseconds(250), .milliseconds(500), .seconds(1)] {
+                do { try await clock.sleep(for: delay) } catch { return }
+                guard !Task.isCancelled, let self, await self.generation == generation,
+                      await self.inputRevision == input, await self.reconciliation != nil else { return }
+                await self.refresh()
             }
         }
-    }
-
-    private func ingestPlayback(_ value: MediaState) async {
-        let uptime = ProcessInfo.processInfo.systemUptime
-        guard reconciliation?.accepts(value, uptime: uptime) != false else { return }
-        var next = value
-        next.sampledUptime = uptime
-        if next.isSameTrack(as: state) {
-            next.queue = state.queue
-            next.queueIssue = state.queueIssue
-        }
-        let revision = observationRevision
-        let published = await publish(next)
-        if published, revision == observationRevision { reconciliation = nil }
-    }
-
-    private func scheduleReconciliationRefresh(generation: Int, action: Int) {
-        reconciliationRefreshTask?.cancel()
-        reconciliationRefreshTask = Task { [weak self] in
-            await self?.runReconciliationRefresh(generation: generation, action: action)
-        }
-    }
-
-    private func runReconciliationRefresh(generation: Int, action: Int) async {
-        defer {
-            if !Task.isCancelled, self.generation == generation, inputRevision == action {
-                reconciliationRefreshTask = nil
-                // Retry budget exhausted: ordinary observations resume, except that a seek keeps
-                // rejecting stale progress until its bounded lifetime (or a track change) ends it.
-                if reconciliation?.holdsPosition != true { reconciliation = nil }
-            }
-        }
-        for delay in Self.reconciliationRefreshDelays {
-            do { try await clock.sleep(for: delay) } catch { return }
-            guard !Task.isCancelled, self.generation == generation,
-                  inputRevision == action, reconciliation != nil else { return }
-            // refresh serializes ordinary reads and coalesces an in-flight poll.
-            // Its observation revision must not cancel this action's retry budget.
-            await refresh()
-            if await api.cooldownUntil() != nil { return }
-        }
-        if case .device = reconciliation?.target {
-            var unconfirmed = state
-            unconfirmed.issue = "Spotify hasn’t confirmed the device transfer"
-            await publish(unconfirmed)
-        }
-    }
-    public func addToQueue(uri: String) async throws {
-        guard connected else { throw MediaFailure.disconnected }
-        let generation = generation
-        do {
-            try await api.addToQueue(uri: uri, deviceID: state.activeDeviceID)
-            guard self.generation == generation else { return }
-            queueFetchedAt = nil
-            queueRevision &+= 1
-            try await loadQueue()
-        } catch {
-            if self.generation == generation { await publish(state) }
-            throw error
-        }
-    }
-    public func devices() async throws -> [SpotifyDevice] {
-        guard connected else { throw MediaFailure.disconnected }
-        let generation = generation
-        let devices = try await api.devices()
-        try Task.checkCancellation()
-        guard self.generation == generation, connected else { throw CancellationError() }
-        return devices
-    }
-    public func transferPlayback(to deviceID: String) async throws {
-        guard !pendingControls.contains("transfer") else { throw MediaFailure.busy }
-        guard connected else { throw MediaFailure.disconnected }
-        let generation = generation
-        // Reserve before discovery's await: actor isolation alone does not prevent a
-        // second transfer from entering while the first device request is suspended.
-        pendingControls.insert("transfer")
-        defer {
-            if self.generation == generation {
-                pendingControls.remove("transfer")
-                drainRequestedRefresh()
-            }
-        }
-        let available = try await api.devices()
-        try Task.checkCancellation()
-        guard self.generation == generation, connected else { throw CancellationError() }
-        guard let device = available.first(where: { $0.id == deviceID }), !device.isRestricted else {
-            throw MediaFailure.unsupported
-        }
-        invalidatePlaybackReads()
-        // Spotify's transfer endpoint preserves the current play state when play is omitted.
-        try await api.transferPlayback(to: deviceID, play: nil)
-        try Task.checkCancellation()
-        guard self.generation == generation, connected else { throw CancellationError() }
-        invalidatePlaybackReads()
-        reconciliation = .init(origin: state, target: .device(deviceID), startedAt: ProcessInfo.processInfo.systemUptime)
-        await readPlayback(reason: "transfer-confirmation")
-        if reconciliation != nil { scheduleReconciliationRefresh(generation: generation, action: inputRevision) }
-    }
-    private static func message(_ error: any Error) -> String {
-        (error as? MediaFailure)?.errorDescription ?? "Spotify could not refresh playback."
     }
 }
