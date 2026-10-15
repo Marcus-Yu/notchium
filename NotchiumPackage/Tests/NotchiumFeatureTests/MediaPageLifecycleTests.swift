@@ -56,7 +56,7 @@ final class MediaPageLifecycleTests: XCTestCase {
             "The logo artwork aligns with the 30 pt page gutter, including its transparent image border")
     }
 
-    func testClosingUpNextReturnsToCurrentlyPlayingOnReopen() async throws {
+    func testClosingMediaKeepsPlayerOnReopen() async throws {
         let model = makeModel()
         let visibility = MediaPageVisibility()
         let host = NSHostingView(rootView: MediaPageHarness(model: model, visibility: visibility)
@@ -70,23 +70,12 @@ final class MediaPageLifecycleTests: XCTestCase {
         try await settle(host)
 
         XCTAssertGreaterThan(try playbackIconPixels(in: host), 10)
-        // Native window coordinates: the Up Next button is at the upper right.
-        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-            let event = try XCTUnwrap(NSEvent.mouseEvent(with: type, location: CGPoint(x: 458, y: 176),
-                modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window.windowNumber, context: nil, eventNumber: 0,
-                clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
-            window.sendEvent(event)
-        }
-        try await settle(host)
-        XCTAssertEqual(try playbackIconPixels(in: host), 0, "Up Next replaces the player controls")
-
         visibility.expanded = false
         try await settle(host)
         visibility.expanded = true
         try await settle(host)
         XCTAssertGreaterThan(try playbackIconPixels(in: host), 10,
-            "Reopening Media shows Currently Playing rather than the previous queue")
+            "Reopening Media retains the player controls")
     }
 
     func testCompactPlayerLayoutStaysStableAcrossMetadataAndPlaybackStates() async throws {
@@ -124,11 +113,11 @@ final class MediaPageLifecycleTests: XCTestCase {
                 host.cacheDisplay(in: host.bounds, to: bitmap)
                 // Inspect actual native pixels; ImageRenderer cannot render the slider's AppKit input view.
                 let frames = try [
-                    inkBounds(in: bitmap, region: CGRect(x: 230, y: 0, width: 170, height: 40)),
-                    inkBounds(in: bitmap, region: CGRect(x: 30, y: 36, width: 76, height: 90)),
-                    inkBounds(in: bitmap, region: CGRect(x: 245, y: 110, width: 35, height: 58)),
-                    inkBounds(in: bitmap, region: CGRect(x: 350, y: 160, width: 144, height: height - 160),
+                    inkBounds(in: bitmap, region: CGRect(x: 30, y: 0, width: 84, height: 102)),
+                    inkBounds(in: bitmap, region: CGRect(x: 245, y: 100, width: 35, height: 46)),
+                    inkBounds(in: bitmap, region: CGRect(x: 30, y: height - 50, width: 414, height: 40),
                         neutralOnly: true),
+                    inkBounds(in: bitmap, region: CGRect(x: 460, y: height - 50, width: 34, height: 40)),
                 ]
                 for frame in frames {
                     XCTAssertGreaterThan(frame.width, 0)
@@ -141,19 +130,22 @@ final class MediaPageLifecycleTests: XCTestCase {
                 } else {
                     referenceFrames = frames
                 }
-                XCTAssertGreaterThanOrEqual(frames[1].minY - frames[0].maxY, height == 202 ? 11 : 5,
-                    "The selector must remain separate from the artwork and metadata region")
-                if height == 202 {
-                    let title = try inkBounds(in: bitmap,
-                        region: CGRect(x: 122, y: frames[1].minY, width: 278, height: 20))
-                    // The 28 point utilities sit centered in their 32 point navigation row.
-                    let upperGap = frames[0].minY + 2
-                    XCTAssertEqual(title.minY - frames[0].maxY, upperGap * 2, accuracy: 1,
-                        "The visible title gap is twice the utility-to-selector gap")
-                }
-                XCTAssertEqual(frames[1].height, 76, accuracy: 1, "Artwork retains its original size")
-                XCTAssertGreaterThan(frames[3].minY, frames[2].maxY, "Output stays below transport")
-                XCTAssertGreaterThanOrEqual(height - frames[3].maxY, 3, "Output stays inside the shell")
+                XCTAssertEqual(frames[0].height, 84, accuracy: 1, "Artwork uses the freed player space")
+                XCTAssertGreaterThanOrEqual(frames[0].minY, 8)
+                XCTAssertLessThanOrEqual(frames[0].minY, 16, "The player has no empty selector band")
+                XCTAssertGreaterThanOrEqual(frames[1].minY - frames[0].maxY, 10)
+                XCTAssertLessThanOrEqual(frames[1].minY - frames[0].maxY, 16,
+                    "Artwork and transport have a compact, even gap")
+                XCTAssertGreaterThan(frames[2].minY, frames[1].maxY, "Volume stays below transport")
+                XCTAssertLessThanOrEqual(frames[2].minY - frames[1].maxY, 28,
+                    "Volume fills the former section-navigation space")
+                XCTAssertGreaterThan(frames[2].width, 380, "Volume uses the full footer width")
+                XCTAssertGreaterThanOrEqual(height - frames[2].maxY, 12)
+                XCTAssertLessThanOrEqual(height - frames[2].maxY, 30,
+                    "Volume's smaller glyphs stay centered in the bottom row")
+                XCTAssertEqual(frames[2].midY, frames[3].midY, accuracy: 2,
+                    "Volume and the source logo share the same row")
+                XCTAssertEqual(frames[3].maxX, 494, accuracy: 1, "The source logo aligns with the page gutter")
 
                 let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
                 try png.write(to: URL(fileURLWithPath: "/private/tmp/notchium-media-spacing-\(name)-\(Int(height)).png"))
@@ -168,7 +160,7 @@ final class MediaPageLifecycleTests: XCTestCase {
             for x in Int(region.minX * scale)..<Int(region.maxX * scale) {
                 guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
                       max(color.redComponent, color.greenComponent, color.blueComponent) > 0.025 else { continue }
-                // The output search also passes the green Spotify logo above the device button.
+                // Ignore colored artwork when measuring the neutral volume control.
                 if neutralOnly && (abs(color.redComponent - color.greenComponent) > 0.01
                     || abs(color.greenComponent - color.blueComponent) > 0.01) { continue }
                 bounds = bounds.union(CGRect(x: CGFloat(x) / scale, y: CGFloat(y) / scale,
