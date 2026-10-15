@@ -48,7 +48,7 @@ Bookmark/filesystem work runs in a dedicated actor. Icons are cached and never l
 
 ## Non-interference and validation
 
-Stage 20 makes no changes to automatic page arbitration, shell geometry, panel geometry, or activity priorities. Qualifying local Media still wins over running Pomodoro, then paused Pomodoro's exclusive 30-second grace, then Home. Manual selection remains owned by the user while open; remote Spotify and all unrelated pages retain their existing policies.
+Playback opens Home on a fresh expansion, including local Spotify playback. Existing Music-targeting alerts retain their opening destination; otherwise running Pomodoro wins, followed by paused Pomodoro's exclusive 30-second grace, then Home. Manual selection remains owned by the user while open. Shell geometry, panel geometry, and activity priorities are unchanged.
 
 Focused tests cover defaults/hide/reset/relaunch, lossless legacy section order, Stage 11 migration, per-item resilience, corrupt/newer schemas, shortcut CRUD/dense ordering, URL validation, availability/access denial, exact Apple Shortcut identity, caching, no transient/page changes, real bookmark restoration/missing resources, and native app resolution. Rendering checks cover default, Shortcuts, customization, add, unavailable, dense, and reordered states. `HomeShortcutLayoutTests` checks filled segment edges, empty gaps, and centered contents for one through four shortcuts at Home's available width. QA images are opt-in through `NOTCHIUM_STAGE20_QA=1`: the presentation fixtures capture default Home, one shortcut, and several shortcuts, and the adaptive-strip fixtures capture one through four shortcuts. Ordinary tests leave no screenshots.
 
