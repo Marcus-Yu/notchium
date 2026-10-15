@@ -19,13 +19,13 @@ import NotchiumDynamicIsland
     private let images = NSCache<NSURL, MediaArtworkResource>()
     private var requests: [URL: Task<MediaArtworkResource?, Error>] = [:]
     private let session: URLSession
-    init() {
+    init(session: URLSession? = nil) {
         images.countLimit = 8
         images.totalCostLimit = 1_000_000
         let configuration = URLSessionConfiguration.ephemeral
         configuration.urlCache = nil
         configuration.timeoutIntervalForResource = 20
-        session = URLSession(configuration: configuration)
+        self.session = session ?? URLSession(configuration: configuration)
     }
     func load(_ url: URL) async throws -> MediaArtworkResource? {
         if let image = images.object(forKey: url as NSURL) { return image }
