@@ -180,7 +180,7 @@ public final class DynamicIslandPresentationModel {
     @ObservationIgnored private(set) var isHeldAfterSystemPresentation = false
 
     private let hoverEntryDelay: Duration = .milliseconds(120)
-    private let hoverExitDelay: Duration = .milliseconds(200)
+    private let hoverExitDelay: Duration = .milliseconds(600)
     @ObservationIgnored private var pointerIsInside = false
 
     public init(
