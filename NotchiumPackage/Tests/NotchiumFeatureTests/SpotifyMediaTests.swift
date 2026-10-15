@@ -1,1666 +1,390 @@
+import AppKit
 import Foundation
-import XCTest
 import NotchiumCore
+import NotchiumDynamicIsland
+import SwiftUI
+import XCTest
+@testable import NotchiumMediaFeature
 @testable import NotchiumServices
 
-private final class MemorySpotifyStore: SpotifyTokenStoring, @unchecked Sendable {
-    private let lock = NSLock()
-    private var data: Data?
-    init(data: Data? = nil) { self.data = data }
-    func read() -> Data? { lock.withLock { data } }
-    func write(_ data: Data) { lock.withLock { self.data = data } }
-    func remove() { lock.withLock { data = nil } }
-}
-private actor ScriptedMediaTransport: MediaHTTPTransport {
-    private var responses: [MediaHTTPResponse]
-    private(set) var requests: [URLRequest] = []
-    init(_ responses: [MediaHTTPResponse]) { self.responses = responses }
-    func send(_ request: URLRequest) throws -> MediaHTTPResponse {
-        requests.append(request)
-        guard !responses.isEmpty else { throw MediaFailure.invalidResponse }
-        return responses.removeFirst()
-    }
-}
-
-private actor LocalResumeTransport: MediaHTTPTransport {
-    private(set) var requests: [URLRequest] = []
-    private var playbackReads = 0
-    private var deviceReads = 0
-
-    func send(_ request: URLRequest) -> MediaHTTPResponse {
-        requests.append(request)
-        if request.url?.path.hasSuffix("/devices") == true {
-            deviceReads += 1
-            let devices = deviceReads == 1
-                ? #"{"devices":[]}"#
-                : #"{"devices":[{"id":"local-mac","is_active":false,"is_restricted":false,"name":"Test Mac","type":"Computer","volume_percent":62,"supports_volume":true}]}"#
-            return .init(data: Data(devices.utf8), status: 200)
-        }
-        if request.httpMethod == "PUT", request.url?.path.hasSuffix("/me/player") == true {
-            return .init(status: 204)
-        }
-        playbackReads += 1
-        guard playbackReads > 1 else { return .init(status: 204) }
-        let playback = #"{"is_playing":true,"progress_ms":61000,"device":{"id":"local-mac","is_active":true,"is_restricted":false,"name":"Test Mac","type":"Computer","volume_percent":62,"supports_volume":true},"actions":{"disallows":{}},"shuffle_state":false,"repeat_state":"off","item":{"id":"track-1","name":"Midnight City","type":"track","duration_ms":244000,"artists":[{"name":"M83"}],"album":{"images":[]}}}"#
-        return .init(data: Data(playback.utf8), status: 200)
-    }
-
-    func waitForInitialPlaybackRead() async {
-        while playbackReads == 0 { await Task.yield() }
-    }
-}
-
-private actor TestSpotifyApplicationLauncher: SpotifyApplicationLaunching {
-    private(set) var launchCount = 0
-    private var running = false
+private actor LocalSpotifyApplication: SpotifyApplicationLaunching {
+    var installed = true
+    var running = true
+    private(set) var launches = 0
+    func isSpotifyInstalled() -> Bool { installed }
     func isSpotifyRunning() -> Bool { running }
-    func launchSpotify() { launchCount += 1; running = true }
-    func localDeviceNames() -> Set<String> { ["test mac"] }
+    func launchSpotify() { launches += 1; running = true }
+    func set(installed: Bool = true, running: Bool) { self.installed = installed; self.running = running }
 }
-
-private actor RacingMediaTransport: MediaHTTPTransport {
-    private let playing: Data
-    private let paused: Data
-    private var count = 0
-    private var held: CheckedContinuation<MediaHTTPResponse, any Error>?
-    private var observer: CheckedContinuation<Void, Never>?
-    init(playing: Data, paused: Data) { self.playing = playing; self.paused = paused }
-    func send(_ request: URLRequest) async throws -> MediaHTTPResponse {
-        count += 1
-        switch count {
-        case 1: return .init(data: playing, status: 200)
-        case 2:
-            return try await withCheckedThrowingContinuation { continuation in
-                held = continuation
-                observer?.resume(); observer = nil
-            }
-        case 3: return .init(status: 204)
-        case 4: return .init(data: paused, status: 200)
-        default: throw MediaFailure.invalidResponse
-        }
-    }
-    func waitForHeldPoll() async {
-        if held != nil { return }
-        await withCheckedContinuation { observer = $0 }
-    }
-    func rateLimitHeldPoll() { held?.resume(returning: .init(status: 429, retryAfter: 60)); held = nil }
-    func releaseHeldPoll() { held?.resume(returning: .init(data: playing, status: 200)); held = nil }
-    func failHeldPoll() { held?.resume(throwing: MediaFailure.invalidResponse); held = nil }
+private actor LocalSpotifyPreferencesFixture: SpotifyLocalPreferencesStoring {
+    var enabled: Bool
+    init(_ enabled: Bool = true) { self.enabled = enabled }
+    func isEnabled() -> Bool { enabled }
+    func setEnabled(_ enabled: Bool) { self.enabled = enabled }
 }
-
-private actor HeldNextTransport: MediaHTTPTransport {
-    let playback: Data
-    private var next: CheckedContinuation<MediaHTTPResponse, any Error>?
-    init(playback: Data) { self.playback = playback }
-    func send(_ request: URLRequest) async throws -> MediaHTTPResponse {
-        if request.url?.path.hasSuffix("/next") == true {
-            return try await withCheckedThrowingContinuation { next = $0 }
-        }
-        return request.httpMethod == "GET" ? .init(data: playback, status: 200) : .init(status: 204)
-    }
-    func waitForNext() async { while next == nil { await Task.yield() } }
-    func finishNext() { next?.resume(returning: .init(status: 204)); next = nil }
-}
-
-private actor HeldPlaybackRefreshTransport: MediaHTTPTransport {
-    let initial: Data
-    let changed: Data
-    private var reads = 0
-    private var held: CheckedContinuation<MediaHTTPResponse, Never>?
-    init(initial: Data, changed: Data) { self.initial = initial; self.changed = changed }
-    func send(_ request: URLRequest) async -> MediaHTTPResponse {
-        reads += 1
-        switch reads {
-        case 1: return .init(data: initial, status: 200)
-        case 2: return await withCheckedContinuation { held = $0 }
-        default: return .init(data: changed, status: 200)
-        }
-    }
-    func waitForHeldRead() async { while held == nil { await Task.yield() } }
-    func releaseHeldRead() {
-        held?.resume(returning: .init(data: initial, status: 200))
-        held = nil
-    }
-    func waitForReads(_ count: Int) async { while reads < count { await Task.yield() } }
-    var readCount: Int { reads }
-}
-
-private actor OverlappingAuthorizationTransport: MediaHTTPTransport {
-    private var heldRefresh: CheckedContinuation<MediaHTTPResponse, any Error>?
-    private var refreshObserver: CheckedContinuation<Void, Never>?
-
-    func send(_ request: URLRequest) async throws -> MediaHTTPResponse {
-        let body = request.httpBody.map { String(decoding: $0, as: UTF8.self) } ?? ""
-        if body.contains("grant_type=refresh_token") {
-            return try await withCheckedThrowingContinuation { continuation in
-                heldRefresh = continuation
-                refreshObserver?.resume()
-                refreshObserver = nil
-            }
-        }
-        if body.contains("grant_type=authorization_code") {
-            return .init(data: Data(
-                #"{"access_token":"new-access","refresh_token":"new-refresh","expires_in":3600}"#.utf8
-            ), status: 200)
-        }
-        return .init(status: 204)
-    }
-
-    func waitForHeldRefresh() async {
-        if heldRefresh != nil { return }
-        await withCheckedContinuation { refreshObserver = $0 }
-    }
-
-    func finishHeldRefresh() {
-        heldRefresh?.resume(returning: .init(data: Data(
-            #"{"access_token":"stale-access","expires_in":3600}"#.utf8
-        ), status: 200))
-        heldRefresh = nil
-    }
-}
-
-private actor HeldQueueTransport: MediaHTTPTransport {
-    let playback: Data
-    private var held: CheckedContinuation<MediaHTTPResponse, Never>?
-    private(set) var queueRequests = 0
-    private var changed = false
-    init(playback: Data) { self.playback = playback }
-    func send(_ request: URLRequest) async -> MediaHTTPResponse {
-        if request.url?.path.hasSuffix("/next") == true {
-            changed = true
-            return .init(status: 204)
-        }
-        if request.url?.path.hasSuffix("/queue") == true {
-            queueRequests += 1
-            if queueRequests == 1 { return await withCheckedContinuation { held = $0 } }
-            return .init(data: Data(#"{"queue":[{"id":"new","uri":"spotify:track:new","name":"New queue"}]}"#.utf8), status: 200)
-        }
-        let data = changed ? Data(String(decoding: playback, as: UTF8.self)
-            .replacingOccurrences(of: "track-1", with: "track-2").utf8) : playback
-        return .init(data: data, status: 200)
-    }
-    func waitForQueue() async { while held == nil { await Task.yield() } }
-    func finishQueue() {
-        held?.resume(returning: .init(data: Data(#"{"queue":[]}"#.utf8), status: 200))
-        held = nil
-    }
-}
-
-private actor TestPlaybackEvents: SpotifyPlaybackEventProviding {
-    private var continuation: AsyncStream<SpotifyPlaybackEvent>.Continuation?
-    private(set) var subscriptions = 0
-    private(set) var terminations = 0
-    func events() -> AsyncStream<SpotifyPlaybackEvent> {
-        subscriptions += 1
-        let pair = AsyncStream<SpotifyPlaybackEvent>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        continuation = pair.continuation
-        pair.continuation.onTermination = { [weak self] _ in Task { await self?.terminated() } }
-        return pair.stream
-    }
-    private func terminated() { terminations += 1; continuation = nil }
-    func emit(_ event: SpotifyPlaybackEvent) { continuation?.yield(event) }
-    func waitForSubscription() async { while subscriptions == 0 { await Task.yield() } }
-    func waitForTermination() async { while terminations == 0 { await Task.yield() } }
-}
-
-private actor EventPlaybackTransport: MediaHTTPTransport {
-    private var playback: Data
+private actor LocalSpotifyScripts: SpotifyScriptExecuting {
+    private(set) var sources: [String] = []
+    private(set) var permissionChecks = 0
+    var failure: Int?
+    var access: SpotifyAutomationPermission = .allowed
+    var fields = LocalSpotifyScripts.track()
+    private var nextResponses: [[String]] = []
+    private var heldRead: CheckedContinuation<[String], Never>?
+    private var shouldHoldRead = false
+    private var readObservers: [(Int, CheckedContinuation<Void, Never>)] = []
     private(set) var reads = 0
-    private var holdNext = false
-    private var held: CheckedContinuation<MediaHTTPResponse, Never>?
-    private var heldData: Data?
-    init(_ playback: Data) { self.playback = playback }
-    func setPlayback(_ data: Data) { playback = data }
-    func holdNextRead() { holdNext = true }
-    func send(_ request: URLRequest) async -> MediaHTTPResponse {
-        guard request.httpMethod == "GET" else { return .init(status: 204) }
-        reads += 1
-        if holdNext {
-            holdNext = false
-            heldData = playback
-            return await withCheckedContinuation { held = $0 }
+    static func track(id: String = "one", playing: Bool = true, position: String = "45", artwork: String = "https://i.scdn.co/image/test") -> [String] {
+        [playing ? "playing" : "paused", "spotify:track:\(id)", "Title \(id)", "Artist\nWith a tab\t", "Album", artwork,
+         "240000", position, "65", "false", "false", "true", "true", "local"]
+    }
+    func permission() -> SpotifyAutomationPermission { permissionChecks += 1; return access }
+    func setFailure(_ code: Int?) { failure = code }
+    func setAccess(_ access: SpotifyAutomationPermission) { self.access = access }
+    func setFields(_ fields: [String]) { self.fields = fields }
+    func respond(_ values: [[String]]) { nextResponses = values }
+    func holdNextRead() { shouldHoldRead = true }
+    func execute(_ source: String) async throws -> [String] {
+        sources.append(source)
+        if let failure { throw SpotifyScriptFailure(code: failure) }
+        if source == LocalSpotifyController.snapshotScript {
+            reads += 1
+            let ready = readObservers.filter { reads >= $0.0 }
+            readObservers.removeAll { reads >= $0.0 }
+            ready.forEach { $0.1.resume() }
+            if shouldHoldRead {
+                shouldHoldRead = false
+                return await withCheckedContinuation { heldRead = $0 }
+            }
+            if !nextResponses.isEmpty { return nextResponses.removeFirst() }
+            return fields
         }
-        return .init(data: playback, status: 200)
+        if source.contains("\n        pause\n") { fields[0] = "paused" }
+        if source.contains("\n        play\n") { fields[0] = "playing" }
+        return ["ok"]
     }
-    func waitForHeldRead() async { while held == nil { await Task.yield() } }
-    func releaseHeldRead() {
-        held?.resume(returning: .init(data: heldData ?? Data(), status: 200))
-        held = nil
-        heldData = nil
+    func waitForReads(_ count: Int) async {
+        if reads >= count { return }
+        await withCheckedContinuation { readObservers.append((count, $0)) }
     }
+    func releaseRead(_ value: [String]) { heldRead?.resume(returning: value); heldRead = nil }
+    func waitForHeldRead() async { while heldRead == nil { await Task.yield() } }
+}
+private actor LocalSpotifyEvents: SpotifyPlaybackEventProviding, SpotifyLifecycleEventProviding {
+    private var playback: AsyncStream<SpotifyPlaybackEvent>.Continuation?
+    private var lifecycle: AsyncStream<SpotifyLifecycleEvent>.Continuation?
+    func events() -> AsyncStream<SpotifyPlaybackEvent> {
+        let pair = AsyncStream<SpotifyPlaybackEvent>.makeStream(); playback = pair.continuation; return pair.stream
+    }
+    func events() -> AsyncStream<SpotifyLifecycleEvent> {
+        let pair = AsyncStream<SpotifyLifecycleEvent>.makeStream(); lifecycle = pair.continuation; return pair.stream
+    }
+    func waitUntilObserved() async { while playback == nil || lifecycle == nil { await Task.yield() } }
+    func send(_ event: SpotifyPlaybackEvent) { playback?.yield(event) }
+    func send(_ event: SpotifyLifecycleEvent) { lifecycle?.yield(event) }
 }
 
 @MainActor final class SpotifyMediaTests: XCTestCase {
-    func testTransferReservesControlBeforeDeviceDiscoverySuspends() async throws {
-        let transport = Stage22HeldDevicesTransport(playback: playback())
-        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
-        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
-                                         transport: transport, clock: clock)
-        try await provider.connect()
-        await clock.waitForPendingSleeps()
-        let first = Task { try await provider.transferPlayback(to: "target") }
-        await transport.waitForHeldDevices()
-        do { try await provider.transferPlayback(to: "target"); XCTFail("Overlapping device transfer accepted") }
-        catch { XCTAssertEqual(error as? MediaFailure, .busy) }
-        await transport.releaseDevices()
-        try await first.value
-        let writes = await transport.transferWrites
-        XCTAssertEqual(writes, 1)
-        await provider.shutdown()
+    private func snapshot(_ provider: RealMediaProvider) async -> MediaState {
+        var iterator = await provider.updates().makeAsyncIterator()
+        return await iterator.next()!
     }
-    private func authorizedStore() -> MemorySpotifyStore {
-        .init(data: Data(#"{"clientID":"fixture","accessToken":"fixture-access","refreshToken":"fixture-refresh","expiration":9999999999}"#.utf8))
+    private func provider(_ scripts: LocalSpotifyScripts, application: LocalSpotifyApplication = .init(),
+                          preferences: LocalSpotifyPreferencesFixture = .init(),
+                          events: LocalSpotifyEvents = .init(), clock: TestAppClock? = nil) -> RealMediaProvider {
+        .init(controller: .init(executor: scripts, application: application, preferences: preferences),
+              clock: clock ?? TestAppClock(now: .now, automaticallyAdvances: false),
+              playbackEvents: events, lifecycleEvents: events)
     }
-    private func playback(playing: Bool = true, elapsed: Int = 61000, restricted: Bool = false) -> Data {
-        Data("""
-        {"is_playing":\(playing),"progress_ms":\(elapsed),"device":{"is_restricted":\(restricted)},
-        "actions":{"disallows":{"skipping_next":true}},"shuffle_state":false,"repeat_state":"off",
-        "item":{"id":"track-1","name":"Midnight City","type":"track","duration_ms":244000,
-        "artists":[{"name":"M83"}],"album":{"images":[{"url":"https://i.scdn.co/image/fixture","width":300}]}}}
-        """.utf8)
-    }
-    func testDesktopAndMediaKeyEventsUseOnePipelineAndPollingContinues() async throws {
-        let events = TestPlaybackEvents()
-        let transport = EventPlaybackTransport(playback())
-        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
-        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
-                                         transport: transport, clock: clock, playbackEvents: events)
-        try await provider.connect()
-        await clock.waitForPendingSleeps()
-        await events.waitForSubscription()
-        var updates = await provider.updates().makeAsyncIterator()
-        _ = await updates.next()
-        // Desktop buttons and media keys result in the same Spotify notification.
-        let changes: [(String, Bool, Int)] = [("desktop-next", true, 0), ("media-key-next", true, 0),
-            ("desktop-previous", true, 0), ("media-key-previous", true, 0),
-            ("media-key-previous", false, 1000), ("media-key-previous", true, 1000)]
-        for (id, playing, position) in changes {
-            let data = Data(playback(playing: playing, elapsed: position).formattedForTest
-                .replacingOccurrences(of: "track-1", with: id).utf8)
-            await transport.setPlayback(data)
-            await events.emit(.init(trackID: id, isPlaying: playing, position: Double(position) / 1000))
-            let value = await updates.next()
-            XCTAssertEqual(value?.trackID, id)
-            XCTAssertEqual(value?.isPlaying, playing)
-            XCTAssertEqual(value?.elapsed, Double(position) / 1000)
-            await clock.waitForPendingSleeps(2)
-            await clock.advance(by: .milliseconds(250))
+
+    func testUnavailableSpotifyNeverExecutesScriptOrLaunches() async throws {
+        for installed in [true, false] {
+            let app = LocalSpotifyApplication(); await app.set(installed: installed, running: false)
+            let scripts = LocalSpotifyScripts()
+            let controller = LocalSpotifyController(executor: scripts, application: app,
+                preferences: LocalSpotifyPreferencesFixture())
+            let state = try await controller.read()
+            XCTAssertEqual(state.localSpotifyStatus, installed ? .notRunning : .notInstalled)
+            XCTAssertFalse(state.hasMedia)
+            let sources = await scripts.sources; let launches = await app.launches
+            XCTAssertTrue(sources.isEmpty); XCTAssertEqual(launches, 0)
         }
-        // Five simulated minutes after Previous: no event or notch reload is needed.
-        for index in 0..<60 {
-            await transport.setPlayback(playback(elapsed: (53 + index) * 1000))
-            await clock.advance(by: .seconds(5))
-            let polled = await updates.next()
-            XCTAssertEqual(polled?.elapsed, Double(53 + index))
-            await clock.waitForPendingSleeps()
-        }
-        let subscriptions = await events.subscriptions
-        let reads = await transport.reads
-        XCTAssertEqual(subscriptions, 1)
-        XCTAssertEqual(reads, changes.count + 61)
-        await provider.shutdown()
-        await events.waitForTermination()
     }
-
-    func testEventDuringOldPollRejectsItAndPerformsOneTrailingRead() async throws {
-        let events = TestPlaybackEvents()
-        let transport = EventPlaybackTransport(playback(elapsed: 90000))
-        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
-        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
-                                         transport: transport, clock: clock, playbackEvents: events)
+    func testFirstUseRequiresExplicitEnableAndDenialNeverReprompts() async throws {
+        let scripts = LocalSpotifyScripts(); let preferences = LocalSpotifyPreferencesFixture(false)
+        let controller = LocalSpotifyController(executor: scripts, application: LocalSpotifyApplication(), preferences: preferences)
+        let initial = try await controller.read(); XCTAssertEqual(initial.localSpotifyStatus, .needsPermission)
+        var checks = await scripts.permissionChecks; XCTAssertEqual(checks, 0)
+        await scripts.setAccess(.denied)
+        let denied = try await controller.read(prompt: true); XCTAssertEqual(denied.localSpotifyStatus, .denied)
+        for _ in 0..<3 { _ = try await controller.read() }
+        checks = await scripts.permissionChecks
+        XCTAssertEqual(checks, 4)
+        let sources = await scripts.sources; XCTAssertTrue(sources.isEmpty)
+        await scripts.setAccess(.allowed)
+        let recovered = try await controller.read(); XCTAssertTrue(recovered.hasMedia)
+    }
+    func testExplicitEnableUsesNormalAppleEventForUndeterminedConsent() async throws {
+        let scripts = LocalSpotifyScripts(); await scripts.setAccess(.notDetermined)
+        let controller = LocalSpotifyController(executor: scripts, application: LocalSpotifyApplication(),
+                                               preferences: LocalSpotifyPreferencesFixture())
+        let passive = try await controller.read(); XCTAssertEqual(passive.localSpotifyStatus, .needsPermission)
+        var sources = await scripts.sources; XCTAssertTrue(sources.isEmpty)
+        let enabled = try await controller.read(prompt: true); XCTAssertTrue(enabled.hasMedia)
+        sources = await scripts.sources; XCTAssertEqual(sources, [LocalSpotifyController.snapshotScript])
+    }
+    func testPermissionRequestImmediatelyPopulatesAndRestoresWithoutPrompt() async throws {
+        let scripts = LocalSpotifyScripts(); let preferences = LocalSpotifyPreferencesFixture(false)
+        let provider = provider(scripts, preferences: preferences)
         try await provider.connect()
-        await clock.waitForPendingSleeps()
-        await events.waitForSubscription()
-        await transport.holdNextRead()
-        await clock.advance(by: .seconds(5))
-        await transport.waitForHeldRead()
-        var updates = await provider.updates().makeAsyncIterator()
-        _ = await updates.next()
-        await transport.setPlayback(playback(elapsed: 0))
-        await events.emit(.init(trackID: "track-1", isPlaying: true, position: 0))
-        // The listener has invalidated the old read and entered its bounded event cooldown.
-        await clock.waitForPendingSleeps(2)
-        await transport.releaseHeldRead()
-        let restart = await updates.next()
-        XCTAssertEqual(restart?.elapsed, 0)
-        let reads = await transport.reads
-        XCTAssertEqual(reads, 3)
+        try await provider.enableLocalControl()
+        let state = await snapshot(provider)
+        XCTAssertEqual(state.title, "Title one"); XCTAssertEqual(state.localSpotifyStatus, .ready)
         await provider.shutdown()
-        await events.waitForTermination()
+        let relaunched = self.provider(scripts, preferences: preferences)
+        try await relaunched.connect()
+        let checks = await scripts.permissionChecks; XCTAssertEqual(checks, 2)
+        await relaunched.shutdown()
     }
-
-    func testResumeWithoutActivePlaybackLaunchesSpotifyAndTransfersToLocalMacOnce() async throws {
-        let transport = LocalResumeTransport()
-        let launcher = TestSpotifyApplicationLauncher()
-        let clock = TestAppClock(now: Date(timeIntervalSince1970: 0), automaticallyAdvances: false)
-        let provider = RealMediaProvider(
-            authorization: SpotifyAuthorization(store: authorizedStore(), transport: transport),
-            transport: transport,
-            clock: clock,
-            applicationLauncher: launcher
-        )
-        try await provider.connect()
-        await transport.waitForInitialPlaybackRead()
-
-        try await provider.resumePlayback()
-
-        let launchCount = await launcher.launchCount
-        XCTAssertEqual(launchCount, 1)
-        let requests = await transport.requests
-        let transfer = try XCTUnwrap(requests.first {
-            $0.httpMethod == "PUT" && $0.url?.path.hasSuffix("/me/player") == true
-        })
-        let body = try XCTUnwrap(transfer.httpBody)
-        XCTAssertTrue(String(decoding: body, as: UTF8.self).contains(#""play":true"#))
-        var updates = await provider.updates().makeAsyncIterator()
-        let resumed = await updates.next()
-        XCTAssertEqual(resumed?.activeDeviceID, "local-mac")
-        XCTAssertEqual(resumed?.playbackState, .playing)
-        await provider.shutdown()
+    func testPermissionRevokedBetweenPreflightAndScriptIsHandled() async throws {
+        let scripts = LocalSpotifyScripts()
+        let controller = LocalSpotifyController(executor: scripts, application: LocalSpotifyApplication(),
+                                               preferences: LocalSpotifyPreferencesFixture())
+        await scripts.setFailure(-1743)
+        let denied = try await controller.read(); XCTAssertEqual(denied.localSpotifyStatus, .denied)
+        await scripts.setFailure(-600)
+        let quit = try await controller.read(); XCTAssertEqual(quit.localSpotifyStatus, .notRunning)
     }
-    func testSpotifyMappingCapabilitiesArtworkProgressAndRestrictedDevice() throws {
-        let state = try JSONDecoder().decode(SpotifyPlayback.self, from: playback()).mediaState()
-        XCTAssertEqual(state.source, .spotify); XCTAssertEqual(state.artist, "M83")
-        XCTAssertEqual(state.progress, 0.25); XCTAssertNotNil(state.artwork)
-        XCTAssertTrue(state.canPlayPause); XCTAssertFalse(state.canSkipForward)
-        XCTAssertTrue(state.canSeek)
-        let restricted = try JSONDecoder().decode(SpotifyPlayback.self, from: playback(restricted: true)).mediaState()
-        XCTAssertFalse(restricted.canPlayPause); XCTAssertFalse(restricted.canSeek)
-    }
-    func testSpotifyMappingIncludesActiveDeviceAndRemoteVolumeSupport() throws {
-        let data = Data(#"""
-        {
-        "is_playing":true,"progress_ms":1000,
-        "device":{"id":"mac","is_active":true,"is_restricted":false,"name":"This Mac",
-        "type":"Computer","volume_percent":64,"supports_volume":true},
-        "item":{"id":"track","name":"Track","type":"track","duration_ms":100000,
-        "artists":[{"name":"Artist"}],"album":{"images":[]}}
-        }
-        """#.utf8)
-        let state = try JSONDecoder().decode(SpotifyPlayback.self, from: data).mediaState()
-        XCTAssertEqual(state.activeDeviceID, "mac")
-        XCTAssertEqual(state.activeDeviceName, "This Mac")
-        XCTAssertEqual(state.activeDeviceType, "Computer")
-        XCTAssertEqual(state.volumePercent, 64)
-        XCTAssertTrue(state.capabilities.canSetVolume)
-    }
-    func testPKCEStateValidationAndSingleUseCallback() async throws {
-        let store = MemorySpotifyStore()
-        let transport = ScriptedMediaTransport([.init(data: Data(#"{"access_token":"fixture","refresh_token":"refresh","expires_in":3600}"#.utf8), status: 200)])
-        let auth = SpotifyAuthorization(store: store, transport: transport)
-        let url = try await auth.begin(clientID: String(repeating: "a", count: 32))
-        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)!.queryItems!
-        XCTAssertEqual(query.first(where: { $0.name == "code_challenge_method" })?.value, "S256")
-        XCTAssertEqual(query.first(where: { $0.name == "code_challenge" })?.value?.count, 43)
-        let state = query.first(where: { $0.name == "state" })!.value!
-        let callback = URL(string: SpotifyAuthorization.redirectURI + "?code=fixture&state=" + state)!
-        try await auth.complete(callback: callback)
-        let token = try await auth.accessToken(); XCTAssertEqual(token, "fixture")
-        XCTAssertNotNil(store.read())
-        do { try await auth.complete(callback: callback); XCTFail("Callback replay succeeded") }
-        catch { XCTAssertEqual(error as? MediaFailure, .authorization) }
-        let requests = await transport.requests
-        XCTAssertEqual(requests.count, 1)
-        let body = String(data: requests[0].httpBody!, encoding: .utf8)!
-        XCTAssertTrue(body.contains("code_verifier=")); XCTAssertFalse(body.contains("client_secret"))
-        try await auth.disconnect(); XCTAssertNil(store.read())
-    }
-    func testInvalidCallbackDoesNotConsumeCurrentAuthorizationAttempt() async throws {
-        let store = MemorySpotifyStore()
-        let transport = ScriptedMediaTransport([.init(data: Data(#"{"access_token":"fixture","refresh_token":"refresh","expires_in":3600}"#.utf8), status: 200)])
-        let auth = SpotifyAuthorization(store: store, transport: transport)
-        let url = try await auth.begin(clientID: String(repeating: "a", count: 32))
-        let state = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "state" }?.value)
-        do {
-            try await auth.complete(callback: URL(string: SpotifyAuthorization.redirectURI + "?code=untrusted&state=wrong")!)
-            XCTFail("Untrusted state was accepted")
-        } catch { XCTAssertEqual(error as? MediaFailure, .authorization) }
-        XCTAssertNil(store.read())
-        try await auth.complete(callback: URL(string: SpotifyAuthorization.redirectURI + "?code=fixture&state=" + state)!)
-        XCTAssertNotNil(store.read())
-        let requests = await transport.requests
-        XCTAssertEqual(requests.count, 1)
-    }
-
-    func testFreshAuthorizationInstanceRestoresPersistedSession() async throws {
-        let store = authorizedStore()
-        let transport = ScriptedMediaTransport([])
-        let authorization = SpotifyAuthorization(store: store, transport: transport)
-
-        let token = try await authorization.accessToken()
-        let requests = await transport.requests
-        XCTAssertEqual(token, "fixture-access")
-        XCTAssertTrue(requests.isEmpty)
-    }
-    func testFreshAuthorizationInstanceRefreshesExpiredPersistedSession() async throws {
-        let store = MemorySpotifyStore(data: Data(
-            #"{"clientID":"fixture","accessToken":"expired","refreshToken":"fixture-refresh","expiration":0}"#.utf8
-        ))
-        let transport = ScriptedMediaTransport([
-            .init(data: Data(#"{"access_token":"restored","expires_in":3600}"#.utf8), status: 200),
-        ])
-        let authorization = SpotifyAuthorization(store: store, transport: transport)
-
-        let token = try await authorization.accessToken()
-        let requests = await transport.requests
-        XCTAssertEqual(token, "restored")
-        let request = try XCTUnwrap(requests.first)
-        let body = try XCTUnwrap(request.httpBody).formattedForTest
-        XCTAssertTrue(body.contains("grant_type=refresh_token"))
-        XCTAssertTrue(body.contains("refresh_token=fixture-refresh"))
-
-        let relaunched = SpotifyAuthorization(store: store, transport: ScriptedMediaTransport([]))
-        let relaunchedToken = try await relaunched.accessToken()
-        XCTAssertEqual(relaunchedToken, "restored")
-    }
-    func testExpiredSessionRefreshPublishesAuthenticatedInactiveState() async throws {
-        let store = MemorySpotifyStore(data: Data(
-            #"{"clientID":"fixture","accessToken":"expired","refreshToken":"fixture-refresh","expiration":0}"#.utf8
-        ))
-        let transport = ScriptedMediaTransport([
-            .init(data: Data(#"{"access_token":"restored","expires_in":3600}"#.utf8), status: 200),
-            .init(status: 204),
-        ])
-        let provider = RealMediaProvider(
-            authorization: SpotifyAuthorization(store: store, transport: transport),
-            transport: transport
-        )
-        var iterator = await provider.updates().makeAsyncIterator()
-        _ = await iterator.next()
-
-        try await provider.connect()
-        let authenticated = await iterator.next()
-        XCTAssertEqual(authenticated?.connectionState, .authenticated)
-        XCTAssertEqual(authenticated?.experienceState, .inactive)
-        await provider.shutdown()
-    }
-    func testFailedSessionRefreshPublishesErrorInsteadOfRemainingInitializing() async throws {
-        let store = MemorySpotifyStore(data: Data(
-            #"{"clientID":"fixture","accessToken":"expired","refreshToken":"fixture-refresh","expiration":0}"#.utf8
-        ))
-        let transport = ScriptedMediaTransport([.init(status: 400)])
-        let provider = RealMediaProvider(
-            authorization: SpotifyAuthorization(store: store, transport: transport),
-            transport: transport
-        )
-        var iterator = await provider.updates().makeAsyncIterator()
-        _ = await iterator.next()
-
-        do {
-            try await provider.connect()
-            XCTFail("Failed refresh restored the session")
-        } catch {
-            XCTAssertEqual(error as? MediaFailure, .authorization)
-        }
-        let failed = await iterator.next()
-        XCTAssertEqual(failed?.connectionState, .error)
-        XCTAssertEqual(failed?.experienceState, .error)
-    }
-    func testInteractiveOAuthPreservesRateLimitAndPublishesAuthenticated() async throws {
-        let store = authorizedStore()
-        let transport = ScriptedMediaTransport([
-            .init(status: 429, retryAfter: 36_000),
-            .init(data: Data(#"{"access_token":"new-access","refresh_token":"new-refresh","expires_in":3600}"#.utf8),
-                  status: 200),
-            .init(status: 204),
-        ])
-        let clock = TestAppClock(now: Date(timeIntervalSince1970: 0), automaticallyAdvances: false)
-        let provider = RealMediaProvider(
-            authorization: SpotifyAuthorization(store: store, transport: transport),
-            transport: transport,
-            clock: clock
-        )
-        try await provider.connect()
-        await clock.waitForPendingSleeps()
-        var current = await provider.updates().makeAsyncIterator()
-        let rateLimited = await current.next()
-        XCTAssertEqual(rateLimited?.connectionState, .authenticated)
-        XCTAssertEqual(rateLimited?.rateLimitedUntil, Date(timeIntervalSince1970: 36_000))
-
-        try await provider.disconnect()
-        let clientID = String(repeating: "c", count: 32)
-        let authorizationURL = try await provider.beginAuthorization(clientID: clientID)
-        var authorizing = await provider.updates().makeAsyncIterator()
-        let authorizingState = await authorizing.next()
-        XCTAssertEqual(authorizingState?.experienceState, .authorizing)
-        let state = try XCTUnwrap(URLComponents(url: authorizationURL, resolvingAgainstBaseURL: false)?
-            .queryItems?.first(where: { $0.name == "state" })?.value)
-        let callback = try XCTUnwrap(URL(string: SpotifyAuthorization.redirectURI + "?code=fixture&state=" + state))
-        try await provider.completeAuthorization(callback: callback)
-
-        await clock.waitForPendingSleeps()
-        let requests = await transport.requests
-        XCTAssertEqual(requests.count, 2, "OAuth must not bypass the existing playback cooldown")
-        var reconnected = await provider.updates().makeAsyncIterator()
-        let stateAfterReconnect = await reconnected.next()
-        XCTAssertEqual(stateAfterReconnect?.connectionState, .authenticated)
-        XCTAssertEqual(stateAfterReconnect?.experienceState, .inactive)
-        XCTAssertEqual(stateAfterReconnect?.rateLimitedUntil, Date(timeIntervalSince1970: 36_000))
-        await clock.advance(by: .seconds(36_000))
-        await clock.waitForPendingSleeps()
-        let resumedRequests = await transport.requests
-        XCTAssertEqual(resumedRequests.count, 3)
-        await provider.shutdown()
-    }
-    func testFreshInteractiveLoginLeavesAuthorizingAndHandlesNoPlayback() async throws {
-        let store = MemorySpotifyStore()
-        let transport = ScriptedMediaTransport([
-            .init(data: Data(#"{"access_token":"new-access","refresh_token":"new-refresh","expires_in":3600}"#.utf8),
-                  status: 200),
-            .init(status: 204),
-        ])
-        let provider = RealMediaProvider(
-            authorization: SpotifyAuthorization(store: store, transport: transport),
-            transport: transport
-        )
-        do { try await provider.connect(); XCTFail("Missing credentials restored") }
-        catch { XCTAssertEqual(error as? MediaFailure, .disconnected) }
-
-        let authorizationURL = try await provider.beginAuthorization(clientID: String(repeating: "d", count: 32))
-        var current = await provider.updates().makeAsyncIterator()
-        let authorizing = await current.next()
-        XCTAssertEqual(authorizing?.experienceState, .authorizing)
-        let state = try XCTUnwrap(URLComponents(url: authorizationURL, resolvingAgainstBaseURL: false)?
-            .queryItems?.first(where: { $0.name == "state" })?.value)
-        let callback = try XCTUnwrap(URL(string: SpotifyAuthorization.redirectURI + "?code=fixture&state=" + state))
-        try await provider.completeAuthorization(callback: callback)
-
-        for _ in 0..<100 where await transport.requests.count < 2 { await Task.yield() }
-        var authenticated = await provider.updates().makeAsyncIterator()
-        let inactive = await authenticated.next()
-        XCTAssertEqual(inactive?.connectionState, .authenticated)
-        XCTAssertEqual(inactive?.experienceState, .inactive)
-        XCTAssertNotNil(store.read())
-        await provider.shutdown()
-    }
-    func testInteractiveAuthorizationCancellationAndFailureLeaveTransientState() async throws {
-        let provider = RealMediaProvider(
-            authorization: SpotifyAuthorization(store: MemorySpotifyStore(), transport: ScriptedMediaTransport([])),
-            transport: ScriptedMediaTransport([])
-        )
-        _ = try await provider.beginAuthorization(clientID: String(repeating: "f", count: 32))
-        await provider.cancelAuthorization()
-        var cancelled = await provider.updates().makeAsyncIterator()
-        let cancelledState = await cancelled.next()
-        XCTAssertEqual(cancelledState?.connectionState, .unauthenticated)
-
-        _ = try await provider.beginAuthorization(clientID: String(repeating: "f", count: 32))
-        await provider.failAuthorization()
-        var failed = await provider.updates().makeAsyncIterator()
-        let failedState = await failed.next()
-        XCTAssertEqual(failedState?.connectionState, .error)
-    }
-    func testInteractiveOAuthSupersedesInFlightColdLaunchRefresh() async throws {
-        let store = MemorySpotifyStore(data: Data(
-            #"{"clientID":"old-client","accessToken":"expired","refreshToken":"old-refresh","expiration":0}"#.utf8
-        ))
-        let transport = OverlappingAuthorizationTransport()
-        let authorization = SpotifyAuthorization(store: store, transport: transport)
-        let provider = RealMediaProvider(authorization: authorization, transport: transport)
-        let restoration = Task { try await provider.connect() }
-        await transport.waitForHeldRefresh()
-
-        let authorizationURL = try await provider.beginAuthorization(clientID: String(repeating: "e", count: 32))
-        let state = try XCTUnwrap(URLComponents(url: authorizationURL, resolvingAgainstBaseURL: false)?
-            .queryItems?.first(where: { $0.name == "state" })?.value)
-        let callback = try XCTUnwrap(URL(string: SpotifyAuthorization.redirectURI + "?code=fixture&state=" + state))
-        try await provider.completeAuthorization(callback: callback)
-        await transport.finishHeldRefresh()
-        do { try await restoration.value; XCTFail("Obsolete restoration completed") }
-        catch { XCTAssertTrue(error is CancellationError) }
-
-        let relaunched = SpotifyAuthorization(store: store, transport: ScriptedMediaTransport([]))
-        let relaunchedToken = try await relaunched.accessToken()
-        XCTAssertEqual(relaunchedToken, "new-access")
-        var current = await provider.updates().makeAsyncIterator()
-        let connected = await current.next()
-        XCTAssertEqual(connected?.connectionState, .authenticated)
-        XCTAssertNotEqual(connected?.experienceState, .initializing)
-        await provider.shutdown()
-    }
-    func testColdLaunchWithoutCredentialsPublishesUnauthenticatedState() async throws {
-        let transport = ScriptedMediaTransport([])
-        let provider = RealMediaProvider(
-            authorization: SpotifyAuthorization(store: MemorySpotifyStore(), transport: transport),
-            transport: transport
-        )
-        var iterator = await provider.updates().makeAsyncIterator()
-        let initial = await iterator.next()
-        XCTAssertEqual(initial?.connectionState, .initializing)
-
-        do {
-            try await provider.connect()
-            XCTFail("Missing Spotify credentials restored")
-        } catch {
-            XCTAssertEqual(error as? MediaFailure, .disconnected)
-        }
-        let disconnected = await iterator.next()
-        XCTAssertEqual(disconnected?.connectionState, .unauthenticated)
-        XCTAssertEqual(disconnected?.experienceState, .unauthenticated)
-    }
-    func testColdLaunchWithoutSpotifyPlaybackStaysAuthenticatedAndDetectsPlaybackLater() async throws {
-        let transport = ScriptedMediaTransport([
-            .init(status: 204),
-            .init(data: playback(), status: 200),
-        ])
-        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
-        let provider = RealMediaProvider(
-            authorization: SpotifyAuthorization(store: authorizedStore(), transport: transport),
-            transport: transport,
-            clock: clock
-        )
-        var iterator = await provider.updates().makeAsyncIterator()
-        let initial = await iterator.next()
-        XCTAssertEqual(initial?.experienceState, .initializing)
-
-        try await provider.connect()
-        let inactive = await iterator.next()
-        XCTAssertEqual(inactive?.connectionState, .authenticated)
-        XCTAssertEqual(inactive?.experienceState, .inactive)
-
-        await clock.waitForPendingSleeps()
-        await clock.advance(by: .seconds(15))
-        var playing = await iterator.next()
-        if playing?.isPlaying != true { playing = await iterator.next() }
-        XCTAssertEqual(playing?.experienceState, .playing)
-        await provider.shutdown()
-    }
-    func testWrongOAuthStateDoesNotExchangeTokens() async throws {
-        let transport = ScriptedMediaTransport([])
-        let auth = SpotifyAuthorization(store: MemorySpotifyStore(), transport: transport)
-        _ = try await auth.begin(clientID: String(repeating: "b", count: 32))
-        do {
-            try await auth.complete(callback: URL(string: SpotifyAuthorization.redirectURI + "?code=x&state=wrong")!)
-            XCTFail("Invalid state accepted")
-        } catch { XCTAssertEqual(error as? MediaFailure, .authorization) }
-        let requests = await transport.requests; XCTAssertTrue(requests.isEmpty)
-    }
-    func testRealProviderObservationCommandsConfirmedSeekingAndRateLimit() async throws {
-        let transport = ScriptedMediaTransport([
-            .init(data: playback(), status: 200),
-            .init(status: 204), .init(data: playback(playing: false), status: 200),
-            .init(status: 204), .init(data: playback(playing: false, elapsed: 122000), status: 200),
-            .init(status: 429, retryAfter: 60)
-        ])
-        let auth = SpotifyAuthorization(store: authorizedStore(), transport: transport)
-        let clock = TestAppClock(now: Date(timeIntervalSince1970: 0), automaticallyAdvances: false)
-        let provider = RealMediaProvider(authorization: auth, transport: transport, clock: clock)
-        var iterator = await provider.updates().makeAsyncIterator()
-        _ = await iterator.next()
-        try await provider.connect()
-        var playing = await iterator.next()
-        if playing?.hasMedia != true { playing = await iterator.next() }
-        XCTAssertTrue(playing!.isPlaying)
-        await clock.waitForPendingSleeps()
-        let intervals = await clock.sleepHistory(); XCTAssertEqual(intervals, [.seconds(5)])
-        try await provider.perform(.playPause)
-        let paused = await iterator.next(); XCTAssertEqual(paused!.playbackState, .paused)
-        try await provider.perform(.seek(122))
-        let sought = await iterator.next(); XCTAssertEqual(sought!.progress, 0.5)
-        do { try await provider.perform(.previous); XCTFail("Rate limit ignored") }
-        catch { XCTAssertEqual(error as? MediaFailure, .rateLimited(60)) }
-        do { try await provider.perform(.previous); XCTFail("Backoff ignored") }
-        catch { XCTAssertEqual(error as? MediaFailure, .rateLimited(60)) }
-        let requests = await transport.requests
-        XCTAssertEqual(requests.count, 6)
-        XCTAssertEqual(requests[1].url?.path, "/v1/me/player/pause")
-        XCTAssertEqual(requests[3].url?.query, "position_ms=122000")
-        XCTAssertEqual(requests[5].httpMethod, "POST")
-        try await provider.disconnect()
-        var disconnected = await provider.updates().makeAsyncIterator()
-        let stopped = await disconnected.next(); XCTAssertFalse(stopped!.hasMedia)
-    }
-    func testStalePollFailureCannotOverwriteConfirmedCommand() async throws {
-        let transport = RacingMediaTransport(playing: playback(), paused: playback(playing: false))
-        let auth = SpotifyAuthorization(store: authorizedStore(), transport: transport)
-        let clock = TestAppClock(now: Date(timeIntervalSince1970: 0), automaticallyAdvances: false)
-        let provider = RealMediaProvider(authorization: auth, transport: transport, clock: clock)
-        var iterator = await provider.updates().makeAsyncIterator()
-        _ = await iterator.next()
-        try await provider.connect()
-        var connected = await iterator.next()
-        if connected?.hasMedia != true { connected = await iterator.next() }
-        await clock.waitForPendingSleeps()
-        await clock.advance(by: .seconds(5))
-        await transport.waitForHeldPoll()
-        try await provider.perform(.playPause)
-        let paused = await iterator.next()
-        XCTAssertEqual(paused?.playbackState, .paused)
-        await transport.failHeldPoll()
-        await clock.waitForPendingSleeps()
-        let availability = await provider.availability()
-        XCTAssertEqual(availability, .available)
-        try await provider.disconnect()
-    }
-    func testEventRefreshDuringPollRunsOneTrailingRead() async throws {
-        let transport = HeldPlaybackRefreshTransport(initial: playback(), changed: playback(playing: false))
-        let clock = TestAppClock(now: Date(timeIntervalSince1970: 0), automaticallyAdvances: false)
-        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
-                                         transport: transport, clock: clock)
-        try await provider.connect()
-        await clock.waitForPendingSleeps()
-        await clock.advance(by: .seconds(5))
-        await transport.waitForHeldRead()
-
+    func testDeniedProviderNeverStartsFallbackOrRunsMetadataScripts() async throws {
+        let scripts = LocalSpotifyScripts(); await scripts.setAccess(.denied)
+        let clock = TestAppClock(now: .now, automaticallyAdvances: false)
+        let provider = provider(scripts, clock: clock); try await provider.connect()
         await provider.refresh()
-        await provider.refresh()
-        let beforeRelease = await transport.readCount
-        XCTAssertEqual(beforeRelease, 2)
-        var iterator = await provider.updates().makeAsyncIterator()
-        _ = await iterator.next()
-        await transport.releaseHeldRead()
-        await transport.waitForReads(3)
-        var state = await iterator.next()
-        if state?.playbackState != .paused { state = await iterator.next() }
-        XCTAssertEqual(state?.playbackState, .paused)
-        let totalReads = await transport.readCount
-        XCTAssertEqual(totalReads, 3)
+        let sources = await scripts.sources; let sleeps = await clock.sleepHistory()
+        XCTAssertTrue(sources.isEmpty); XCTAssertTrue(sleeps.isEmpty)
+        let state = await snapshot(provider); XCTAssertEqual(state.availability, .unavailable(.permissionDenied))
+        XCTAssertFalse(state.hasMedia)
         await provider.shutdown()
     }
-
-    func testVolumeCommandDoesNotFetchPlaybackConfirmation() async throws {
-        let playable = Data(#"{"is_playing":true,"progress_ms":1000,"device":{"id":"mac","is_restricted":false,"volume_percent":50,"supports_volume":true},"item":{"id":"one","name":"Track","type":"track","duration_ms":100000}}"#.utf8)
-        let transport = ScriptedMediaTransport([
-            .init(data: playable, status: 200), .init(status: 204)
-        ])
-        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
-        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
-                                         transport: transport, clock: clock)
-        try await provider.connect()
-        await clock.waitForPendingSleeps()
-        try await provider.perform(.setVolume(0.73))
-        let requests = await transport.requests
-        XCTAssertEqual(requests.map(\.url?.path), ["/v1/me/player", "/v1/me/player/volume"])
-        var iterator = await provider.updates().makeAsyncIterator()
-        let state = await iterator.next()
-        XCTAssertEqual(state?.volumePercent, 50, "The acknowledgement is not a Spotify read; the session owns 73% optimistically")
-        await provider.shutdown()
-    }
-    func testExpandedPlayerRefreshesImmediatelyAndUsesActiveCadence() async throws {
-        let response = MediaHTTPResponse(data: playback(), status: 200)
-        let transport = ScriptedMediaTransport(Array(repeating: response, count: 4))
-        let clock = TestAppClock(now: Date(timeIntervalSince1970: 0), automaticallyAdvances: false)
-        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
-                                         transport: transport, clock: clock)
-        try await provider.connect()
-        await clock.waitForPendingSleeps()
-        await provider.setExpandedVisible(true)
-        var requestCount = await transport.requests.count
-        XCTAssertEqual(requestCount, 2)
-
-        await clock.advance(by: .seconds(5))
-        await clock.waitForPendingSleeps()
-        requestCount = await transport.requests.count
-        XCTAssertEqual(requestCount, 3)
-        await clock.advance(by: .milliseconds(2_499))
-        requestCount = await transport.requests.count
-        XCTAssertEqual(requestCount, 3)
-        await clock.advance(by: .milliseconds(1))
-        await clock.waitForPendingSleeps()
-        requestCount = await transport.requests.count
-        XCTAssertEqual(requestCount, 4)
-        await provider.shutdown()
-    }
-    func testUnchangedPausedPollStillReachesReconciliationSubscriber() async throws {
-        let response = MediaHTTPResponse(data: playback(playing: false), status: 200)
-        let transport = ScriptedMediaTransport([response, response])
-        let clock = TestAppClock(now: Date(timeIntervalSince1970: 0), automaticallyAdvances: false)
-        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
-                                         transport: transport, clock: clock)
-        try await provider.connect()
-        await clock.waitForPendingSleeps()
-        var iterator = await provider.updates().makeAsyncIterator()
-        let first = await iterator.next()
-        XCTAssertEqual(first?.playbackState, .paused)
-        await clock.advance(by: .seconds(15))
-        let second = await iterator.next()
-        XCTAssertEqual(second?.playbackState, .paused)
-        let requests = await transport.requests
-        XCTAssertEqual(requests.count, 2)
-        await provider.shutdown()
-    }
-    func testPollingWithoutSubscribersAndRetryAfter() async throws {
-        let transport = ScriptedMediaTransport([
-            .init(data: playback(), status: 200),
-            .init(status: 429, retryAfter: 2),
-            .init(data: playback(playing: false), status: 200)
-        ])
-        let clock = TestAppClock(now: Date(timeIntervalSince1970: 0), automaticallyAdvances: false)
-        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
-                                         transport: transport, clock: clock)
-        try await provider.connect() // No UI or subscribers exist.
-        try await provider.connect() // Must not create a second poller.
-        await clock.waitForPendingSleeps()
-        var requests = await transport.requests
-        XCTAssertEqual(requests.count, 1)
-        await clock.advance(by: .milliseconds(4_999))
-        requests = await transport.requests
-        XCTAssertEqual(requests.count, 1)
-        await clock.advance(by: .milliseconds(1))
-        await clock.waitForPendingSleeps()
-        requests = await transport.requests
-        XCTAssertEqual(requests.count, 2)
-        var iterator = await provider.updates().makeAsyncIterator()
-        let preserved = await iterator.next()
-        XCTAssertTrue(preserved?.isPlaying == true) // A transient 429 cannot remove the flanks.
-        await clock.advance(by: .milliseconds(1999))
-        requests = await transport.requests
-        XCTAssertEqual(requests.count, 2)
-        await clock.advance(by: .milliseconds(1))
-        let paused = await iterator.next()
-        XCTAssertEqual(paused?.playbackState, .paused)
-        await clock.waitForPendingSleeps()
-        await provider.shutdown()
-        await clock.advance(by: .seconds(20))
-        requests = await transport.requests
-        XCTAssertEqual(requests.count, 3)
-    }
-
-    func testInitialAndRepeated429SuspendAllEndpointsWithoutLosingCredentials() async throws {
-        let store = authorizedStore()
-        let transport = ScriptedMediaTransport([
-            .init(status: 429, retryAfter: 60),
-            .init(status: 429, retryAfter: 60),
-            .init(data: playback(), status: 200),
-        ])
-        let clock = TestAppClock(now: Date(timeIntervalSince1970: 0), automaticallyAdvances: false)
-        let provider = RealMediaProvider(authorization: .init(store: store, transport: transport),
-                                         transport: transport, clock: clock)
-        try await provider.connect()
-        await clock.waitForPendingSleeps()
-        for cycle in 0..<2 {
-            var iterator = await provider.updates().makeAsyncIterator()
-            let state = await iterator.next()
-            XCTAssertEqual(state?.connectionState, .authenticated)
-            XCTAssertEqual(state?.rateLimitedUntil, Date(timeIntervalSince1970: Double((cycle + 1) * 60)))
-            XCTAssertNotNil(store.read())
-            for _ in 0..<10 {
-                try await provider.connect()
-                _ = await provider.updates()
-                await provider.refresh()
-                try? await provider.loadQueue()
-                try? await provider.addToQueue(uri: "spotify:track:fixture")
-                try? await provider.pause()
-            }
-            await clock.advance(by: .seconds(59))
-            let before = await transport.requests.count
-            XCTAssertEqual(before, cycle + 1)
-            let sleepers = await clock.pendingSleepCount()
-            XCTAssertEqual(sleepers, 1)
-            await clock.advance(by: .seconds(1))
-            await clock.waitForPendingSleeps()
-            let after = await transport.requests.count
-            XCTAssertEqual(after, cycle + 2)
-        }
-        var iterator = await provider.updates().makeAsyncIterator()
-        let recovered = await iterator.next()
-        XCTAssertTrue(recovered?.isPlaying == true)
-        XCTAssertNil(recovered?.rateLimitedUntil)
-        XCTAssertNil(recovered?.issue)
-        await provider.shutdown()
-    }
-
-    func testFiveMinutesOfPollingWithRepeatedSubscriptionsHasOneLoop() async throws {
+    func testPlayingPausedMetadataAlbumDurationAndArtwork() throws {
         for playing in [true, false] {
-            let interval = playing ? 5 : 15
-            let cycles = 300 / interval
-            let response = playing ? MediaHTTPResponse(data: playback(), status: 200) : .init(status: 204)
-            let transport = ScriptedMediaTransport(Array(repeating: response, count: cycles + 1))
-            let clock = TestAppClock(now: Date(timeIntervalSince1970: 0), automaticallyAdvances: false)
-            let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
-                                             transport: transport, clock: clock)
-            async let first: Void = provider.connect()
-            async let second: Void = provider.connect()
-            _ = try await (first, second)
-            await clock.waitForPendingSleeps()
-            for _ in 0..<cycles {
-                // View lifetime changes only create/remove subscribers, never permanent pollers.
-                _ = await provider.updates()
-                try await provider.connect()
-                await clock.advance(by: .seconds(interval))
-                await clock.waitForPendingSleeps()
-                let sleepers = await clock.pendingSleepCount()
-                XCTAssertEqual(sleepers, 1)
-            }
-            let requests = await transport.requests
-            XCTAssertEqual(requests.count, cycles + 1)
-            XCTAssertTrue(requests.allSatisfy { $0.url?.path == "/v1/me/player" })
-            await provider.shutdown()
+            let state = try LocalSpotifyController.decode(LocalSpotifyScripts.track(playing: playing))
+            XCTAssertEqual(state.isPlaying, playing); XCTAssertEqual(state.playbackRate, playing ? 1 : 0)
+            XCTAssertEqual(state.album, "Album"); XCTAssertEqual(state.artist, "Artist\nWith a tab\t")
+            XCTAssertEqual(state.duration, 240); XCTAssertEqual(state.elapsed, 45)
+            XCTAssertEqual(state.trackID, "one"); XCTAssertEqual(state.volumePercent, 65)
+            XCTAssertTrue(state.canSeek); XCTAssertFalse(state.capabilities.canReadQueue)
+            XCTAssertEqual(state.artwork?.host, "i.scdn.co"); XCTAssertTrue(state.queue.isEmpty)
         }
     }
-
-    func testOrdinaryQueueReadsAreCachedButExplicitRefreshBypassesCache() async throws {
-        let queue = MediaHTTPResponse(data: Data(#"{"queue":[]}"#.utf8), status: 200)
-        let transport = ScriptedMediaTransport([.init(data: playback(), status: 200), queue, queue])
-        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
-        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
-                                         transport: transport, clock: clock)
-        try await provider.connect()
-        await clock.waitForPendingSleeps()
-        for _ in 0..<20 { try await provider.loadQueue() }
-        var requests = await transport.requests
-        XCTAssertEqual(requests.filter { $0.url?.path == "/v1/me/player/queue" }.count, 1)
-        try await provider.refreshQueue()
-        requests = await transport.requests
-        XCTAssertEqual(requests.filter { $0.url?.path == "/v1/me/player/queue" }.count, 2)
-        await provider.shutdown()
-    }
-
-    func testQueue429BlocksPlaybackAndControlsAtSharedBoundary() async throws {
-        let transport = ScriptedMediaTransport([.init(status: 429, retryAfter: 60), .init(status: 204)])
-        let clock = TestAppClock(now: Date(timeIntervalSince1970: 0), automaticallyAdvances: false)
-        let api = SpotifyPlaybackAPI(authorization: .init(store: authorizedStore(), transport: transport),
-                                     transport: transport, clock: clock)
-        do { _ = try await api.queue(); XCTFail("Expected 429") }
-        catch { XCTAssertEqual(error as? MediaFailure, .rateLimited(60)) }
-        await clock.advance(by: .seconds(59))
-        for path in ["", "/queue", "/seek", "/pause"] {
-            do { _ = try await api.request(path: path); XCTFail("Cooldown bypassed") }
-            catch { XCTAssertEqual(error as? MediaFailure, .rateLimited(1)) }
+    func testMalformedArtworkFallsBackAndInvalidSnapshotsAreRejected() throws {
+        for url in ["", "file:///private/tmp/art", "https://untrusted.example/art", "http://i.scdn.co/art"] {
+            XCTAssertNil(try LocalSpotifyController.decode(LocalSpotifyScripts.track(artwork: url)).artwork)
         }
-        let before = await transport.requests.count
-        XCTAssertEqual(before, 1)
-        await clock.advance(by: .seconds(1))
-        _ = try await api.state()
-        let after = await transport.requests.count
-        XCTAssertEqual(after, 2)
+        XCTAssertThrowsError(try LocalSpotifyController.decode(["playing"]))
+        var fields = LocalSpotifyScripts.track(); fields[7] = "nan"
+        XCTAssertThrowsError(try LocalSpotifyController.decode(fields))
+        let stopped = try LocalSpotifyController.decode(["stopped"]); XCTAssertFalse(stopped.hasMedia)
     }
-
-    func testStalePoll429StillBlocksRequestsAfterConfirmedCommand() async throws {
-        let transport = RacingMediaTransport(playing: playback(), paused: playback(playing: false))
-        let clock = TestAppClock(now: Date(timeIntervalSince1970: 0), automaticallyAdvances: false)
-        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
-                                         transport: transport, clock: clock)
-        try await provider.connect()
-        await clock.waitForPendingSleeps()
-        await clock.advance(by: .seconds(5))
-        await transport.waitForHeldPoll()
-        try await provider.pause()
-        await transport.rateLimitHeldPoll()
-        await clock.waitForPendingSleeps()
-        var iterator = await provider.updates().makeAsyncIterator()
-        let state = await iterator.next()
-        XCTAssertEqual(state?.playbackState, .paused)
-        XCTAssertEqual(state?.connectionState, .authenticated)
-        XCTAssertEqual(state?.rateLimitedUntil, Date(timeIntervalSince1970: 65))
-        await provider.refresh()
-        do { try await provider.play(); XCTFail("Stale 429 was discarded") }
-        catch { XCTAssertEqual(error as? MediaFailure, .rateLimited(60)) }
-        let sleeps = await clock.sleepHistory()
-        XCTAssertEqual(sleeps, [.seconds(5), .seconds(60)])
-        await provider.shutdown()
-    }
-
-    func testQueue429PublishesAuthenticatedCooldownAndSuspendsExistingPoller() async throws {
-        let store = authorizedStore()
-        let transport = ScriptedMediaTransport([
-            .init(data: playback(), status: 200), .init(status: 429, retryAfter: 60),
-            .init(data: playback(), status: 200),
-        ])
-        let clock = TestAppClock(now: Date(timeIntervalSince1970: 0), automaticallyAdvances: false)
-        let provider = RealMediaProvider(authorization: .init(store: store, transport: transport),
-                                         transport: transport, clock: clock)
-        try await provider.connect()
-        await clock.waitForPendingSleeps()
-        do { try await provider.loadQueue(); XCTFail("Expected 429") }
-        catch { XCTAssertEqual(error as? MediaFailure, .rateLimited(60)) }
-        var iterator = await provider.updates().makeAsyncIterator()
-        let state = await iterator.next()
-        XCTAssertEqual(state?.connectionState, .authenticated)
-        XCTAssertTrue(state?.hasMedia == true)
-        XCTAssertEqual(state?.rateLimitedUntil, Date(timeIntervalSince1970: 60))
-        await clock.advance(by: .seconds(5))
-        await clock.waitForPendingSleeps()
-        await provider.refresh()
-        try? await provider.pause()
-        try? await provider.loadQueue()
-        await clock.advance(by: .seconds(54))
-        let before = await transport.requests.count
-        XCTAssertEqual(before, 2)
-        XCTAssertNotNil(store.read())
-        await clock.advance(by: .seconds(1))
-        await clock.waitForPendingSleeps()
-        let after = await transport.requests.count
-        XCTAssertEqual(after, 3)
-        await provider.shutdown()
-    }
-
-    func testTokenRefresh429IsNotRetriedByPlaybackOrQueueDuringCooldown() async throws {
-        let store = MemorySpotifyStore(data: Data(
-            #"{"clientID":"fixture","accessToken":"expired","refreshToken":"fixture-refresh","expiration":0}"#.utf8))
-        let transport = ScriptedMediaTransport([.init(status: 429, retryAfter: 60)])
-        let clock = TestAppClock(now: Date(timeIntervalSince1970: 0), automaticallyAdvances: false)
-        let api = SpotifyPlaybackAPI(authorization: .init(store: store, transport: transport),
-                                     transport: transport, clock: clock)
-        for path in ["", "/queue", ""] {
-            do { _ = try await api.request(path: path); XCTFail("Expected 429") }
-            catch { XCTAssertEqual(error as? MediaFailure, .rateLimited(60)) }
+    func testEveryLocalControlUsesDictionaryAndSeekingNeverPlays() throws {
+        let state = try LocalSpotifyController.decode(LocalSpotifyScripts.track(playing: false))
+        let commands: [(MediaCommand, String)] = [(.playPause, "playpause"), (.play, "play"), (.pause, "pause"),
+            (.next, "next track"), (.previous, "previous track"), (.seek(60), "set player position to 60.0"),
+            (.setVolume(0.42), "set sound volume to 42"), (.setShuffle(true), "set shuffling to true"),
+            (.toggleShuffle, "set shuffling to not shuffling"), (.setRepeatMode(.context), "set repeating to true"),
+            (.setRepeatMode(.off), "set repeating to false"), (.cycleRepeat, "set repeating to not repeating")]
+        for (command, statement) in commands {
+            let source = try LocalSpotifyController.commandScript(command, state: state)
+            XCTAssertTrue(source.contains(statement))
+            XCTAssertTrue(source.contains("is not running then error number -600"))
+            XCTAssertFalse(source.contains("http"))
         }
-        let requests = await transport.requests
-        XCTAssertEqual(requests.count, 1)
-        XCTAssertEqual(requests.first?.url?.path, "/api/token")
-        XCTAssertNotNil(store.read())
+        let seek = try LocalSpotifyController.commandScript(.seek(500), state: state)
+        XCTAssertTrue(seek.contains("set player position to 240.0"))
+        XCTAssertFalse(seek.contains("\n        play\n")); XCTAssertFalse(seek.contains("playpause"))
+        XCTAssertThrowsError(try LocalSpotifyController.commandScript(.setRepeatMode(.track), state: state))
+        XCTAssertThrowsError(try LocalSpotifyController.commandScript(.seek(.nan), state: state))
+        XCTAssertThrowsError(try LocalSpotifyController.commandScript(.setVolume(.infinity), state: state))
     }
-    func testTrackChangeDuringQueueFetchCoalescesAndFetchesLatestQueue() async throws {
-        let data = Data(String(decoding: playback(), as: UTF8.self)
-            .replacingOccurrences(of: "\"skipping_next\":true", with: "\"skipping_next\":false").utf8)
-        let transport = HeldQueueTransport(playback: data)
-        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
-        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
-                                         transport: transport, clock: clock)
-        try await provider.connect()
-        await clock.waitForPendingSleeps()
-        let queue = Task { try await provider.loadQueue() }
-        await transport.waitForQueue()
-        try await provider.nextTrack()
-        try await provider.loadQueue()
-        let pendingCount = await transport.queueRequests
-        XCTAssertEqual(pendingCount, 1)
-        await transport.finishQueue()
-        try await queue.value
-        let finalCount = await transport.queueRequests
-        XCTAssertEqual(finalCount, 2)
-        var iterator = await provider.updates().makeAsyncIterator()
-        let state = await iterator.next()
-        XCTAssertEqual(state?.trackID, "track-2")
-        XCTAssertEqual(state?.queue.first?.title, "New queue")
+    func testPausedSeekConfirmationAndTransportCommands() async throws {
+        let scripts = LocalSpotifyScripts(); await scripts.setFields(LocalSpotifyScripts.track(playing: false, position: "60"))
+        let provider = provider(scripts); try await provider.connect()
+        try await provider.seek(to: 60)
+        let paused = await snapshot(provider); XCTAssertFalse(paused.isPlaying); XCTAssertEqual(paused.elapsed, 60)
+        try await provider.play(); let playing = await snapshot(provider); XCTAssertTrue(playing.isPlaying)
+        try await provider.pause(); let again = await snapshot(provider); XCTAssertFalse(again.isPlaying)
+        let sources = await scripts.sources
+        XCTAssertEqual(sources.filter { $0.contains("set player position") }.count, 1)
         await provider.shutdown()
     }
-
-    func testColdLaunchToken429RetainsSessionAndRetriesOnlyAfterDeadline() async throws {
-        let store = MemorySpotifyStore(data: Data(
-            #"{"clientID":"fixture","accessToken":"expired","refreshToken":"fixture-refresh","expiration":0}"#.utf8))
-        let transport = ScriptedMediaTransport([
-            .init(status: 429, retryAfter: 60),
-            .init(data: Data(#"{"access_token":"renewed","expires_in":3600}"#.utf8), status: 200),
-            .init(status: 204),
-        ])
-        let clock = TestAppClock(now: Date(timeIntervalSince1970: 0), automaticallyAdvances: false)
-        let provider = RealMediaProvider(authorization: .init(store: store, transport: transport),
-                                         transport: transport, clock: clock)
+    func testVolumeCommandDoesNotReleaseUnconfirmedSeekProtection() async throws {
+        let scripts = LocalSpotifyScripts(); let provider = provider(scripts)
         try await provider.connect()
-        await clock.waitForPendingSleeps()
-        var iterator = await provider.updates().makeAsyncIterator()
-        let state = await iterator.next()
-        XCTAssertEqual(state?.connectionState, .authenticated)
-        XCTAssertEqual(state?.rateLimitedUntil, Date(timeIntervalSince1970: 60))
-        try await provider.connect()
-        await provider.refresh()
-        await clock.advance(by: .seconds(59))
-        let before = await transport.requests.count
-        XCTAssertEqual(before, 1)
-        await clock.advance(by: .seconds(1))
-        await clock.waitForPendingSleeps()
-        let requests = await transport.requests
-        XCTAssertEqual(requests.map(\.url?.path), ["/api/token", "/api/token", "/v1/me/player"])
-        XCTAssertNotNil(store.read())
-        await provider.shutdown()
-    }
-
-    func testLoopbackReceivesRegisteredRedirectAndCloses() async throws {
-        let receiver = SpotifyLoopbackCallback()
-        let callback = URL(string: SpotifyAuthorization.redirectURI + "?code=fixture&state=fixture")!
-        let received = try await receiver.receive {
-            Task {
-                do { _ = try await URLSession.shared.data(from: callback) }
-                catch { await receiver.cancel() }
-            }
-        }
-        XCTAssertEqual(received, callback)
-        await receiver.cancel()
-    }
-
-    func testLoopbackCallbackParserRejectsMalformedAndAmbiguousRequests() {
-        let expectedState = "expected-state"
-        let cases = [
-            ("malformed request line", "not an HTTP request\r\n\r\n"),
-            ("mismatching state", "GET /callback?code=fixture&state=wrong HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"),
-            ("duplicate state", "GET /callback?code=fixture&state=expected-state&state=other HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"),
-            ("duplicate code", "GET /callback?code=fixture&code=other&state=expected-state HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"),
-            ("wrong callback path", "GET /other?code=fixture&state=expected-state HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"),
-        ]
-
-        for (name, request) in cases {
-            XCTAssertNil(SpotifyLoopbackCallback.callbackURL(request: request, expectedState: expectedState), name)
-        }
-    }
-
-    func testLoopbackRejectsWrongStateThenAcceptsValidAuthorizationCallback() async throws {
-        let store = MemorySpotifyStore()
-        let transport = ScriptedMediaTransport([
-            .init(data: Data(#"{"access_token":"fixture","refresh_token":"refresh","expires_in":3600}"#.utf8), status: 200)
-        ])
-        let authorization = SpotifyAuthorization(store: store, transport: transport)
-        let authorizationURL = try await authorization.begin(clientID: String(repeating: "a", count: 32))
-        let state = try XCTUnwrap(URLComponents(url: authorizationURL, resolvingAgainstBaseURL: false)?.queryItems?
-            .first(where: { $0.name == "state" })?.value)
-        let wrongStateURL = URL(string: SpotifyAuthorization.redirectURI + "?code=untrusted&state=wrong")!
-        let validCallbackURL = URL(string: SpotifyAuthorization.redirectURI + "?code=fixture&state=" + state)!
-        let receiver = SpotifyLoopbackCallback()
-
-        let callback = try await receiver.receive(expectedState: state) {
-            Task {
-                do { _ = try await URLSession.shared.data(from: wrongStateURL) }
-                catch { /* The receiver closes mismatching callback connections. */ }
-                do { _ = try await URLSession.shared.data(from: validCallbackURL) }
-                catch { await receiver.cancel() }
-            }
-        }
-
-        XCTAssertEqual(callback, validCallbackURL)
-        try await authorization.complete(callback: callback)
-        XCTAssertNotNil(store.read())
-        let requests = await transport.requests
-        XCTAssertEqual(requests.count, 1)
-        await receiver.cancel()
-    }
-
-    func testNoDeviceAndErrorsNeverFakePlayback() async throws {
-        let transport = ScriptedMediaTransport([.init(status: 204)])
-        let api = SpotifyPlaybackAPI(authorization: .init(store: authorizedStore(), transport: transport), transport: transport)
-        let state = try await api.state()
-        XCTAssertFalse(state.hasMedia); XCTAssertFalse(state.canPlayPause)
-    }
-    func testQueueIsBoundedAndPreservesDuplicateTracksWithUniqueRows() async throws {
-        let item = #"{"id":"same","uri":"spotify:track:same","name":"Awake","type":"track","duration_ms":216000,"artists":[{"name":"Tycho"}]}"#
-        let data = Data(("{\"queue\":[" + Array(repeating: item, count: 30).joined(separator: ",") + "]}").utf8)
-        let transport = ScriptedMediaTransport([.init(data: data, status: 200)])
-        let api = SpotifyPlaybackAPI(authorization: .init(store: authorizedStore(), transport: transport), transport: transport)
-        let queue = try await api.queue()
-        XCTAssertEqual(queue.count, 20); XCTAssertEqual(Set(queue.map(\.id)).count, 20)
-    }
-
-    func testQueueResponseMapsRequiredTrackFields() async throws {
-        let data = Data(#"{"currently_playing":null,"queue":[{"id":"awake","uri":"spotify:track:awake","name":"Awake","type":"track","duration_ms":216000,"artists":[{"name":"Tycho"}],"album":{"images":[{"url":"https://i.scdn.co/image/awake","width":300}]}}]}"#.utf8)
-        let transport = ScriptedMediaTransport([.init(data: data, status: 200)])
-        let api = SpotifyPlaybackAPI(authorization: .init(store: authorizedStore(), transport: transport),
-                                     transport: transport)
-        let queue = try await api.queue()
-        XCTAssertEqual(queue, [.init(id: "awake:0", uri: "spotify:track:awake", title: "Awake",
-                                     artist: "Tycho", artworkURL: URL(string: "https://i.scdn.co/image/awake"),
-                                     duration: 216)])
-    }
-
-    func testSeekConvertsSixtySecondsToMilliseconds() async throws {
-        let state = try JSONDecoder().decode(SpotifyPlayback.self, from: playback()).mediaState()
-        let transport = ScriptedMediaTransport([.init(status: 204)])
-        let api = SpotifyPlaybackAPI(authorization: .init(store: authorizedStore(), transport: transport),
-                                     transport: transport)
-        try await api.perform(.seek(60), state: state)
-        let requests = await transport.requests
-        let request = try XCTUnwrap(requests.first)
-        XCTAssertEqual(request.httpMethod, "PUT")
-        XCTAssertEqual(request.url?.path, "/v1/me/player/seek")
-        XCTAssertEqual(request.url?.query, "position_ms=60000")
-    }
-
-    func testAddToQueueSendsEncodedSpotifyURI() async throws {
-        let transport = ScriptedMediaTransport([.init(status: 204)])
-        let api = SpotifyPlaybackAPI(authorization: .init(store: authorizedStore(), transport: transport),
-                                     transport: transport)
-        try await api.addToQueue(uri: "spotify:track:awake")
-        let requests = await transport.requests
-        let request = try XCTUnwrap(requests.first)
-        XCTAssertEqual(request.httpMethod, "POST")
-        XCTAssertEqual(request.url?.path, "/v1/me/player/queue")
-        XCTAssertEqual(URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems,
-                       [.init(name: "uri", value: "spotify:track:awake")])
-    }
-
-    func testDevicesTransferAndVolumeUseSpotifyPlayerEndpoints() async throws {
-        let deviceData = Data(#"""
-        {"devices":[
-        {"id":"mac","is_active":true,"is_restricted":false,"name":"This Mac",
-         "type":"Computer","volume_percent":64,"supports_volume":true},
-        {"id":"speaker","is_active":false,"is_restricted":true,"name":"Kitchen",
-         "type":"Speaker","volume_percent":null,"supports_volume":false}
-        ]}
-        """#.utf8)
-        let transport = ScriptedMediaTransport([
-            .init(data: deviceData, status: 200), .init(status: 204), .init(status: 204),
-        ])
-        let api = SpotifyPlaybackAPI(authorization: .init(store: authorizedStore(), transport: transport),
-                                     transport: transport)
-
-        let devices = try await api.devices()
-        XCTAssertEqual(devices.count, 2)
-        XCTAssertEqual(devices.first?.name, "This Mac")
-        XCTAssertTrue(devices[1].isRestricted)
-
-        try await api.transferPlayback(to: "mac")
-        let state = MediaState(playbackState: .playing, title: "Track", activeDeviceID: "mac",
-                               capabilities: .init(canSetVolume: true))
-        try await api.perform(.setVolume(0.73), state: state)
-
-        let requests = await transport.requests
-        XCTAssertEqual(requests.map(\.url?.path), [
-            "/v1/me/player/devices", "/v1/me/player", "/v1/me/player/volume",
-        ])
-        XCTAssertEqual(requests.map(\.httpMethod), ["GET", "PUT", "PUT"])
-        let body = try XCTUnwrap(requests[1].httpBody)
-        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: [String]])
-        XCTAssertEqual(payload["device_ids"], ["mac"])
-        XCTAssertEqual(URLComponents(url: requests[2].url!, resolvingAgainstBaseURL: false)?.queryItems,
-                       [.init(name: "volume_percent", value: "73"),
-                        .init(name: "device_id", value: "mac")])
-    }
-
-    func testRealProviderAddToQueueImmediatelyRefreshesQueue() async throws {
-        let queueData = Data(#"{"currently_playing":null,"queue":[{"id":"awake","uri":"spotify:track:awake","name":"Awake","type":"track","duration_ms":216000,"artists":[{"name":"Tycho"}]}]}"#.utf8)
-        let transport = ScriptedMediaTransport([
-            .init(data: playback(), status: 200),
-            .init(status: 204),
-            .init(data: queueData, status: 200),
-        ])
-        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
-        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
-                                         transport: transport, clock: clock)
-        var iterator = await provider.updates().makeAsyncIterator()
-        _ = await iterator.next()
-        try await provider.connect()
-        var connected = await iterator.next()
-        if connected?.hasMedia != true { connected = await iterator.next() }
-        try await provider.addToQueue(uri: "spotify:track:awake")
-        let queued = await iterator.next()
-        XCTAssertEqual(queued?.queue.first?.uri, "spotify:track:awake")
-        let requests = await transport.requests
-        XCTAssertEqual(requests.map(\.url?.path), [
-            "/v1/me/player", "/v1/me/player/queue", "/v1/me/player/queue",
-        ])
-        XCTAssertEqual(requests[1].httpMethod, "POST")
-        XCTAssertEqual(requests[2].httpMethod, "GET")
-        await provider.shutdown()
-    }
-
-    func testPausedSeekAndResumeRejectsIntermediateSnapshots() async throws {
-        let transport = ScriptedMediaTransport([
-            .init(data: playback(playing: false), status: 200),
-            .init(status: 204), .init(status: 204),
-            .init(data: playback(playing: false, elapsed: 120000), status: 200),
-            .init(data: playback(playing: true, elapsed: 61000), status: 200),
-            .init(data: playback(playing: true, elapsed: 120500), status: 200)
-        ])
-        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
-        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
-                                        transport: transport, clock: clock)
-        try await provider.connect()
-        await clock.waitForPendingSleeps()
-        try await provider.seek(to: 120, resumePlayback: true)
-        var snapshots = await provider.updates().makeAsyncIterator()
-        let afterPaused = await snapshots.next()
-        XCTAssertEqual(afterPaused?.elapsedTime, 61)
-        await provider.refresh()
-        var unchanged = await provider.updates().makeAsyncIterator()
-        let afterOldPosition = await unchanged.next()
-        XCTAssertEqual(afterOldPosition?.elapsedTime, 61)
-        await provider.refresh()
-        let confirmed = await snapshots.next()
-        XCTAssertEqual(confirmed?.elapsedTime, 120.5)
-        XCTAssertEqual(confirmed?.isPlaying, true)
-        let requests = await transport.requests
-        XCTAssertEqual(requests.map { $0.url!.path }, ["/v1/me/player", "/v1/me/player/seek",
-            "/v1/me/player/play", "/v1/me/player", "/v1/me/player", "/v1/me/player"])
-        await provider.shutdown()
-    }
-
-    /// Live Spotify (2026-09-29): PUT /seek returned 200 with an opaque body, then applied the seek
-    /// ~1.5 s later. A strict 204 check rejected every successful seek and skipped the resume.
-    func testLivePausedSeekAcknowledgementWith200BodyStaysPausedAndConfirms() async throws {
-        let live = MediaHTTPResponse(data: Data("DZYUkwoXKANIYSe0seKNfN-QYpw".utf8), status: 200)
-        let transport = ScriptedMediaTransport([
-            .init(data: playback(playing: false), status: 200),
-            live,
-            .init(data: playback(playing: false, elapsed: 61000), status: 200),
-            .init(data: playback(playing: false, elapsed: 120000), status: 200)
-        ])
-        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
-        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
-                                        transport: transport, clock: clock)
-        try await provider.connect()
-        await clock.waitForPendingSleeps()
         try await provider.seek(to: 120)
+        await scripts.setFields(LocalSpotifyScripts.track(position: "50"))
+        try await provider.perform(.setVolume(0.5))
         await provider.refresh()
-        var snapshots = await provider.updates().makeAsyncIterator()
-        let confirmed = await snapshots.next()
-        XCTAssertEqual(confirmed?.elapsedTime, 120)
-        XCTAssertEqual(confirmed?.isPlaying, false)
-        let requests = await transport.requests
-        XCTAssertEqual(requests.map { "\($0.httpMethod!) \($0.url!.path)" }, ["GET /v1/me/player",
-            "PUT /v1/me/player/seek", "GET /v1/me/player", "GET /v1/me/player"])
-        await provider.shutdown()
-    }
-
-    func testQueueAndTransferAccept200Acknowledgements() async throws {
-        let live = MediaHTTPResponse(data: Data("opaque".utf8), status: 200)
-        let transport = ScriptedMediaTransport([live, live])
-        let api = SpotifyPlaybackAPI(authorization: .init(store: authorizedStore(), transport: transport),
-                                     transport: transport)
-        try await api.addToQueue(uri: "spotify:track:awake")
-        try await api.transferPlayback(to: "speaker")
-    }
-
-    func testVolumeAcknowledgementDoesNotFabricateConfirmation() async throws {
-        let data = Data(String(decoding: playback(), as: UTF8.self)
-            .replacingOccurrences(of: "\"is_restricted\":false",
-                                  with: "\"is_restricted\":false,\"supports_volume\":true,\"volume_percent\":40").utf8)
-        let transport = ScriptedMediaTransport([.init(data: data, status: 200),
-            .init(status: 204), .init(data: data, status: 200)])
-        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
-        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
-                                        transport: transport, clock: clock)
-        try await provider.connect()
-        await clock.waitForPendingSleeps()
-        try await provider.perform(.setVolume(0.8))
+        let held = await snapshot(provider); XCTAssertEqual(held.elapsed, 45)
+        await scripts.setFields(LocalSpotifyScripts.track(position: "120"))
         await provider.refresh()
-        var snapshots = await provider.updates().makeAsyncIterator()
-        let snapshot = await snapshots.next()
-        XCTAssertEqual(snapshot?.volumePercent, 40, "Only a Spotify read can confirm the optimistic 80%")
+        let confirmed = await snapshot(provider); XCTAssertEqual(confirmed.elapsed, 120)
         await provider.shutdown()
     }
-
-    func testEverySpotifyCommandImmediatelyRefreshesWithoutPolling() async throws {
-        let data = Data(String(decoding: playback(), as: UTF8.self)
-            .replacingOccurrences(of: "\"skipping_next\":true", with: "\"skipping_next\":false").utf8)
-        let commands: [MediaCommand] = [.pause, .play, .next, .previous, .seek(122),
-                                       .setShuffle(true), .setShuffle(false),
-                                       .setRepeatMode(.context), .setRepeatMode(.track), .setRepeatMode(.off)]
-        var responses: [MediaHTTPResponse] = [.init(data: data, status: 200)]
-        for _ in commands { responses += [.init(status: 204), .init(data: data, status: 200)] }
-        let transport = ScriptedMediaTransport(responses)
-        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
-        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
-                                         transport: transport, clock: clock)
+    func testVolumeDragWritesDoNotFetchMetadataUntilFinalRefresh() async throws {
+        let scripts = LocalSpotifyScripts(); let provider = provider(scripts)
         try await provider.connect()
-        await clock.waitForPendingSleeps()
-        for command in commands { try await provider.perform(command) }
-        let requests = await transport.requests
-        XCTAssertEqual(requests.count, 21)
-        let paths = ["pause", "play", "next", "previous", "seek", "shuffle", "shuffle", "repeat", "repeat", "repeat"]
-        let queries: [String?] = [nil, nil, nil, nil, "position_ms=122000", "state=true", "state=false",
-                                 "state=context", "state=track", "state=off"]
-        for index in commands.indices {
-            XCTAssertEqual(requests[1 + index * 2].url?.path, "/v1/me/player/" + paths[index])
-            XCTAssertEqual(requests[1 + index * 2].httpMethod, (index == 2 || index == 3) ? "POST" : "PUT")
-            XCTAssertEqual(requests[1 + index * 2].url?.query, queries[index])
-            XCTAssertEqual(requests[2 + index * 2].httpMethod, "GET")
-            XCTAssertEqual(requests[2 + index * 2].url?.path, "/v1/me/player")
-        }
-        await provider.shutdown()
-    }
-    func testNextKeepsLastTrackThroughEmptyConfirmationAndFindsReplacementPromptly() async throws {
-        let initial = Data(String(decoding: playback(), as: UTF8.self)
-            .replacingOccurrences(of: "\"skipping_next\":true", with: "\"skipping_next\":false").utf8)
-        let replacement = Data(String(decoding: playback(elapsed: 0), as: UTF8.self)
-            .replacingOccurrences(of: "\"skipping_next\":true", with: "\"skipping_next\":false")
-            .replacingOccurrences(of: "track-1", with: "track-2")
-            .replacingOccurrences(of: "Midnight City", with: "Next Track").utf8)
-        let transport = ScriptedMediaTransport([
-            .init(data: initial, status: 200),
-            .init(status: 204),
-            .init(status: 204),
-            .init(data: replacement, status: 200),
-        ])
-        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
-        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
-                                         transport: transport, clock: clock)
-        try await provider.connect()
-        await clock.waitForPendingSleeps()
-        try await provider.nextTrack()
-
-        var current = await provider.updates().makeAsyncIterator()
-        let held = await current.next()
-        XCTAssertEqual(held?.trackID, "track-1")
-        XCTAssertTrue(held?.hasMedia == true)
-
-        await clock.waitForPendingSleeps(2)
-        await clock.advance(by: .milliseconds(250))
-        for _ in 0..<50 where await transport.requests.count < 4 { await Task.yield() }
-        var replaced = await provider.updates().makeAsyncIterator()
-        let next = await replaced.next()
-        XCTAssertEqual(next?.trackID, "track-2")
-        XCTAssertEqual(next?.title, "Next Track")
-        await provider.shutdown()
-    }
-    func testEventRefreshDoesNotCancelSkipRetryAndSnapshotsStayCoherent() async throws {
-        for command: MediaCommand in [.next, .previous] {
-            let initial = Data(playback().formattedForTest
-                .replacingOccurrences(of: "\"skipping_next\":true", with: "\"skipping_next\":false").utf8)
-            let replacement = Data(initial.formattedForTest
-                .replacingOccurrences(of: "track-1", with: "track-2")
-                .replacingOccurrences(of: "Midnight City", with: "Replacement")
-                .replacingOccurrences(of: "61000", with: "0")
-                .replacingOccurrences(of: "244000", with: "180000").utf8)
-            let transport = ScriptedMediaTransport([
-                .init(data: initial, status: 200), .init(status: 204),
-                .init(data: initial, status: 200), .init(data: initial, status: 200),
-                .init(data: replacement, status: 200),
-            ])
-            let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
-            let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
-                                             transport: transport, clock: clock)
-            try await provider.connect()
-            await clock.waitForPendingSleeps()
-            try await provider.perform(command)
-            await provider.refresh()
-            var updates = await provider.updates().makeAsyncIterator()
-            let retained = await updates.next()
-            XCTAssertEqual(retained?.trackID, "track-1")
-            await clock.waitForPendingSleeps(2)
-            await clock.advance(by: .milliseconds(250))
-            let changed = await updates.next()
-            XCTAssertEqual(changed?.trackID, "track-2")
-            XCTAssertEqual(changed?.title, "Replacement")
-            XCTAssertEqual(changed?.duration, 180)
-            XCTAssertEqual(changed?.elapsed, 0)
-            let count = await transport.requests.count
-            XCTAssertEqual(count, 5)
-            await provider.shutdown()
-        }
-    }
-
-    func testSkipRetriesAreBoundedWhenSpotifyNeverChangesTrack() async throws {
-        let initial = Data(playback().formattedForTest
-            .replacingOccurrences(of: "\"skipping_next\":true", with: "\"skipping_next\":false").utf8)
-        let transport = ScriptedMediaTransport([
-            .init(data: initial, status: 200), .init(status: 204),
-            .init(data: initial, status: 200), .init(data: initial, status: 200),
-            .init(data: initial, status: 200), .init(data: initial, status: 200),
-        ])
-        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
-        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
-                                         transport: transport, clock: clock)
-        try await provider.connect()
-        await clock.waitForPendingSleeps()
-        try await provider.nextTrack()
-        for delay: Duration in [.milliseconds(250), .milliseconds(500), .seconds(1)] {
-            await clock.waitForPendingSleeps(2)
-            await clock.advance(by: delay)
-        }
-        while await transport.requests.count < 6 { await Task.yield() }
-        await clock.advance(by: .seconds(1))
-        for _ in 0..<20 { await Task.yield() }
-        let count = await transport.requests.count
-        XCTAssertEqual(count, 6) // initial poll + command + immediate read + three retries
-        var updates = await provider.updates().makeAsyncIterator()
-        let retained = await updates.next()
-        XCTAssertEqual(retained?.trackID, "track-1")
-        await provider.shutdown()
-    }
-
-    func testPreviousAndRestartResumeNormalPollingAfterConfirmation() async throws {
-        for command: MediaCommand in [.previous, .seek(0)] {
-            let isRestart = command == .seek(0)
-            let initial = playback(elapsed: isRestart ? 90000 : 1000)
-            // A metadata refresh on the same track must not confirm Previous.
-            let stale = Data(initial.formattedForTest.replacingOccurrences(
-                of: "https://i.scdn.co/image/fixture", with: "https://i.scdn.co/image/updated").utf8)
-            let confirmed = isRestart ? playback(elapsed: 0) : Data(playback(elapsed: 0)
-                .formattedForTest.replacingOccurrences(of: "track-1", with: "track-previous")
-                .replacingOccurrences(of: "Midnight City", with: "Previous Track").utf8)
-            let external = Data(confirmed.formattedForTest.replacingOccurrences(
-                of: "\"progress_ms\":0", with: "\"progress_ms\":53000").utf8)
-            let transport = ScriptedMediaTransport([
-                .init(data: initial, status: 200), .init(status: 204),
-                .init(data: isRestart ? initial : stale, status: 200),
-                .init(data: confirmed, status: 200), .init(data: external, status: 200),
-            ])
-            let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
-            let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
-                                             transport: transport, clock: clock)
-            try await provider.connect()
-            await clock.waitForPendingSleeps()
-            try await provider.perform(command)
-            var updates = await provider.updates().makeAsyncIterator()
-            _ = await updates.next()
-            await clock.waitForPendingSleeps(2)
-            await clock.advance(by: .milliseconds(250))
-            let replacement = await updates.next()
-            XCTAssertEqual(replacement?.trackID, isRestart ? "track-1" : "track-previous")
-            XCTAssertEqual(replacement?.elapsed, 0)
-            XCTAssertEqual(replacement?.artwork, URL(string: "https://i.scdn.co/image/fixture"))
-            // No reopen or explicit refresh: the original five-second poll must work.
-            await clock.advance(by: .milliseconds(4750))
-            let changedExternally = await updates.next()
-            XCTAssertEqual(changedExternally?.elapsed, 53)
-            XCTAssertEqual(changedExternally?.trackID, replacement?.trackID)
-            let requests = await transport.requests
-            XCTAssertEqual(requests.count, 5)
-            await provider.shutdown()
-        }
-    }
-
-    func testRestartRejectsPreActionPollAfterConfirmation() async throws {
-        let transport = RacingMediaTransport(playing: playback(elapsed: 90000), paused: playback(elapsed: 0))
-        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
-        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
-                                         transport: transport, clock: clock)
-        try await provider.connect()
-        await clock.waitForPendingSleeps()
-        await clock.advance(by: .seconds(5))
-        await transport.waitForHeldPoll()
-        try await provider.seek(to: 0)
-        await transport.releaseHeldPoll()
-        await clock.waitForPendingSleeps()
-        var updates = await provider.updates().makeAsyncIterator()
-        let restarted = await updates.next()
-        XCTAssertEqual(restarted?.elapsed, 0)
-        XCTAssertTrue(restarted?.isPlaying == true)
-        await provider.shutdown()
-    }
-
-    func testRestartRetriesStalePostCommandPositionWithoutRollback() async throws {
-        let transport = ScriptedMediaTransport([
-            .init(data: playback(elapsed: 90000), status: 200), .init(status: 204),
-            .init(data: playback(elapsed: 90000), status: 200),
-            .init(data: playback(elapsed: 1000), status: 200),
-        ])
-        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
-        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
-                                         transport: transport, clock: clock)
-        try await provider.connect()
-        await clock.waitForPendingSleeps()
-        try await provider.seek(to: 0)
-        var updates = await provider.updates().makeAsyncIterator()
-        let reset = await updates.next()
-        XCTAssertEqual(reset?.elapsed, 90) // provider retains the authoritative snapshot; UI owns immediate feedback
-        await clock.waitForPendingSleeps(2)
-        await clock.advance(by: .milliseconds(250))
-        let confirmed = await updates.next()
-        XCTAssertEqual(confirmed?.elapsed, 1)
-        await provider.shutdown()
-    }
-
-    func testSeekKeepsRejectingStaleProgressAfterRetryBudget() async throws {
-        let stale = playback(elapsed: 91000)
-        let transport = ScriptedMediaTransport([
-            .init(data: playback(elapsed: 90000), status: 200), .init(status: 204),
-            .init(data: stale, status: 200), .init(data: stale, status: 200),
-            .init(data: stale, status: 200), .init(data: stale, status: 200),
-            .init(data: stale, status: 200), // ordinary read after the retry budget
-            .init(data: playback(elapsed: 121000), status: 200),
-        ])
-        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
-        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
-                                         transport: transport, clock: clock)
-        try await provider.connect()
-        await clock.waitForPendingSleeps()
-        try await provider.seek(to: 120)
-        for (index, delay) in [250, 500, 1000].enumerated() {
-            await clock.waitForPendingSleeps(2)
-            await clock.advance(by: .milliseconds(delay))
-            for _ in 0..<500 where await transport.requests.count < 4 + index { await Task.yield() }
-        }
-        for _ in 0..<50 { await Task.yield() }
+        for volume in [0.1, 0.3, 0.7] { try await provider.perform(.setVolume(volume)) }
+        let reads = await scripts.reads; XCTAssertEqual(reads, 1)
         await provider.refresh()
-        var updates = await provider.updates().makeAsyncIterator()
-        let held = await updates.next()
-        XCTAssertEqual(held?.elapsed, 90, "Stale progress after the retry budget must not roll the seek back")
-        await provider.refresh()
-        let confirmed = await updates.next()
-        XCTAssertEqual(confirmed?.elapsed, 121)
+        let confirmed = await scripts.reads; XCTAssertEqual(confirmed, 2)
         await provider.shutdown()
     }
-
-    func testNoActiveDeviceFailureRecoversWithDisabledCapabilities() async throws {
-        let transport = ScriptedMediaTransport([.init(data: playback(), status: 200),
-                                                 .init(status: 404), .init(status: 404)])
-        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
-        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
-                                         transport: transport, clock: clock)
-        try await provider.connect()
-        await clock.waitForPendingSleeps()
-        do { try await provider.pause(); XCTFail("Missing device accepted") }
-        catch { XCTAssertEqual(error as? MediaFailure, .disconnected) }
+    func testEventDuringOldReadDiscardsItAndUsesOneTrailingRead() async throws {
+        let scripts = LocalSpotifyScripts(); let events = LocalSpotifyEvents()
+        let provider = provider(scripts, events: events); try await provider.connect()
+        await events.waitUntilObserved()
+        await scripts.holdNextRead()
+        let oldRead = Task { await provider.refresh() }
+        await scripts.waitForHeldRead()
+        await scripts.setFields(LocalSpotifyScripts.track(id: "two", position: "0"))
+        await events.send(SpotifyPlaybackEvent(trackID: "two", isPlaying: true))
+        // This awaited entry guarantees the old read's revision has been invalidated.
+        await provider.setExpandedVisible(true)
+        await scripts.releaseRead(LocalSpotifyScripts.track())
+        await oldRead.value
+        await scripts.waitForReads(3)
         await provider.refresh()
-        var iterator = await provider.updates().makeAsyncIterator()
-        let state = await iterator.next()
-        XCTAssertEqual(state?.title, "Midnight City")
-        XCTAssertFalse(state?.canPlayPause ?? true)
-        XCTAssertFalse(state?.canSeek ?? true)
+        let state = await snapshot(provider); XCTAssertEqual(state.trackID, "two"); XCTAssertEqual(state.title, "Title two")
         await provider.shutdown()
     }
-    func testRealProviderAllowsPauseWhileNextIsPendingAndRejectsDuplicateNext() async throws {
-        let data = Data(String(decoding: playback(), as: UTF8.self)
-            .replacingOccurrences(of: "\"skipping_next\":true", with: "\"skipping_next\":false").utf8)
-        let transport = HeldNextTransport(playback: data)
-        let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
-        let provider = RealMediaProvider(authorization: .init(store: authorizedStore(), transport: transport),
-                                         transport: transport, clock: clock)
-        try await provider.connect()
-        await clock.waitForPendingSleeps()
-        let next = Task { try await provider.nextTrack() }
-        await transport.waitForNext()
+    func testRapidCommandsRejectDuplicateAndKeepCoherentLatestTrack() async throws {
+        let scripts = LocalSpotifyScripts(); let provider = provider(scripts)
+        try await provider.connect(); await scripts.holdNextRead()
+        let next = Task { try await provider.nextTrack() }; await scripts.waitForHeldRead()
         do { try await provider.nextTrack(); XCTFail("Duplicate next accepted") }
         catch { XCTAssertEqual(error as? MediaFailure, .busy) }
-        try await provider.pause() // Must finish while Next is still held.
-        await transport.finishNext()
-        try await next.value
+        await scripts.setFields(LocalSpotifyScripts.track(id: "previous", position: "0"))
+        try await provider.previousTrack()
+        await scripts.releaseRead(LocalSpotifyScripts.track(id: "next")); try await next.value
+        let state = await snapshot(provider)
+        XCTAssertEqual(state.trackID, "previous"); XCTAssertEqual(state.title, "Title previous")
         await provider.shutdown()
     }
-}
-
-private extension Data {
-    var formattedForTest: String { String(decoding: self, as: UTF8.self) }
-}
-
-private actor Stage22HeldDevicesTransport: MediaHTTPTransport {
-    let playback: Data
-    private var devices: CheckedContinuation<MediaHTTPResponse, Never>?
-    private var deviceReads = 0
-    private(set) var transferWrites = 0
-    init(playback: Data) { self.playback = playback }
-    func send(_ request: URLRequest) async -> MediaHTTPResponse {
-        if request.url?.path.hasSuffix("/devices") == true {
-            deviceReads += 1
-            if deviceReads == 1 { return await withCheckedContinuation { devices = $0 } }
-            return deviceResponse
-        }
-        if request.httpMethod == "PUT" { transferWrites += 1; return .init(status: 204) }
-        return .init(data: playback, status: 200)
+    func testFallbackIsSlowAndStopsWhenSpotifyQuits() async throws {
+        let scripts = LocalSpotifyScripts(); let app = LocalSpotifyApplication()
+        let clock = TestAppClock(now: .now, automaticallyAdvances: false)
+        let provider = provider(scripts, application: app, clock: clock)
+        try await provider.connect(); await clock.waitForPendingSleeps()
+        let sleeps = await clock.sleepHistory(); XCTAssertEqual(sleeps, [.seconds(15)])
+        await clock.advance(by: .seconds(14)); let reads = await scripts.reads; XCTAssertEqual(reads, 1)
+        await app.set(running: false); await provider.refresh()
+        let stopped = await snapshot(provider); XCTAssertEqual(stopped.localSpotifyStatus, .notRunning)
+        await clock.advance(by: .seconds(60)); let after = await scripts.reads; XCTAssertEqual(after, 1)
+        await provider.shutdown()
     }
-    private var deviceResponse: MediaHTTPResponse {
-        .init(data: Data(#"{"devices":[{"id":"target","name":"Target","type":"Computer","is_restricted":false}]}"#.utf8), status: 200)
+    func testSleepWakeQuitAndLaunchUseLifecycleRefresh() async throws {
+        let scripts = LocalSpotifyScripts(); let events = LocalSpotifyEvents(); let app = LocalSpotifyApplication()
+        let provider = provider(scripts, application: app, events: events); try await provider.connect()
+        await events.waitUntilObserved()
+        await events.send(SpotifyLifecycleEvent.sleep)
+        // Synchronize via a following lifecycle wake and observe the subsequent read.
+        await events.send(SpotifyLifecycleEvent.wake); await scripts.waitForReads(2)
+        await app.set(running: false); await provider.refresh()
+        let notRunning = await snapshot(provider); XCTAssertEqual(notRunning.localSpotifyStatus, .notRunning)
+        await app.set(running: true); await events.send(SpotifyLifecycleEvent.applicationChanged)
+        await scripts.waitForReads(3); await provider.refresh()
+        let resumed = await snapshot(provider); XCTAssertTrue(resumed.hasMedia)
+        await provider.shutdown()
     }
-    func waitForHeldDevices() async { while devices == nil { await Task.yield() } }
-    func releaseDevices() { devices?.resume(returning: deviceResponse); devices = nil }
+    func testUnsupportedQueueFailsWithoutRunningScriptAndOldCacheNeverRestoresQueue() async throws {
+        let scripts = LocalSpotifyScripts(); let provider = provider(scripts); try await provider.connect()
+        let before = await scripts.sources.count
+        do { try await provider.refreshQueue(); XCTFail("Queue fabricated") }
+        catch { XCTAssertEqual(error as? MediaFailure, .unsupported) }
+        let after = await scripts.sources.count; XCTAssertEqual(before, after)
+        var state = try LocalSpotifyController.decode(LocalSpotifyScripts.track())
+        state.queue = [.init(id: "stale", title: "Stale", artist: "Artist")]
+        state.capabilities.canReadQueue = true
+        let cache = try XCTUnwrap(CachedMediaTrack(state: state))
+        XCTAssertTrue(cache.pausedPresentation().queue.isEmpty)
+        XCTAssertFalse(cache.pausedPresentation().capabilities.canReadQueue)
+        await provider.shutdown()
+    }
+    func testDeniedStateReplacesCachedTrackAndPausedLocalArtworkStaysHidden() throws {
+        let clock = TestAppClock(now: .now, automaticallyAdvances: false)
+        let coordinator = ActivityCoordinator(clock: clock)
+        let model = MediaSessionController(provider: MockMediaProvider(), coordinator: coordinator)
+        let paused = try LocalSpotifyController.decode(LocalSpotifyScripts.track(playing: false))
+        model.receive(paused)
+        XCTAssertFalse(model.collapsedMediaVisible); XCTAssertTrue(model.homeMediaConnected)
+        XCTAssertNil(coordinator.primary?.minimal)
+        XCTAssertTrue(model.isPlaybackLocal); XCTAssertFalse(model.state.isPlaying)
+        model.receive(LocalSpotifyController.empty(.denied))
+        XCTAssertFalse(model.state.hasMedia); XCTAssertFalse(model.collapsedMediaVisible)
+        XCTAssertFalse(model.homeMediaConnected); XCTAssertNil(coordinator.primary)
+        model.stop()
+    }
+    func testPausedLocalSpotifyDrawsNoSoftwareNotch() throws {
+        let clock = TestAppClock(now: .now, automaticallyAdvances: false)
+        let shell = DynamicIslandPresentationModel(clock: clock)
+        let model = MediaSessionController(provider: MockMediaProvider(), coordinator: shell.activityCoordinator)
+        shell.mediaRenderer = model
+        defer { model.stop(); shell.reset() }
+        let paused = try LocalSpotifyController.decode(LocalSpotifyScripts.track(playing: false, artwork: ""))
+        model.receive(paused)
+        XCTAssertTrue(model.state.hasMedia, "The paused track remains available in Music")
+        XCTAssertFalse(shell.showsCollapsedMedia)
+        let layout = NotchGeometryResolver.layout(for:
+            .init(display: NotchShellDebugModel.builtInFixture, mode: .physicalNotch), state: .collapsed)
+        let renderer = ImageRenderer(content: NotchiumShellView(model: shell, layout: layout)
+            .frame(width: layout.panelFrame.width, height: layout.panelFrame.height))
+        renderer.scale = 2
+        let image = try XCTUnwrap(renderer.cgImage)
+        var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        let context = try XCTUnwrap(CGContext(data: &pixels, width: image.width, height: image.height,
+            bitsPerComponent: 8, bytesPerRow: image.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        XCTAssertTrue(stride(from: 3, to: pixels.count, by: 4).allSatisfy { pixels[$0] == 0 },
+                      "Idle media must leave the entire software shell transparent")
+    }
+    func testLocalPauseHidesArtworkAndResumeRestoresTheSameActivity() async throws {
+        let clock = TestAppClock(now: .now, automaticallyAdvances: false)
+        let coordinator = ActivityCoordinator(clock: clock)
+        let capture = TestAudioCapture()
+        let meter = SystemAudioMeter(capture: capture, permissionGranted: { true }, activityClock: clock)
+        let model = MediaSessionController(provider: MockMediaProvider(), coordinator: coordinator,
+                                           visibilityClock: clock, audioMeter: meter)
+        defer { model.stop() }
+        let playing = try LocalSpotifyController.decode(LocalSpotifyScripts.track())
+        let paused = try LocalSpotifyController.decode(LocalSpotifyScripts.track(playing: false))
+        model.receive(playing)
+        for _ in 0..<30 { await Task.yield() }
+        capture.levels?(Array(repeating: 0.8, count: 7))
+        for _ in 0..<30 { await Task.yield() }
+        XCTAssertTrue(model.collapsedMediaVisible)
+        let activityID = try XCTUnwrap(coordinator.primary?.id)
+
+        model.receive(paused)
+        XCTAssertFalse(model.collapsedMediaVisible)
+        XCTAssertNil(coordinator.primary?.minimal)
+        XCTAssertEqual(model.state.artwork, playing.artwork, "Music retains its paused track")
+        model.receive(playing)
+        XCTAssertFalse(model.collapsedMediaVisible, "Resume waits for local audio")
+        capture.levels?(Array(repeating: 0.8, count: 7))
+        for _ in 0..<30 { await Task.yield() }
+        XCTAssertTrue(model.collapsedMediaVisible)
+        XCTAssertEqual(coordinator.primary?.id, activityID)
+
+        model.receive(paused)
+        capture.levels?(Array(repeating: 0.8, count: 7))
+        for _ in 0..<30 { await Task.yield() }
+        XCTAssertFalse(model.collapsedMediaVisible, "Late audio samples cannot reveal a paused track")
+        XCTAssertNil(coordinator.primary?.minimal)
+    }
+    func testUnavailableUpNextHasNoVisibleQueueRowsEvenWithStaleInput() throws {
+        var state = try LocalSpotifyController.decode(LocalSpotifyScripts.track())
+        state.queue = [.init(id: "stale", title: "Old Web Queue", artist: "Stale")]
+        let renderer = ImageRenderer(content: UpNextView(state: state).frame(width: 464, height: 150).background(Color.black))
+        XCTAssertNotNil(renderer.cgImage)
+    }
 }
