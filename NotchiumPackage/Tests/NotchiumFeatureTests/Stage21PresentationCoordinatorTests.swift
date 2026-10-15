@@ -54,7 +54,7 @@ private actor Stage21LateClock: AppClock {
 
 @MainActor
 final class Stage21PresentationCoordinatorTests: XCTestCase {
-    func testTopologyMigrationPreservesEveryOpenPageAndOnePanelFactory() async {
+    func testTopologyMigrationKeepsActivitiesAndNeverCopiesExpansionToAnotherDisplay() async {
         let source = Stage21Displays(), environment = Stage21Environment(), panel = Stage21Panel()
         var creations = 0
         let coordinator = NotchiumDisplayCoordinator(clock: TestAppClock(now: Date(), automaticallyAdvances: false),
@@ -72,10 +72,10 @@ final class Stage21PresentationCoordinatorTests: XCTestCase {
             source.displays = [external] // Owned built-in removed / clamshell.
             coordinator.refreshDisplayConfiguration()
             XCTAssertEqual(coordinator.displayState.ownedDisplayID, external.id)
-            XCTAssertNil(coordinator.shellPlacement)
-            XCTAssertEqual(model.visualState, .expanded)
+            XCTAssertEqual(coordinator.shellPlacement?.mode, .virtualPill)
+            XCTAssertEqual(model.visualState, .collapsed)
             XCTAssertEqual(model.pageModel.selectedPage, page)
-            XCTAssertTrue(model.pageModel.manualSelectionDuringExpansion)
+            XCTAssertFalse(model.pageModel.manualSelectionDuringExpansion)
             XCTAssertEqual(model.pageModel.shelfSection, .clipboard)
             XCTAssertTrue(model.activityCoordinator.contains(id: media.id))
             source.displays = [builtInDisplay(), external]
@@ -83,7 +83,7 @@ final class Stage21PresentationCoordinatorTests: XCTestCase {
             coordinator.claimDisplay(NotchiumDisplayID(rawValue: 1))
             XCTAssertNotNil(coordinator.shellPlacement)
             XCTAssertEqual(model.pageModel.selectedPage, page)
-            XCTAssertTrue(model.pageModel.manualSelectionDuringExpansion)
+            XCTAssertFalse(model.pageModel.manualSelectionDuringExpansion)
         }
         XCTAssertEqual(creations, 1)
         // A genuinely new open session still runs the existing automatic-page resolver.
@@ -95,7 +95,7 @@ final class Stage21PresentationCoordinatorTests: XCTestCase {
         await drainMainActorTasks()
     }
 
-    func testPassiveActivityFollowsPointerButPinnedAndSharingOwnershipWins() {
+    func testPassiveActivityStaysOnBuiltInWhilePointerUsesExternalDisplay() {
         let source = Stage21Displays(), environment = Stage21Environment(), panel = Stage21Panel()
         let external = externalDisplay(id: 2, frame: CGRect(x: 1512, y: 0, width: 1920, height: 1080))
         source.displays.append(external)
@@ -105,7 +105,8 @@ final class Stage21PresentationCoordinatorTests: XCTestCase {
         let model = coordinator.presentationModel
         environment.value.pointerLocation = CGPoint(x: 1800, y: 500)
         model.activityCoordinator.present(.init(id: UUID(), kind: .systemHUD, title: "Brightness", subtitle: nil, duration: nil))
-        XCTAssertEqual(coordinator.displayState.ownedDisplayID, external.id)
+        XCTAssertEqual(coordinator.displayState.ownedDisplayID?.rawValue, 1)
+        XCTAssertEqual(coordinator.shellPlacement?.mode, .physicalNotch)
         coordinator.claimDisplay(NotchiumDisplayID(rawValue: 1))
         model.present(.expanded, animated: false)
         model.pageModel.selectedPage = .shelf
