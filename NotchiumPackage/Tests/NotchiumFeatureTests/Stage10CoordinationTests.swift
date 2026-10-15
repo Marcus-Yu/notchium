@@ -177,8 +177,15 @@ final class Stage10CoordinationTests: XCTestCase {
         let model = DynamicIslandPresentationModel(clock: clock())
         let controller = NotchiumPanelController(model: model)
         model.present(.expanded, animated: false)
+        let placement = NotchShellPlacement(display: builtInDisplay(), mode: .physicalNotch)
+        let layout = NotchGeometryResolver.layout(for: placement, state: .expanded)
+        controller.reconcile(placement: placement, layout: layout, renderConfiguration: .automatic, animated: false)
         let menu = NSMenu()
-        NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: menu)
+        controller.beginMenuTracking(menu, at: CGPoint(x: layout.visibleSurfaceFrame.minX - 100,
+                                                      y: layout.visibleSurfaceFrame.minY))
+        XCTAssertFalse(model.isAuxiliaryInteractionPresented, "A menu on another display cannot lease this shell")
+        controller.beginMenuTracking(menu, at: CGPoint(x: layout.visibleSurfaceFrame.midX,
+                                                      y: layout.visibleSurfaceFrame.midY))
         XCTAssertTrue(model.isAuxiliaryInteractionPresented)
         controller.handleEscapeCommand()
         XCTAssertEqual(model.visualState, .expanded)
