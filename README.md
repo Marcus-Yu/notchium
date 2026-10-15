@@ -9,17 +9,18 @@ The first public release is being prepared; local preview artifacts are for vali
 
 ## Features
 
-- Media controls, Spotify Connect, and an audio waveform.
+- Local Spotify controls and an audio waveform.
 - Calendar events, meeting links, and quick reminders.
 - Download and screenshot activities, Shelf, AirDrop, and sharing.
 - Clipboard history, Pomodoro, Mirror, and Caffeine.
 - Audio controls, system HUDs, Home shortcuts, and macOS Shortcuts.
+- Built-in display by default, with independent notches on all displays or a selected monitor. Configure display placement and optional notch shapes in Settings → General → Displays.
 
 ## Requirements
 
 - macOS 26.0 or later.
 - Apple Silicon (arm64). Intel Macs are not supported by the v1 release script.
-- Spotify features require Spotify authorization and an eligible account; playback control depends on Spotify's account and API restrictions. Configure your own Spotify client ID in Settings.
+- Install Spotify on this Mac, open it, and choose Enable Local Control in Music or Settings → Media. Allow the macOS Automation prompt. No Spotify developer account, client ID, or login in Notchium is required. Queue access and remote Spotify Connect device selection are unavailable.
 
 ## Installation
 
@@ -63,6 +64,7 @@ Notchium uses these permissions for the corresponding features:
 | Calendars | Show selected calendar events and meeting links. Calendar access may be requested when its service starts. |
 | Reminders | Add a reminder when you use Quick Reminder. |
 | Camera | Show the live Mirror preview when you open it. |
+| Automation (Spotify) | Show the current song and control Spotify on this Mac. Enable under Privacy & Security → Automation → Notchium after choosing Enable Local Control. |
 | Screen & System Audio Recording | Capture app audio in memory for app volume control and the Spotify waveform. No microphone input is used. |
 | Files & Folders | Show download progress and completed files in Downloads, observe saved screenshots in your configured folder, and access files you choose. |
 
@@ -80,8 +82,8 @@ Denied permissions leave the corresponding feature unavailable; other tools rema
   export or share them. Screenshot activities observe files saved by macOS.
 - Mirror uses a live camera preview while open; it does not record or save frames.
 - Audio processing uses in-memory buffers and does not save recordings.
-- Spotify authorization and playback requests go to Spotify APIs. Artwork is fetched
-  from the URLs supplied by Spotify; access tokens are stored in Keychain.
+- Spotify playback is read and controlled locally through macOS Apple Events. Only
+  album artwork is downloaded from Spotify’s artwork CDN. No OAuth tokens are used.
 - The production source contains no telemetry or analytics service. Local macOS
   diagnostic logging records app/service status; it is not uploaded by Notchium.
 - Home actions, meeting links, and Share/AirDrop may open other apps or websites
