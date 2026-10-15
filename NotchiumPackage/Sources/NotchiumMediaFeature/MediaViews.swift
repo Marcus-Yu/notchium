@@ -68,22 +68,15 @@ public struct CollapsedMediaView: View {
 }
 
 private enum MusicPlayerSpacing {
-    static let artworkSize: CGFloat = 76
-    static let deviceColumnWidth: CGFloat = 144
+    static let artworkSize: CGFloat = 84
     static let metadataGap: CGFloat = 6
     static let metadataToProgress: CGFloat = 5
-    static let progressToTransport: CGFloat = 6
-    static let transportToOutput: CGFloat = 6
     static let outputRowHeight: CGFloat = 26
-    static let selectorTopInset: CGFloat = 5
-    static let bottomInset: CGFloat = 4
 }
 
 public struct MediaPageView: View {
     let model: MediaFeatureModel
-    @State private var selectedSurface = MediaSurface.player
-    @State private var showsDevices = false
-    @Environment(\.notchAuxiliaryInteraction) private var auxiliaryInteraction
+    @State private var presentationID = UUID().uuidString
     @Environment(\.notchMediaExpanded) private var isExpanded
     @Environment(\.notchMediaPageVisible) private var isPageVisible
     @Environment(\.openSettings) private var openSettings
@@ -92,77 +85,43 @@ public struct MediaPageView: View {
     public var body: some View {
         Group {
             switch model.state.experienceState {
-            case .playing, .paused:
-                VStack(spacing: 0) {
-                    MediaPageHeader(selection: $selectedSurface)
-                    Group {
-                        switch selectedSurface {
-                        case .player:
-                            player
-                        case .upNext:
-                            UpNextView(state: model.state)
-                        }
-                    }
-                    .id(selectedSurface)
-                    .transition(.opacity)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-                .padding(.horizontal, ExpandedPageStyle.outerInset)
-                .padding(.top, MusicPlayerSpacing.selectorTopInset)
-                .padding(.bottom, MusicPlayerSpacing.bottomInset)
-                .animation(MediaMotion.surface(reduceMotion: reduceMotion), value: selectedSurface)
+            case .playing, .paused: player
             case .initializing:
-                statusView(title: "Spotify", message: "Restoring your Spotify session…", showsProgress: true)
+                statusView(title: "Spotify", message: "Checking local Spotify…", showsProgress: true)
             case .authorizing:
-                statusView(title: "Spotify", message: "Connecting Spotify…", showsProgress: true)
+                statusView(title: "Spotify", message: "Allow Spotify control in the macOS dialog.", showsProgress: true)
             case .unauthenticated:
-                statusView(title: "Spotify", message: "Connect Spotify to show and control playback.",
-                           actionTitle: "Connect Spotify")
+                statusView(title: "Spotify", message: model.state.issue ?? LocalSpotifyStatus.needsPermission.message,
+                           actionTitle: "Enable Local Control", action: { model.enableLocalControl() })
             case .inactive:
-                statusView(title: "Spotify", message: model.state.issue ?? "No recent Spotify track yet.")
+                statusView(title: "Spotify", message: model.state.issue ?? "Play a song in Spotify to get started.",
+                           actionTitle: model.state.localSpotifyStatus == .notRunning ? "Open Spotify" : nil,
+                           action: { model.openSpotify() })
             case .error:
-                statusView(title: "Spotify", message: model.state.issue ?? "Spotify could not restore your session.",
-                           actionTitle: "Open Settings")
+                statusView(title: "Spotify", message: model.state.issue ?? "Spotify couldn’t refresh playback.",
+                           actionTitle: model.state.localSpotifyStatus == .denied ? "Open System Settings" : "Open Settings",
+                           action: {
+                               if model.state.localSpotifyStatus == .denied { SpotifyAutomationSettings.open() }
+                               else { openSettings() }
+                           })
             }
         }
+        .padding(.horizontal, ExpandedPageStyle.outerInset)
+        .padding(.top, ExpandedPageStyle.topInset)
+        .padding(.bottom, ExpandedPageStyle.bottomInset)
         .foregroundStyle(.white)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .allowsHitTesting(true)
         .accessibilityIdentifier("notchium.media.page")
-        .task(id: isExpanded && isPageVisible && selectedSurface == .upNext) {
-            model.setUpNextVisible(isExpanded && isPageVisible && selectedSurface == .upNext)
-        }
         .task(id: isExpanded && isPageVisible) {
-            await model.setExpandedVisible(isExpanded && isPageVisible)
-        }
-        .onChange(of: isExpanded) { _, expanded in
-            if !expanded {
-                showsDevices = false
-                selectedSurface = .player
-            }
-        }
-        .onChange(of: selectedSurface) { _, _ in
-            showsDevices = false
-        }
-        .onChange(of: isPageVisible) { _, visible in
-            if !visible { showsDevices = false }
-        }
-        .onChange(of: showsDevices) { _, presented in
-            if presented { auxiliaryInteraction.begin() }
-            else { auxiliaryInteraction.end(actionSelected: false) }
-        }
-        .onExitCommand {
-            if showsDevices { showsDevices = false }
-            else { auxiliaryInteraction.handleEscape() }
+            await model.setExpandedVisible(isExpanded && isPageVisible, source: presentationID)
         }
         .onDisappear {
-            if showsDevices { auxiliaryInteraction.end(actionSelected: false) }
-            model.setUpNextVisible(false)
-            Task { await model.setExpandedVisible(false) }
+            let source = presentationID
+            Task { await model.removePresentation(source: source) }
         }
     }
     private func statusView(title: String, message: String, showsProgress: Bool = false,
-                            actionTitle: String? = nil) -> some View {
+                            actionTitle: String? = nil, action: @escaping () -> Void = {}) -> some View {
         VStack(spacing: 8) {
             if showsProgress {
                 Image(systemName: "arrow.triangle.2.circlepath")
@@ -178,7 +137,7 @@ public struct MediaPageView: View {
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
             if let actionTitle {
-                Button(actionTitle) { openSettings() }
+                Button(actionTitle, action: action)
                     .buttonStyle(.glass)
                     .buttonBorderShape(.capsule)
                     .controlSize(.small)
@@ -196,77 +155,48 @@ public struct MediaPageView: View {
     }
     private var player: some View {
         let trackIdentity = model.state.trackID ?? model.state.title ?? "unknown-track"
-        return ZStack(alignment: .bottomTrailing) {
-            VStack(spacing: MusicPlayerSpacing.progressToTransport) {
-                HStack(alignment: .top, spacing: ExpandedPageStyle.Space.lg) {
-                    MediaArtworkSlot(url: model.state.artwork, size: MusicPlayerSpacing.artworkSize, expanded: true)
-                    VStack(alignment: .leading, spacing: MusicPlayerSpacing.metadataToProgress) {
-                        HStack(alignment: .center, spacing: ExpandedPageStyle.Space.sm) {
-                            VStack(alignment: .leading, spacing: MusicPlayerSpacing.metadataGap) {
-                                Text(model.state.title ?? "")
-                                    .font(ExpandedPageStyle.title)
-                                    .lineLimit(1).truncationMode(.tail)
-                                    .help(model.state.title ?? "")
-                                Text(model.state.artist ?? "")
-                                    .font(ExpandedPageStyle.body)
-                                    .foregroundStyle(ExpandedPageStyle.secondary)
-                                    .lineLimit(1)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            MediaWaveform(isPlaying: model.state.isPlaying, meter: model.audioMeter,
-                                          color: model.waveformAppearance.color,
-                                          isPresented: isExpanded && isPageVisible)
-                                .frame(width: 24, height: 16)
+        return VStack(spacing: ExpandedPageStyle.groupGap) {
+            HStack(alignment: .center, spacing: ExpandedPageStyle.Space.lg) {
+                MediaArtworkSlot(url: model.state.artwork, size: MusicPlayerSpacing.artworkSize, expanded: true)
+                VStack(alignment: .leading, spacing: MusicPlayerSpacing.metadataToProgress) {
+                    HStack(alignment: .center, spacing: ExpandedPageStyle.Space.sm) {
+                        VStack(alignment: .leading, spacing: MusicPlayerSpacing.metadataGap) {
+                            Text(model.state.title ?? "")
+                                .font(ExpandedPageStyle.title)
+                                .lineLimit(1).truncationMode(.tail)
+                                .help(model.state.title ?? "")
+                            Text(model.state.artist ?? "")
+                                .font(ExpandedPageStyle.body)
+                                .foregroundStyle(ExpandedPageStyle.secondary)
+                                .lineLimit(1)
                         }
-                        .id(trackIdentity)
-                        .transition(.opacity)
-                        .animation(MediaMotion.track(reduceMotion: reduceMotion), value: trackIdentity)
-                        .opacity(model.isShowingCachedTrack ? 0.94 : 1)
-                        MediaProgressView(model: model)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        MediaWaveform(isPlaying: model.state.isPlaying, meter: model.audioMeter,
+                                      color: model.waveformAppearance.color,
+                                      isPresented: isExpanded && isPageVisible)
+                            .frame(width: 24, height: 16)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .id(trackIdentity)
+                    .transition(.opacity)
+                    .animation(MediaMotion.track(reduceMotion: reduceMotion), value: trackIdentity)
+                    .opacity(model.isShowingCachedTrack ? 0.94 : 1)
+                    MediaProgressView(model: model)
                 }
-                .frame(minHeight: MusicPlayerSpacing.artworkSize, alignment: .top)
-                VStack(spacing: MusicPlayerSpacing.transportToOutput) {
-                    controls
-                        .overlay(alignment: .trailing) {
-                            MediaSourceButton(source: model.state.source ?? .spotify)
-                                // Align the artwork while retaining the button’s padded hit target.
-                                .padding(.trailing, -MediaSourceButton.contentInset)
-                        }
-                    SpotifySecondaryControls(model: model, showsDevices: $showsDevices)
-                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            // Preserve the single-line groups' intrinsic height and put the fixed
-            // shell's spare space between the selector and the whole track region.
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-
-            if showsDevices {
-                Button {
-                    showsDevices = false
-                } label: {
-                    Color.clear.contentShape(.rect)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .buttonStyle(.plain)
-                .accessibilityHidden(true)
-
-                SpotifyDevicesPicker(model: model) { device in
-                    if device.id == model.state.activeDeviceID {
-                        showsDevices = false
-                    } else {
-                        model.transferPlayback(to: device)
-                    }
-                }
-                .transition(.opacity)
-                .zIndex(1)
+            .frame(minHeight: MusicPlayerSpacing.artworkSize, alignment: .top)
+            controls
+            HStack(spacing: ExpandedPageStyle.Space.lg) {
+                SpotifyVolumeControl(model: model)
+                    .frame(maxWidth: .infinity)
+                MediaSourceButton(source: model.state.source ?? .spotify)
+                    // Align the logo artwork while retaining its padded hit target.
+                    .padding(.trailing, -MediaSourceButton.contentInset)
             }
+            .frame(height: ExpandedPageStyle.controlSize)
         }
-        .animation(MediaMotion.control(reduceMotion: reduceMotion), value: showsDevices)
-        .onChange(of: model.state.activeDeviceID) { _, _ in
-            if showsDevices && !model.devicesLoading { showsDevices = false }
-        }
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
     private var controls: some View {
         HStack(spacing: ExpandedPageStyle.Space.lg) {
@@ -279,7 +209,7 @@ public struct MediaPageView: View {
                     command: .playPause, enabled: model.state.canPlayPause)
             control("Next Track", symbol: "forward.fill", command: .next, enabled: model.state.canSkipForward)
             control("Repeat", symbol: model.state.repeatMode == .track ? "repeat.1" : "repeat",
-                    command: .setRepeatMode(model.state.repeatMode == .off ? .context : model.state.repeatMode == .context ? .track : .off),
+                    command: .setRepeatMode(model.state.repeatMode == .off ? .context : .off),
                     enabled: model.state.canRepeat, active: model.state.repeatMode != nil && model.state.repeatMode != .off,
                     inactiveOpacity: 0.65, value: repeatModeValue)
         }
@@ -327,12 +257,10 @@ public struct MediaPageView: View {
     }
 }
 
-private struct SpotifySecondaryControls: View {
+private struct SpotifyVolumeControl: View {
     let model: MediaFeatureModel
-    @Binding var showsDevices: Bool
     @State private var isAdjustingVolume = false
     @State private var volume = 0.5
-    @NotchReducedMotion private var reduceMotion
 
     var body: some View {
         HStack(spacing: 10) {
@@ -361,11 +289,11 @@ private struct SpotifySecondaryControls: View {
                     isAdjustingVolume = false
                 }
             }
-            .frame(maxWidth: 180, minHeight: 20)
+            .frame(maxWidth: .infinity, minHeight: 20)
             .disabled(!model.state.capabilities.canSetVolume)
             .help(model.state.capabilities.canSetVolume
                   ? "Spotify volume"
-                  : "This Spotify device doesn’t support remote volume")
+                  : "Spotify volume is unavailable")
 
             Text("\(Int((volume * 100).rounded()))%")
                 .font(.system(size: 10, weight: .semibold).monospacedDigit())
@@ -373,33 +301,9 @@ private struct SpotifySecondaryControls: View {
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
                 .frame(width: 36, alignment: .trailing)
-                .opacity(isAdjustingVolume ? 1 : 0)
-                .accessibilityHidden(!isAdjustingVolume)
-
-            Spacer(minLength: 4)
-
-            Button {
-                showsDevices.toggle()
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: deviceSymbol(model.state.activeDeviceType))
-                    Text(model.state.activeDeviceName ?? "Devices")
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.white.opacity(0.75))
-                .padding(.horizontal, 9)
-                .frame(width: MusicPlayerSpacing.deviceColumnWidth, height: 26)
-                .background(.white.opacity(0.06), in: .rect(cornerRadius: ExpandedPageStyle.controlRadius))
-            }
-            .buttonStyle(MediaControlButtonStyle())
-            .help("Spotify Connect devices")
-            .accessibilityLabel("Spotify Connect device, \(model.state.activeDeviceName ?? "unknown")")
-            .accessibilityIdentifier("notchium.media.devices.button")
+                .accessibilityHidden(true)
         }
         .frame(height: MusicPlayerSpacing.outputRowHeight)
-        .animation(MediaMotion.control(reduceMotion: reduceMotion), value: isAdjustingVolume)
         .onAppear { syncVolume() }
         .onChange(of: model.state.volumePercent) { _, _ in
             if !isAdjustingVolume { syncVolume() }
@@ -409,9 +313,6 @@ private struct SpotifySecondaryControls: View {
                 isAdjustingVolume = false
                 syncVolume()
             }
-        }
-        .onChange(of: showsDevices) { _, isPresented in
-            if isPresented { model.refreshDevices() }
         }
     }
 
@@ -424,99 +325,6 @@ private struct SpotifySecondaryControls: View {
 
     private func syncVolume() {
         volume = Double(model.state.volumePercent ?? 50) / 100
-    }
-}
-
-private struct SpotifyDevicesPicker: View {
-    let model: MediaFeatureModel
-    let onSelect: (SpotifyDevice) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Spotify Connect")
-                .font(.system(size: 12, weight: .semibold))
-                .padding(.horizontal, 4)
-
-            if model.devicesLoading && model.devices.isEmpty {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("Finding devices…")
-                }
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, minHeight: 46)
-            } else if let issue = model.deviceIssue, model.devices.isEmpty {
-                Text(issue)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 46)
-            } else if model.devices.isEmpty {
-                Text("No Spotify devices found")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 46)
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 6) {
-                        ForEach(model.devices) { device in
-                            Button {
-                                onSelect(device)
-                            } label: {
-                                HStack(spacing: 9) {
-                                    Image(systemName: deviceSymbol(device.type))
-                                        .frame(width: 17)
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        Text(device.name).lineLimit(1)
-                                        if device.isRestricted {
-                                            Text("Unavailable").font(.system(size: 9)).foregroundStyle(.secondary)
-                                        }
-                                    }
-                                    Spacer(minLength: 8)
-                                    if device.isActive || device.id == model.state.activeDeviceID {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .foregroundStyle(.green)
-                                    }
-                                }
-                                .font(.system(size: 11, weight: .medium))
-                                .padding(.horizontal, 8)
-                                .frame(height: 34)
-                                .contentShape(.rect)
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(device.isRestricted || model.devicesLoading)
-                            .opacity(device.isRestricted ? 0.5 : 1)
-                            .accessibilityAddTraits(device.isActive ? .isSelected : [])
-                        }
-                    }
-                }
-                .scrollIndicators(.never)
-                .frame(maxHeight: 92)
-            }
-        }
-        .padding(10)
-        .frame(width: 228)
-        .background {
-            RoundedRectangle(cornerRadius: 14)
-                .fill(Color.black.opacity(0.96))
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 14)
-                .stroke(.white.opacity(0.15), lineWidth: 1)
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("notchium.media.devices.picker")
-    }
-}
-
-private func deviceSymbol(_ type: String?) -> String {
-    switch type?.lowercased() {
-    case "computer": "desktopcomputer"
-    case "smartphone": "iphone"
-    case "tablet": "ipad"
-    case "speaker": "hifispeaker.fill"
-    case "tv": "tv.fill"
-    case "avr": "av.receiver"
-    case "automobile": "car.fill"
-    default: "airplayaudio"
     }
 }
 
