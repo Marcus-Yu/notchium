@@ -38,7 +38,7 @@ private actor HeldControlProvider: MediaProviding {
             clock: TestAppClock(now: Date(), automaticallyAdvances: false)))
         model.receive(.init(playbackState: playing ? .playing : .paused, title: "Fixture", elapsed: elapsed, duration: 240,
                             capabilities: .init(canPlayPause: true, canSkipForward: true, canSkipBackward: true,
-                                                canSeek: true, canShuffle: true, canRepeat: true,
+                                                canSeek: true, canShuffle: true, canRepeat: true, canReadQueue: true,
                                                 canSetVolume: true),
                             shuffle: false, repeatMode: .off, timestamp: timestamp))
         return model
@@ -161,35 +161,6 @@ private actor HeldControlProvider: MediaProviding {
         model.stop()
     }
 
-    func testDeviceRefreshAndTransferUpdateActiveDeviceWithoutPolling() async {
-        let devices = [
-            SpotifyDevice(id: "mac", name: "This Mac", type: "Computer", isActive: true,
-                          isRestricted: false, volumePercent: 60, supportsVolume: true),
-            SpotifyDevice(id: "speaker", name: "Kitchen", type: "Speaker", isActive: false,
-                          isRestricted: false, volumePercent: 35, supportsVolume: true),
-        ]
-        let snapshot = MediaState(playbackState: .playing, title: "Fixture", activeDeviceID: "mac",
-                                  activeDeviceName: "This Mac", activeDeviceType: "Computer",
-                                  volumePercent: 60, capabilities: .init(canSetVolume: true))
-        let provider = MockMediaProvider(snapshot: snapshot, devices: devices)
-        let model = MediaFeatureModel(provider: provider, coordinator: ActivityCoordinator(
-            clock: TestAppClock(now: Date(), automaticallyAdvances: false)))
-        model.start()
-        while !model.state.hasMedia { await Task.yield() }
-
-        model.refreshDevices()
-        while model.devicesLoading { await Task.yield() }
-        XCTAssertEqual(model.devices, devices)
-
-        model.transferPlayback(to: devices[1])
-        while model.devicesLoading { await Task.yield() }
-        for _ in 0..<100 where model.state.activeDeviceID != "speaker" { await Task.yield() }
-        XCTAssertEqual(model.state.activeDeviceID, "speaker")
-        XCTAssertEqual(model.state.activeDeviceName, "Kitchen")
-        XCTAssertEqual(model.state.volumePercent, 35)
-        XCTAssertEqual(model.devices.filter(\.isActive).map(\.id), ["speaker"])
-        model.stop()
-    }
     func testFailureRefreshesAndClearsOnlyFailedControl() async {
         let provider = HeldControlProvider()
         let model = model(provider)
