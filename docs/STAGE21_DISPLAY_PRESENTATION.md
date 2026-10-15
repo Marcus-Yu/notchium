@@ -1,5 +1,7 @@
 # Stage 21 — Display and presentation intelligence
 
+**Current behavior update (2026-10-15):** Display ownership and single-panel restrictions below describe the original Stage 21 implementation. Settings now default to the built-in display and support all displays or one saved monitor, independent per-display interaction models, shared activity deadlines, and optional proportional notch shapes on notchless displays. See [NOTCH_SHELL.md](NOTCH_SHELL.md) and [MULTIPLE_DISPLAYS.md](MULTIPLE_DISPLAYS.md).
+
 Implemented on top of the uncommitted Stage 22 hardening work. One display coordinator, one activity coordinator, one native panel and one page session remain authoritative. No new activity types, settings, external island or unrelated UI were added.
 
 ## File map
