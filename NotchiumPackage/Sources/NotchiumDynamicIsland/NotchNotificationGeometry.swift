@@ -27,7 +27,7 @@ public enum NotchNotificationGeometry {
             // Interaction covers the body only; the shoulders are a visual flare.
             return CGSize(width: NotchCompactGeometry(layout: layout).bodyWidth, height: layout.collapsedVisibleFrame.height)
         }
-        let mediaWidth = CollapsedMediaGeometry(hardwareWidth: layout.hardwareNotchGeometry?.frame.width ?? 0,
+        let mediaWidth = CollapsedMediaGeometry(hardwareWidth: layout.collapsedVisibleFrame.width,
                                                hardwareHeight: layout.collapsedVisibleFrame.height).width
         return CGSize(width: [.calendar, .pomodoroCompletion].contains(style) ? NotchReminderGeometry.width(for: layout) : max(292, mediaWidth, layout.collapsedVisibleFrame.width),
                height: layout.collapsedVisibleFrame.height + contentHeight(for: style))
