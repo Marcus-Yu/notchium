@@ -12,6 +12,7 @@ public struct NotchPanelLayout: Equatable, Sendable {
     public let hasHardwareNotch: Bool
     public let topCornerRadius: CGFloat
     public let bottomCornerRadius: CGFloat
+    public let collapsedBottomCornerRadius: CGFloat
 
     public init(
         panelFrame: CGRect,
@@ -23,7 +24,8 @@ public struct NotchPanelLayout: Equatable, Sendable {
         expandedSize: CGSize,
         hasHardwareNotch: Bool,
         topCornerRadius: CGFloat,
-        bottomCornerRadius: CGFloat
+        bottomCornerRadius: CGFloat,
+        collapsedBottomCornerRadius: CGFloat? = nil
     ) {
         self.panelFrame = panelFrame
         self.visibleSurfaceFrame = visibleSurfaceFrame
@@ -35,6 +37,7 @@ public struct NotchPanelLayout: Equatable, Sendable {
         self.hasHardwareNotch = hasHardwareNotch
         self.topCornerRadius = topCornerRadius
         self.bottomCornerRadius = bottomCornerRadius
+        self.collapsedBottomCornerRadius = collapsedBottomCornerRadius ?? (hasHardwareNotch ? 8 : 12)
     }
 }
 
@@ -65,7 +68,14 @@ public enum NotchGeometryResolver {
     ) -> NotchPanelLayout {
         let hardwareGeometry = hardwareNotchGeometry(for: placement)
         let hasHardwareNotch = hardwareGeometry != nil
-        let collapsedFrame = hardwareGeometry?.frame ?? virtualNotchFrame(for: placement.display)
+        let collapsedFrame: CGRect
+        if placement.mode == .simulatedNotch, let size = placement.simulatedNotchSize {
+            collapsedFrame = CGRect(x: placement.display.frame.midX - size.width / 2,
+                                    y: placement.display.frame.maxY - size.height,
+                                    width: size.width, height: size.height)
+        } else {
+            collapsedFrame = hardwareGeometry?.frame ?? virtualNotchFrame(for: placement.display)
+        }
 
         let panelFrame = CGRect(
             x: placement.display.frame.midX - panelSize.width / 2,
@@ -97,7 +107,8 @@ public enum NotchGeometryResolver {
             expandedSize: expandedNotchSize,
             hasHardwareNotch: hasHardwareNotch,
             topCornerRadius: topCornerRadius(for: placement.mode, state: state),
-            bottomCornerRadius: bottomCornerRadius(for: placement.mode, state: state)
+            bottomCornerRadius: bottomCornerRadius(for: placement.mode, state: state),
+            collapsedBottomCornerRadius: bottomCornerRadius(for: placement.mode, state: .collapsed)
         )
     }
 
@@ -170,7 +181,8 @@ public enum NotchGeometryResolver {
     ) -> CGFloat {
         switch (mode, state) {
         case (_, .collapsed): 0
-        case (.physicalNotch, .hovered), (.physicalNotch, .expanded): ExpandedNotchLayout.topCornerRadius
+        case (.physicalNotch, .hovered), (.physicalNotch, .expanded),
+             (.simulatedNotch, .hovered), (.simulatedNotch, .expanded): ExpandedNotchLayout.topCornerRadius
         case (.virtualPill, .hovered), (.virtualPill, .expanded): 0
         }
     }
@@ -180,7 +192,7 @@ public enum NotchGeometryResolver {
         state: NotchStableState
     ) -> CGFloat {
         switch (mode, state) {
-        case (.physicalNotch, .collapsed): 8
+        case (.physicalNotch, .collapsed), (.simulatedNotch, .collapsed): 8
         case (.virtualPill, .collapsed): 12
         case (_, .hovered), (_, .expanded): ExpandedNotchLayout.bottomCornerRadius
         }
