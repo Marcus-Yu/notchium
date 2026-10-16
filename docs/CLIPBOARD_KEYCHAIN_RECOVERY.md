@@ -2,6 +2,8 @@
 
 Date: 2026-10-10. Scope: Clipboard encryption and persistence only. The zero-cost GitHub update objective remains **unresolved**; this is a preservation and recovery hardening patch, not a claim that every ad-hoc update can access the original key automatically.
 
+**Stage 26 follow-up (2026-10-15):** new non-Store Debug and free Release histories now use the same login-Keychain identity. Existing encrypted history can authenticate a read-only candidate from the previously shipped backend. Only after the index and every referenced image authenticate can the same original key be added to an absent canonical non-Store slot and verified. Neither original key nor an existing canonical record is overwritten; no ciphertext is re-keyed. The historical backend decision below describes the October 10 investigation; [the Stage 26 audit](STAGE26_AUDIT.md) records the current implementation, backup verification, tests, and remaining recovery/update blockers.
+
 ## Observed failure
 
 The exact executable at `/Applications/Notchium.app` (1.0.0 build 2, arm64, ad-hoc, no entitlements, CDHash `9900aff64a8a97f31d65a1c142abffefbdcba54b`) returned **`errSecItemNotFound` (-25300)** from `SecItemCopyMatching` for the Clipboard key. Its query used generic-password class, service `Notchium.Clipboard`, account `payload-key.v1`, synchronization disabled, and no Data Protection flag. `LAContext` was present.
