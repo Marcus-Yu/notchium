@@ -52,6 +52,9 @@ public final class RealScreenshotService: ScreenshotService {
     private var folder: URL?
     private var folderSource: DispatchSourceFileSystemObject?
     private var knownNames: Set<String> = []
+    private var watchTask: Task<Void, Never>?
+    private var watchRequested = false
+    private var watchRequestGeneration = 0
     private var scanTask: Task<Void, Never>?
     private var scanRequested = false
     private var candidateSources: [URL: DispatchSourceFileSystemObject] = [:]
@@ -72,8 +75,9 @@ public final class RealScreenshotService: ScreenshotService {
     public func availability() async -> FeatureAvailability {
         if access != .available, query != nil {
             folder = nil
-            watch(locate())
+            requestWatch()
         }
+        await watchTask?.value
         return access
     }
 
@@ -86,9 +90,10 @@ public final class RealScreenshotService: ScreenshotService {
         }
         if query == nil {
             startedAt = Date()
-            watch(locate())
             startQuery()
+            requestWatch()
         }
+        await watchTask?.value
         return pair.stream
     }
 
@@ -110,7 +115,26 @@ public final class RealScreenshotService: ScreenshotService {
 
     // MARK: Folder watch
 
-    private func watch(_ location: URL) {
+    /// Folder privacy checks can wait inside the filesystem. The stream's caller may
+    /// await setup, but neither location resolution nor directory I/O occupies MainActor.
+    private func requestWatch() {
+        watchRequested = true
+        guard watchTask == nil else { return }
+        watchRequestGeneration &+= 1
+        let request = watchRequestGeneration
+        watchTask = Task { [weak self] in
+            guard let self else { return }
+            defer { if self.watchRequestGeneration == request { self.watchTask = nil } }
+            while self.watchRequested, !Task.isCancelled {
+                self.watchRequested = false
+                let location = await Self.resolveLocation(using: self.locate)
+                guard !Task.isCancelled, self.query != nil else { return }
+                await self.watch(location)
+            }
+        }
+    }
+
+    private func watch(_ location: URL) async {
         guard folder?.standardizedFileURL != location.standardizedFileURL else { return }
         generation &+= 1
         let generation = generation
@@ -119,15 +143,21 @@ public final class RealScreenshotService: ScreenshotService {
         folderSource?.cancel()
         folderSource = nil
         folder = location
+        let descriptor: Int32
         do {
-            knownNames = try Self.names(in: location)
-            access = .available
+            let snapshot = try await Self.openWatch(in: location)
+            guard !Task.isCancelled, self.generation == generation else {
+                close(snapshot.descriptor)
+                return
+            }
+            knownNames = snapshot.names
+            descriptor = snapshot.descriptor
         } catch {
+            guard !Task.isCancelled, self.generation == generation else { return }
             access = Self.isPermissionError(error) ? .unavailable(.permissionDenied) : .unavailable(.temporarilyUnavailable)
             return
         }
-        let descriptor = open(location.path, O_EVTONLY)
-        guard descriptor >= 0 else { access = .unavailable(.temporarilyUnavailable); return }
+        access = .available
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor,
                                                                eventMask: [.write, .rename, .delete], queue: .main)
         source.setEventHandler { [weak self, weak source] in
@@ -136,7 +166,7 @@ public final class RealScreenshotService: ScreenshotService {
                 if let source, !source.data.intersection([.delete, .rename]).isEmpty {
                     // The old descriptor no longer represents the configured location.
                     self.folder = nil
-                    self.watch(self.locate())
+                    self.requestWatch()
                 } else { self.scheduleScan() }
             }
         }
@@ -155,9 +185,10 @@ public final class RealScreenshotService: ScreenshotService {
             defer { if self.generation == generation { self.scanTask = nil } }
             while self.scanRequested, !Task.isCancelled {
                 self.scanRequested = false
-                let location = self.locate()
+                let location = await Self.resolveLocation(using: self.locate)
+                guard !Task.isCancelled, self.generation == generation else { return }
                 guard location.standardizedFileURL == self.folder?.standardizedFileURL else {
-                    self.watch(location)
+                    self.requestWatch()
                     return
                 }
                 guard let names = try? await Self.directoryNames(in: location), !Task.isCancelled,
@@ -241,6 +272,17 @@ public final class RealScreenshotService: ScreenshotService {
         try names(in: folder)
     }
 
+    @concurrent private static func resolveLocation(using locate: @Sendable () -> URL) async -> URL {
+        locate()
+    }
+
+    @concurrent private static func openWatch(in folder: URL) async throws -> (names: Set<String>, descriptor: Int32) {
+        let names = try names(in: folder)
+        let descriptor = open(folder.path, O_EVTONLY)
+        guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        return (names, descriptor)
+    }
+
     /// Decode just a tiny thumbnail off the UI executor. A tag alone does not prove that
     /// an image's bytes are complete. File change events re-attempt incomplete candidates.
     @concurrent static func isReadyCapture(_ url: URL) async -> Bool {
@@ -290,7 +332,7 @@ public final class RealScreenshotService: ScreenshotService {
                 guard self.query.map(ObjectIdentifier.init) == identity else { return }
                 added.forEach { self.observeCandidate($0.0); self.validate(url: $0.0, created: $0.1) }
                 removed.forEach { self.remove($0.0) }
-                if !added.isEmpty { self.watch(self.locate()) }
+                if !added.isEmpty { self.requestWatch() }
             }
         })
         self.query = query
@@ -331,6 +373,10 @@ public final class RealScreenshotService: ScreenshotService {
 
     private func stopObservation() {
         generation &+= 1
+        watchRequestGeneration &+= 1
+        watchTask?.cancel()
+        watchTask = nil
+        watchRequested = false
         query?.stop()
         query = nil
         observers.forEach(NotificationCenter.default.removeObserver)
