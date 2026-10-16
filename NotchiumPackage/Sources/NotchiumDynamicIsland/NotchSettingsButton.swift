@@ -6,6 +6,7 @@ import SwiftUI
 struct NotchUtilityControls: View {
     let caffeine: (any NotchCaffeineControlling)?
     var camera: (any NotchCameraControlling)? = nil
+    var cameraPresentationSource = "feature"
     let quickReminder: (any NotchQuickActionsRendering)?
     let close: () -> Void
 
@@ -14,7 +15,7 @@ struct NotchUtilityControls: View {
             HStack(spacing: 0) {
                 HStack(spacing: 8) {
                     if let caffeine { NotchCaffeineButton(controller: caffeine) }
-                    if let camera { NotchCameraButton(camera: camera) }
+                    if let camera { NotchCameraButton(camera: camera, source: cameraPresentationSource) }
                     if let quickReminder { quickReminder.reminderButton() }
                     NotchSettingsButton()
                 }
@@ -32,13 +33,14 @@ struct NotchUtilityControls: View {
 /// Selected while Mirror is presented, including permission and recovery screens.
 private struct NotchCameraButton: View {
     let camera: any NotchCameraControlling
+    let source: String
 
     @NotchReducedMotion private var reduceMotion
     @State private var isHovered = false
 
     var body: some View {
         let isPresented = camera.isPreviewPresented
-        Button(action: camera.togglePreview) {
+        Button { camera.togglePreview(source: source) } label: {
             NotchUtilityLabel(symbol: isPresented ? "web.camera.fill" : "web.camera", isHovered: isHovered, isSelected: isPresented)
         }
         .buttonStyle(NotchUtilityButtonStyle())
