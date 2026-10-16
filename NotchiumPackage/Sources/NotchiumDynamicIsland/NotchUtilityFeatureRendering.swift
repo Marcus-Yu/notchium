@@ -24,9 +24,18 @@ public extension NotchPomodoroRendering {
 @MainActor public protocol NotchCameraControlling: AnyObject {
     var isPreviewPresented: Bool { get }
     func togglePreview()
+    func togglePreview(source: String)
     /// Stops capture immediately; called whenever the preview leaves the screen.
     func closePreview()
+    func setPreviewVisible(_ visible: Bool, source: String)
     func preview() -> AnyView
+}
+
+public extension NotchCameraControlling {
+    func togglePreview(source: String) { togglePreview() }
+    func setPreviewVisible(_ visible: Bool, source: String) {
+        if !visible { closePreview() }
+    }
 }
 
 /// The Shelf page holds files and, beside them, recent clipboard items.
