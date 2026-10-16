@@ -53,7 +53,8 @@ public final class NotchiumApplicationController {
                 workspace: any QuickActionWorkspace = NativeQuickActionWorkspace(),
                 actionStore: QuickActionStore? = nil,
                 clipboardStore: (any ClipboardStoring)? = nil,
-                pomodoroStore: (any PomodoroPersisting)? = nil) {
+                pomodoroStore: (any PomodoroPersisting)? = nil,
+                audioMeter: SystemAudioMeter = SystemAudioMeter(captureEnabled: false)) {
         self.environment = environment
 #if DEBUG
         let shellDebugModel = NotchShellDebugModel()
@@ -76,7 +77,7 @@ public final class NotchiumApplicationController {
                                        coordinator: displayCoordinator.presentationModel.activityCoordinator,
                                        visibilityClock: environment.clock,
                                        snapshotStore: environment.persistence,
-                                       audioMeter: SystemAudioMeter(activityClock: environment.clock),
+                                       audioMeter: audioMeter,
                                        waveformAppearance: WaveformAppearanceModel(preferences: .standard))
         calendarModel = CalendarActivityModel(service: environment.services.calendar,
             coordinator: displayCoordinator.presentationModel.activityCoordinator,
@@ -152,7 +153,8 @@ public final class NotchiumApplicationController {
 #endif
         return NotchiumApplicationController(environment: .production(), reminderService: EventKitReminderService(),
                                       shortcutService: AppleShortcutService(),
-                                      clipboardStore: FileClipboardStore(), pomodoroStore: FilePomodoroStore())
+                                      clipboardStore: FileClipboardStore(), pomodoroStore: FilePomodoroStore(),
+                                      audioMeter: SystemAudioMeter())
     }
 
     public func start() {
