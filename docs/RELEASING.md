@@ -55,8 +55,11 @@ runtime out of Release. Developer fixtures and local paths must pass the byte sc
 The free Swift condition must reach **all SwiftPM modules**, not just the app
 target. `release.sh` supplies `OTHER_SWIFT_FLAGS=-D NOTCH_FREE_DISTRIBUTION` to
 Xcode and runs a separate SwiftPM free-profile regression test.
-Debug retains its original profile. Provisioned clipboard histories are not
-automatically re-keyed; existing unreadable files must remain preserved.
+Debug retains its signing profile. Stage 26 aligns new non-Store Clipboard
+histories on login Keychain in both Debug and free Release, with authenticated,
+read-only lookup of the previously shipped backend. After the full history authenticates, an absent canonical non-Store slot can receive the same original key through create-only insertion and verified readback. Provisioned histories
+are never automatically re-keyed; unreadable files remain preserved. Different
+ad-hoc executable signatures may still require explicit Keychain authorization.
 
 ## Repeatable command
 
