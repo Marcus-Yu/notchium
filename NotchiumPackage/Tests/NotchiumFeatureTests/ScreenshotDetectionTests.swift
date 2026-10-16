@@ -7,6 +7,28 @@ import XCTest
 /// real service's folder watch and attribute check must report exactly one capture.
 @MainActor
 final class ScreenshotDetectionTests: XCTestCase {
+    func testSlowFolderAccessNeverBlocksTheMainActor() async throws {
+        let folder = URL(fileURLWithPath: "/private/tmp/notchium-watch-\(UUID())")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let entered = expectation(description: "Folder setup started off the UI executor")
+        let gate = DispatchSemaphore(value: 0)
+        let service = RealScreenshotService(location: {
+            XCTAssertFalse(Thread.isMainThread, "Folder access/TCC must not occupy MainActor")
+            entered.fulfill()
+            XCTAssertEqual(gate.wait(timeout: .now() + 2), .success)
+            return folder
+        })
+        let startup = Task { await service.events() }
+        await fulfillment(of: [entered], timeout: 1)
+        // This main-actor continuation runs while folder access remains deliberately blocked.
+        gate.signal()
+        let stream = await startup.value
+        let collector = Task { for await _ in stream {} }
+        collector.cancel()
+        _ = await collector.value
+    }
+
     func testLateCaptureAttributeAndWritesAreObservedWithoutRetryDeadline() async throws {
         let folder = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("polish-shot-\(UUID())")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
