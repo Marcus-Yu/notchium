@@ -8,7 +8,7 @@ import NotchiumCore
 
 @MainActor
 final class FocusedBugFixTests: XCTestCase {
-    func testAirDropUsesStandaloneWindowAndShareKeepsSourceWindow() throws {
+    func testSharingUsesAnOwnedVisibleSourceWithoutDimmingTheNotchHost() throws {
         let panel = NotchPanel(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: false)
         panel.applyNotchWindowBehavior()
         let model = DynamicIslandPresentationModel(phase: .expanded)
@@ -18,9 +18,13 @@ final class FocusedBugFixTests: XCTestCase {
         let share = NSSharingService(title: "Test Share", image: NSImage(), alternateImage: nil) {}
         let session = sharing.begin(window: panel, interaction: model.auxiliaryInteractionHandler, service: share)
         var scope = NSSharingService.SharingContentScope.item
-        XCTAssertNil(session.sharingService(airDrop, sourceWindowForShareItems: [], sharingContentScope: &scope))
-        XCTAssertTrue(session.sharingService(share, sourceWindowForShareItems: [], sharingContentScope: &scope) === panel)
+        let source = try XCTUnwrap(session.sharingService(airDrop, sourceWindowForShareItems: [], sharingContentScope: &scope))
+        XCTAssertFalse(source === panel)
+        XCTAssertTrue(source.isVisible)
+        XCTAssertTrue(source.collectionBehavior.contains(.canJoinAllApplications))
+        XCTAssertTrue(session.sharingService(share, sourceWindowForShareItems: [], sharingContentScope: &scope) === source)
         session.sharingService(share, didShareItems: [])
+        XCTAssertFalse(source.isVisible)
         XCTAssertEqual(panel.level, NotchPanel.restingLevel)
     }
 
