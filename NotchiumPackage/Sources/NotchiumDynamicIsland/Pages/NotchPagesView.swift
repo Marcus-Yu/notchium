@@ -15,6 +15,7 @@ struct NotchPagesView: View {
     var pomodoroRenderer: (any NotchPomodoroRendering)?
     var clipboardRenderer: (any NotchClipboardRendering)?
     var camera: (any NotchCameraControlling)?
+    var cameraPresentationSource = "feature"
     var close: () -> Void = {}
     @NotchReducedMotion private var reduceMotion
 
@@ -56,15 +57,15 @@ struct NotchPagesView: View {
         .onChange(of: pageVisible(.pomodoro), initial: true) { _, visible in
             pomodoroRenderer?.setPageVisible(visible)
         }
-        .onChange(of: isExpanded) { _, expanded in
-            if !expanded { camera?.closePreview() }
+        .onChange(of: isExpanded && cameraOpen, initial: true) { _, visible in
+            camera?.setPreviewVisible(visible, source: cameraPresentationSource)
         }
         .onDisappear {
             audioRenderer?.setPageVisible(false)
             shelfRenderer?.setPageVisible(false)
             clipboardRenderer?.setVisible(false)
             pomodoroRenderer?.setPageVisible(false)
-            camera?.closePreview()
+            camera?.setPreviewVisible(false, source: cameraPresentationSource)
         }
         .accessibilityElement(children: .contain)
         .accessibilityValue(model.selectedPage.title)
@@ -182,12 +183,14 @@ struct NotchPagesView: View {
                 }
             }
             .opacity(section == .files ? 1 : 0)
+            .disabled(section != .files)
             .allowsHitTesting(section == .files)
             .accessibilityElement(children: section == .files ? .contain : .ignore)
             .accessibilityHidden(section != .files)
             if let clipboardRenderer {
                 clipboardRenderer.expandedClipboard()
                     .opacity(section == .clipboard ? 1 : 0)
+                    .disabled(section != .clipboard)
                     .allowsHitTesting(section == .clipboard)
                     .accessibilityElement(children: section == .clipboard ? .contain : .ignore)
                     .accessibilityHidden(section != .clipboard)
@@ -210,7 +213,8 @@ struct NotchPagesView: View {
             NotchPageSwipeSurface(model: model, isEnabled: isExpanded && !auxiliaryInteractionPresented,
                                   reduceMotion: reduceMotion)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            NotchUtilityControls(caffeine: caffeine, camera: camera, quickReminder: quickActions, close: close)
+            NotchUtilityControls(caffeine: caffeine, camera: camera, cameraPresentationSource: cameraPresentationSource,
+                                 quickReminder: quickActions, close: close)
         }
         .padding(.horizontal, NotchGeometryResolver.expandedContentHorizontalInset)
         .accessibilityElement(children: .contain)
