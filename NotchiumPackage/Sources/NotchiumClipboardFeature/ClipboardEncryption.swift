@@ -42,7 +42,7 @@ public enum ClipboardStorageState: Equatable, Sendable {
 }
 
 public enum ClipboardKeychainOperation: String, Equatable, Sendable {
-    case read, create, verify
+    case read, readLegacy, create, verify, migrate, verifyMigration
 }
 
 enum ClipboardStorageFailure: Error, Equatable {
@@ -68,11 +68,17 @@ public protocol ClipboardEncryptionKeyStoring: Sendable {
     func create() throws -> Data
     func read(allowAuthentication: Bool) throws -> Data?
     func create(allowAuthentication: Bool) throws -> Data
+    /// The previously shipped backend, read only and only for authenticating existing history.
+    func readLegacy(allowAuthentication: Bool) throws -> Data?
+    /// Adds the authenticated original key to an empty canonical backend. Never replaces an item.
+    func migrateLegacyKey(_ key: Data, allowAuthentication: Bool) throws
 }
 
 public extension ClipboardEncryptionKeyStoring {
     func read(allowAuthentication: Bool) throws -> Data? { try read() }
     func create(allowAuthentication: Bool) throws -> Data { try create() }
+    func readLegacy(allowAuthentication: Bool) throws -> Data? { nil }
+    func migrateLegacyKey(_ key: Data, allowAuthentication: Bool) throws {}
 }
 
 public struct KeychainClipboardEncryptionKeyStore: ClipboardEncryptionKeyStoring {
@@ -80,19 +86,19 @@ public struct KeychainClipboardEncryptionKeyStore: ClipboardEncryptionKeyStoring
     public init() { client = SystemClipboardKeychain() }
     init(client: any ClipboardKeychainAccessing) { self.client = client }
 
-    private var query: [String: Any] {
+    private func query(dataProtection: Bool) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
          kSecAttrService as String: "Notchium.Clipboard",
          kSecAttrAccount as String: "payload-key.v1",
          kSecAttrSynchronizable as String: false,
-         kSecUseDataProtectionKeychain as String: Self.usesDataProtection]
+         kSecUseDataProtectionKeychain as String: dataProtection]
     }
 
     static var usesDataProtection: Bool {
-#if NOTCH_FREE_DISTRIBUTION && !NOTCH_APP_STORE
-        false
-#else
+#if NOTCH_APP_STORE
         true
+#else
+        false
 #endif
     }
 
@@ -101,12 +107,38 @@ public struct KeychainClipboardEncryptionKeyStore: ClipboardEncryptionKeyStoring
         try read(operation: .read, allowAuthentication: allowAuthentication)
     }
 
-    private func read(operation: ClipboardKeychainOperation, allowAuthentication: Bool) throws -> Data? {
-        var query = query
+    public func readLegacy(allowAuthentication: Bool) throws -> Data? {
+        try read(operation: .readLegacy, allowAuthentication: allowAuthentication,
+                 dataProtection: !Self.usesDataProtection)
+    }
+
+    public func migrateLegacyKey(_ key: Data, allowAuthentication: Bool) throws {
+        // Store's provisioned backend is a separate distribution profile. This compatibility
+        // path bridges earlier development histories to the current non-Store login backend.
+        guard !Self.usesDataProtection else { return }
+        guard key.count == 32 else { throw ClipboardStorageFailure.invalidKey }
+        var item = query(dataProtection: false)
+        item[kSecValueData as String] = key
+        let status = client.add(item)
+        ClipboardKeychainDiagnostics.record(.migrate, status: status, dataProtection: false)
+        guard status == errSecSuccess || status == errSecDuplicateItem else {
+            throw ClipboardStorageFailure.keychain(.migrate, status)
+        }
+        // SecItemAdd is create-only. A racing creator must have stored this SAME original
+        // key; a different winner remains untouched and migration fails closed.
+        guard let stored = try read(operation: .verifyMigration, allowAuthentication: allowAuthentication) else {
+            throw ClipboardStorageFailure.keychain(.verifyMigration, errSecItemNotFound)
+        }
+        guard stored == key else { throw ClipboardStorageFailure.invalidKey }
+    }
+
+    private func read(operation: ClipboardKeychainOperation, allowAuthentication: Bool,
+                      dataProtection: Bool = Self.usesDataProtection) throws -> Data? {
+        var query = query(dataProtection: dataProtection)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         let (status, data) = client.copyMatching(query, allowAuthentication: allowAuthentication)
-        ClipboardKeychainDiagnostics.record(operation, status: status, dataProtection: Self.usesDataProtection)
+        ClipboardKeychainDiagnostics.record(operation, status: status, dataProtection: dataProtection)
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess else { throw ClipboardStorageFailure.keychain(operation, status) }
         guard let key = data, key.count == 32 else { throw ClipboardStorageFailure.invalidKey }
@@ -117,7 +149,7 @@ public struct KeychainClipboardEncryptionKeyStore: ClipboardEncryptionKeyStoring
     public func create(allowAuthentication: Bool) throws -> Data {
         if let existing = try read(allowAuthentication: allowAuthentication) { return existing }
         let key = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
-        var item = query
+        var item = query(dataProtection: Self.usesDataProtection)
         item[kSecValueData as String] = key
         if Self.usesDataProtection {
             item[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
