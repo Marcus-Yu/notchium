@@ -21,8 +21,15 @@ extension NotchiumApplicationController {
         let reminders = MockReminderService()
         if CommandLine.arguments.contains("--notchium-reminders-denied") { reminders.authorization = .denied }
         let services: ServiceRegistry
+        let nativeFiles = CommandLine.arguments.contains("--notchium-native-files-fixture")
         let qualityFixture = CommandLine.arguments.contains("--notchium-quality-fixture")
-        if CommandLine.arguments.contains("--notchium-system-feedback-fixture") {
+        let nativeFile = URL(fileURLWithPath: "/private/tmp/notchium-stage26-native-files-\(UUID().uuidString).txt")
+        if nativeFiles {
+            // Explicit disposable UI-test input; never enumerate or modify user folders.
+            try? Data("Disposable Notchium sharing acceptance fixture".utf8).write(to: nativeFile, options: .atomic)
+            services = .mock()
+            (services.shelf as? MockShelfService)?.existingPaths.insert(nativeFile.path)
+        } else if CommandLine.arguments.contains("--notchium-system-feedback-fixture") {
             // Explicit hardware qualification: real audio output and key handling, with mock
             // calendar, file, clipboard and provider services. No permission request at launch.
             services = .mock(audioDevices: RealAudioDevicesService())
@@ -41,9 +48,11 @@ extension NotchiumApplicationController {
             services = .mock(media: RealMediaProvider(controller: .init(
                 executor: SettingsFixtureScriptExecutor(), application: SettingsFixtureSpotifyApplication())))
         } else { services = .mock() }
-        return NotchiumApplicationController(environment: .mock(clock: ContinuousAppClock(), services: services,
+        let controller = NotchiumApplicationController(environment: .mock(clock: ContinuousAppClock(), services: services,
             featureFlags: qualityFixture ? .stageNineteenUtilities : .stageFifteenFiles),
             reminderService: reminders, shortcutService: MockShortcutService(shortcuts: [shortcut]), actionStore: store)
+        if nativeFiles { controller.filesModel.shelf.add([nativeFile]) }
+        return controller
     }
 }
 
