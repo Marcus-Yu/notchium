@@ -100,7 +100,10 @@ struct ClipboardPageView: View {
             Image(systemName: model.query.isEmpty ? "doc.on.clipboard" : "magnifyingglass")
                 .font(.system(size: 18, weight: .light))
                 .foregroundStyle(.white.opacity(0.4))
-            Text(model.query.isEmpty ? "Copied text, links, images and files appear here." : "No matches")
+            Text(model.query.isEmpty
+                 ? (model.captureEnabled ? "Copied text, links, images and files appear here."
+                    : "Clipboard history is off. Enable it in Settings → Clipboard.")
+                 : "No matches")
                 .font(.system(size: 11))
                 .foregroundStyle(.white.opacity(0.5))
         }
