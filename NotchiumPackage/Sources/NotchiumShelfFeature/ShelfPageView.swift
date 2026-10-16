@@ -10,6 +10,8 @@ import SwiftUI
 struct ShelfPageView: View {
     @Bindable var model: FilesFeatureModel
     @State private var selection: Set<ShelfModel.Item.ID> = []
+    @State private var actionAnchor = FileActionAnchor()
+    @Environment(\.notchAuxiliaryInteraction) private var interaction
     /// Present when Clipboard shares this page; the title becomes the section switch.
     @Environment(\.notchShelfSection) private var section
 
@@ -46,6 +48,7 @@ struct ShelfPageView: View {
         .padding(.top, ExpandedPageStyle.topInset)
         .padding(.bottom, ExpandedPageStyle.bottomInset)
         .foregroundStyle(.white)
+        .background { FileSharingAnchor(anchor: actionAnchor) }
         .onDeleteCommand { selection.forEach(model.shelf.remove); selection.removeAll() }
         .onChange(of: model.shelf.items.map(\.id)) { _, ids in selection.formIntersection(ids) }
     }
@@ -74,13 +77,19 @@ struct ShelfPageView: View {
                     .lineLimit(1).transition(.opacity)
             }
             Spacer(minLength: 4)
-            ShelfToolButton(symbol: "plus", label: "Add Files…", action: model.addChosenFiles)
+            ShelfToolButton(symbol: "plus", label: "Add Files…") {
+                model.addChosenFiles(from: actionAnchor.view, interaction: interaction)
+            }
+                .disabled(model.isChoosingFiles || model.isSharing)
             ShelfToolButton(symbol: "dot.radiowaves.left.and.right", label: "AirDrop",
-                            image: NativeFileActions.airDropImage) { model.airDrop(targets) }
-                .disabled(targets.isEmpty || model.isSharing)
-            ShelfToolButton(symbol: "square.and.arrow.up", label: "Share") { model.share(targets) }
-                .disabled(model.isSharing)
-                .background { FileSharingAnchor(model: model) }
+                            image: NativeFileActions.airDropImage) {
+                model.airDrop(targets, from: actionAnchor.view, interaction: interaction)
+            }
+                .disabled(targets.isEmpty || model.isSharing || model.isChoosingFiles)
+            ShelfToolButton(symbol: "square.and.arrow.up", label: "Share") {
+                model.share(targets, from: actionAnchor.view, interaction: interaction)
+            }
+                .disabled(model.isSharing || model.isChoosingFiles)
                 .disabled(targets.isEmpty)
                 .help("Share")
                 .accessibilityLabel("Share")
@@ -130,7 +139,8 @@ struct ShelfPageView: View {
                 .foregroundStyle(.white.opacity(0.45))
             Text("Drop files onto the notch to keep them here")
                 .font(.system(size: 12)).foregroundStyle(.white.opacity(0.55))
-            Button("Add Files…", action: model.addChosenFiles)
+            Button("Add Files…") { model.addChosenFiles(from: actionAnchor.view, interaction: interaction) }
+                .disabled(model.isChoosingFiles || model.isSharing)
                 .buttonStyle(ShelfTextButtonStyle())
         }
         .frame(maxWidth: .infinity)
@@ -188,8 +198,10 @@ struct ShelfPageView: View {
         Button("Show in Finder") { model.actions.reveal(urls) }
         Button("Copy") { model.actions.copyFiles(urls) }
         Button("Copy Path") { model.actions.copyPaths(urls) }
-        Button("Share…") { model.share(urls) }.disabled(model.isSharing)
-        Button("AirDrop") { model.airDrop(urls) }.disabled(model.isSharing)
+        Button("Share…") { model.share(urls, from: actionAnchor.view, interaction: interaction) }
+            .disabled(model.isSharing || model.isChoosingFiles)
+        Button("AirDrop") { model.airDrop(urls, from: actionAnchor.view, interaction: interaction) }
+            .disabled(model.isSharing || model.isChoosingFiles)
     }
 
     private func toggle(_ id: ShelfModel.Item.ID) {
