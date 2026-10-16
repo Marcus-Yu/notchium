@@ -22,8 +22,10 @@ public enum ShareOutcome: Equatable, Sendable {
     func airDrop(_ urls: [URL], from view: NSView?, interaction: NotchAuxiliaryInteractionHandler) -> ShareOutcome
     func share(_ urls: [URL], from view: NSView, interaction: NotchAuxiliaryInteractionHandler) -> ShareOutcome
     func chooseFiles() async -> [URL]
+    func chooseFiles(from view: NSView?, interaction: NotchAuxiliaryInteractionHandler) async -> [URL]
     /// A native Share/AirDrop presentation currently owns sharing.
     var isSharing: Bool { get }
+    func cancelPresentations()
     /// Files & Folders privacy settings, for recovering denied folder access.
     func openPrivacySettings()
 }
@@ -36,12 +38,17 @@ extension FileActionPerforming {
         .unavailable
     }
     public var isSharing: Bool { false }
+    public func cancelPresentations() {}
+    public func chooseFiles(from view: NSView?, interaction: NotchAuxiliaryInteractionHandler) async -> [URL] {
+        await chooseFiles()
+    }
 }
 
 @MainActor public final class NativeFileActions: FileActionPerforming {
     private let workspace: NSWorkspace
     private let pasteboard: NSPasteboard
     private let sharing = NativeFileSharing()
+    private let filePanel = NativeFilePanel()
 
     public init(workspace: NSWorkspace = .shared, pasteboard: NSPasteboard = .general) {
         self.workspace = workspace
@@ -83,14 +90,18 @@ extension FileActionPerforming {
 
     public var isSharing: Bool { sharing.isActive }
 
+    public func cancelPresentations() {
+        filePanel.panel?.cancel(nil)
+        sharing.cancel()
+    }
+
     public func chooseFiles() async -> [URL] {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = true
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = true
-        panel.title = "Add to Shelf"
-        panel.prompt = "Add"
-        return await panel.begin() == .OK ? panel.urls : []
+        await chooseFiles(from: nil, interaction: .init())
+    }
+
+    public func chooseFiles(from view: NSView?, interaction: NotchAuxiliaryInteractionHandler) async -> [URL] {
+        guard !sharing.isActive else { return [] }
+        return await filePanel.choose(from: view?.window, interaction: interaction)
     }
 
     public func openPrivacySettings() {
