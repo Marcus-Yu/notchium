@@ -125,18 +125,26 @@ public final class FileClipboardStore: ClipboardStoring, @unchecked Sendable {
         disk = try ClipboardDiskDirectory(url: directory)
         let names = try disk!.names()
         let hasEncryptedData = names.contains { $0.hasSuffix(".clip") }
+        let encryptedIndex = try disk!.read(Self.indexName, maximumBytes: Self.indexLimit + 64)
         let storedKey = try keys.read(allowAuthentication: allowAuthentication)
-        let candidateKey = try storedKey ?? (hasEncryptedData ? nil : keys.create(allowAuthentication: allowAuthentication))
+        let authenticated = try compatibleHistory(primary: storedKey, encryptedIndex: encryptedIndex,
+                                                   allowAuthentication: allowAuthentication)
+        let candidateKey = try authenticated?.key ?? storedKey
+            ?? (hasEncryptedData ? nil : keys.create(allowAuthentication: allowAuthentication))
         guard let loadedKey = candidateKey else {
             throw ClipboardStorageFailure.keyUnavailable
         }
         guard loadedKey.count == 32 else { throw ClipboardStorageFailure.invalidKey }
         key = loadedKey
         let items: [ClipboardItem]
-        if let encrypted = try disk!.read(Self.indexName, maximumBytes: Self.indexLimit + 64) {
-            let data = try ClipboardEncryption.open(encrypted, key: loadedKey, identity: "history")
-            items = try JSONDecoder().decode([ClipboardItem].self, from: data)
+        if let authenticated {
+            items = try JSONDecoder().decode([ClipboardItem].self, from: authenticated.plaintext)
             try validateEncryptedImages(in: items)
+            if storedKey == nil {
+                // Only a fully authenticated legacy history can authorize this create-only
+                // copy. No replacement key, ciphertext rewrite, or original-item deletion.
+                try keys.migrateLegacyKey(loadedKey, allowAuthentication: allowAuthentication)
+            }
             // A crash after index commit may leave plaintext migration sources. Remove them
             // only after authenticating the committed encrypted index and all its image assets.
             if names.contains("history.json") { try finishMigration(items, names: names) }
@@ -159,6 +167,25 @@ public final class FileClipboardStore: ClipboardStoring, @unchecked Sendable {
         }
         initialized = true
         return items
+    }
+
+    /// A backend change never justifies re-keying. Accept the legacy key only after the
+    /// existing index authenticates; image validation still precedes any migration/cleanup.
+    private func compatibleHistory(primary: Data?, encryptedIndex: Data?, allowAuthentication: Bool) throws
+        -> (key: Data, plaintext: Data)? {
+        guard let encryptedIndex else { return nil }
+        if let primary {
+            do {
+                return (primary, try ClipboardEncryption.open(encryptedIndex, key: primary, identity: "history"))
+            } catch ClipboardStorageFailure.authenticationFailed {
+                guard let legacy = try keys.readLegacy(allowAuthentication: allowAuthentication) else {
+                    throw ClipboardStorageFailure.authenticationFailed
+                }
+                return (legacy, try ClipboardEncryption.open(encryptedIndex, key: legacy, identity: "history"))
+            }
+        }
+        guard let legacy = try keys.readLegacy(allowAuthentication: allowAuthentication) else { return nil }
+        return (legacy, try ClipboardEncryption.open(encryptedIndex, key: legacy, identity: "history"))
     }
 
     private func validateEncryptedImages(in items: [ClipboardItem]) throws {
