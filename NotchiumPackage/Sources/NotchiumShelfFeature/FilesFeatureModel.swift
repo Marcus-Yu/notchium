@@ -15,19 +15,19 @@ public final class FilesFeatureModel: NotchShelfRendering {
     public let screenshots: ScreenshotActivityModel
     /// A short inline message for an action that could not run (e.g. AirDrop unavailable).
     public private(set) var notice: String?
+    public private(set) var isChoosingFiles = false
     /// Folder access for screenshot detection and for acting on finished downloads.
     public private(set) var screenshotAccess: FeatureAvailability = .available
     public private(set) var downloadsAccess: FeatureAvailability = .available
 
     @ObservationIgnored let actions: any FileActionPerforming
-    @ObservationIgnored weak var sharingAnchor: NSView?
-    @ObservationIgnored var sharingInteraction = NotchAuxiliaryInteractionHandler()
     @ObservationIgnored private let transferService: any FileTransferService
     @ObservationIgnored private let screenshotService: any ScreenshotService
     @ObservationIgnored private let notifications: NotificationCoordinator
     @ObservationIgnored private var transferTask: Task<Void, Never>?
     @ObservationIgnored private var screenshotTask: Task<Void, Never>?
     @ObservationIgnored private var noticeTask: Task<Void, Never>?
+    @ObservationIgnored private var chooseTask: Task<Void, Never>?
 
     public init(transfers: any FileTransferService, screenshots: any ScreenshotService,
                 shelf: any ShelfService, actions: any FileActionPerforming,
@@ -46,7 +46,7 @@ public final class FilesFeatureModel: NotchShelfRendering {
         shelf.restore()
         transferTask = Task { [weak self, transferService] in
             let updates = await transferService.updates()
-            // Monitoring (and its read-only folder access) is established before anything else.
+            // Progress observation never probes protected folders or gates a file picker.
             let access = await transferService.availability()
             self?.downloadsAccess = access
             for await snapshot in updates {
@@ -69,6 +69,8 @@ public final class FilesFeatureModel: NotchShelfRendering {
         transferTask?.cancel(); transferTask = nil
         screenshotTask?.cancel(); screenshotTask = nil
         noticeTask?.cancel(); noticeTask = nil
+        chooseTask?.cancel()
+        actions.cancelPresentations()
         shelf.stopAccessingFiles()
         transfers.reset()
         screenshots.reset()
@@ -120,10 +122,15 @@ public final class FilesFeatureModel: NotchShelfRendering {
         return inserted.count
     }
 
-    public func addChosenFiles() {
-        Task { [weak self] in
+    public func addChosenFiles(from view: NSView? = nil, interaction: NotchAuxiliaryInteractionHandler = .init()) {
+        guard !isChoosingFiles, !isSharing else { return }
+        isChoosingFiles = true
+        chooseTask = Task { [weak self] in
             guard let self else { return }
-            self.addToShelf(await self.actions.chooseFiles())
+            defer { self.isChoosingFiles = false; self.chooseTask = nil }
+            let urls = await self.actions.chooseFiles(from: view, interaction: interaction)
+            guard !Task.isCancelled, !urls.isEmpty else { return }
+            self.addToShelf(urls)
         }
     }
 
@@ -137,15 +144,17 @@ public final class FilesFeatureModel: NotchShelfRendering {
     /// Share and AirDrop are unavailable while a native presentation is active.
     public var isSharing: Bool { actions.isSharing }
 
-    public func airDrop(_ urls: [URL]) {
-        if actions.airDrop(urls, from: sharingAnchor, interaction: sharingInteraction) == .unavailable {
+    public func airDrop(_ urls: [URL], from view: NSView? = nil, interaction: NotchAuxiliaryInteractionHandler = .init()) {
+        guard !isChoosingFiles else { return }
+        if actions.airDrop(urls, from: view, interaction: interaction) == .unavailable {
             show("AirDrop is unavailable")
         }
     }
 
-    public func share(_ urls: [URL]) {
-        guard let sharingAnchor else { return }
-        if actions.share(urls, from: sharingAnchor, interaction: sharingInteraction) == .unavailable {
+    public func share(_ urls: [URL], from view: NSView? = nil, interaction: NotchAuxiliaryInteractionHandler = .init()) {
+        guard !isChoosingFiles else { return }
+        guard let view else { show("Sharing is unavailable"); return }
+        if actions.share(urls, from: view, interaction: interaction) == .unavailable {
             show("Sharing is unavailable")
         }
     }
