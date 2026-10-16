@@ -13,6 +13,8 @@ final class NativeFileSharing {
     @ObservationIgnored private var session: NativeSharingSession?
     @ObservationIgnored var makeAirDropService: () -> NSSharingService? = { NSSharingService(named: .sendViaAirDrop) }
 
+    func cancel() { session?.cancel() }
+
     func share(_ urls: [URL], from view: NSView, interaction: NotchAuxiliaryInteractionHandler) -> ShareOutcome {
         guard session == nil else { return .inProgress }
         guard !urls.isEmpty, view.window != nil else { return .unavailable }
@@ -67,6 +69,7 @@ final class NativeSharingSession: NSObject, @MainActor NSSharingServicePickerDel
     private(set) var hasEnded = false
     private var service: NSSharingService?
     private weak var sourceWindow: NSWindow?
+    private var shareWindow: NativeShareWindow?
     private let interaction: NotchAuxiliaryInteractionHandler
     private var returnsToOpenSession: Bool
     private let onEnd: (NativeSharingSession) -> Void
@@ -91,7 +94,7 @@ final class NativeSharingSession: NSObject, @MainActor NSSharingServicePickerDel
             center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { [weak self] note in
                 let window = note.object as? NSWindow
                 MainActor.assumeIsolated {
-                    guard let self, let window, window !== self.sourceWindow else { return }
+                    guard let self, let window, self.owns(window) else { return }
                     self.presentationWindows[ObjectIdentifier(window)] = WeakWindow(window: window)
                 }
             },
@@ -103,11 +106,39 @@ final class NativeSharingSession: NSObject, @MainActor NSSharingServicePickerDel
                     self.finishIfPresentationGone()
                 }
             },
+            center.addObserver(forName: NSWindow.didEndSheetNotification, object: nil, queue: .main) { [weak self] note in
+                let window = note.object as? NSWindow
+                MainActor.assumeIsolated {
+                    guard let self, let window, window === self.shareWindow, self.hasStarted else { return }
+                    self.finish()
+                }
+            },
         ] + [NSWindow.didResignKeyNotification, NSWindow.didChangeOcclusionStateNotification].map { name in
             center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.finishIfPresentationGone() }
             }
         }
+    }
+
+    private func owns(_ window: NSWindow) -> Bool {
+        guard window !== shareWindow, window !== sourceWindow else { return false }
+        var parent = window.sheetParent ?? window.parent
+        while let current = parent {
+            if current === shareWindow || current === sourceWindow { return true }
+            parent = current.sheetParent ?? current.parent
+        }
+        return false
+    }
+
+    func cancel() {
+        guard !hasEnded else { return }
+        // Only close windows attached to our explicit ShareKit source. Never adopt an
+        // unrelated Settings or permission window merely because it became key.
+        if let sheet = shareWindow?.attachedSheet {
+            shareWindow?.endSheet(sheet, returnCode: .cancel)
+            sheet.orderOut(nil)
+        }
+        finish()
     }
 
     /// Closing one sheet window can merely order its companions out, which posts no close.
@@ -126,7 +157,12 @@ final class NativeSharingSession: NSObject, @MainActor NSSharingServicePickerDel
         service?.delegate = nil
         picker = nil
         service = nil
+        shareWindow?.onCancel = nil
+        shareWindow?.close()
+        shareWindow = nil
+        presentationWindows.removeAll()
         interaction.endNativeSharing(in: sourceWindow, source: source, returnsToOpenSession: returnsToOpenSession)
+        sourceWindow?.orderFrontRegardless()
         onEnd(self)
     }
 
@@ -145,10 +181,17 @@ final class NativeSharingSession: NSObject, @MainActor NSSharingServicePickerDel
 
     func sharingService(_ sharingService: NSSharingService, sourceWindowForShareItems items: [Any],
                         sharingContentScope: UnsafeMutablePointer<NSSharingService.SharingContentScope>) -> NSWindow? {
-        // ShareKit dims the entire source window for AirDrop. Our transparent host is much
-        // larger than the drawn notch, producing a rectangular dimming artifact. Let macOS
-        // present its centered standalone picker; the interaction lease still owns the notch.
-        sharingService == NSSharingService(named: .sendViaAirDrop) ? nil : sourceWindow
+        guard !hasEnded else { return nil }
+        if shareWindow == nil {
+            let window = NativeShareWindow(origin: sourceWindow)
+            window.onCancel = { [weak self] in self?.cancel() }
+            shareWindow = window
+            window.orderFrontRegardless()
+            NSApp.activate()
+            window.makeKeyAndOrderFront(nil)
+        }
+        sharingContentScope.pointee = .item
+        return shareWindow
     }
 
     func sharingService(_ sharingService: NSSharingService, willShareItems items: [Any]) { hasStarted = true }
@@ -163,29 +206,21 @@ private struct WeakWindow {
     var isClosed = false
 }
 
-/// Exposes the actual host window without a delayed dispatch or a global window lookup.
+/// Each mounted page owns its anchor. The shared feature model must not retain the last
+/// rendered display's window and accidentally present every dialog there.
+@MainActor @Observable final class FileActionAnchor {
+    weak var view: NSView?
+}
+
 struct FileSharingAnchor: NSViewRepresentable {
-    let model: FilesFeatureModel
-    @Environment(\.notchAuxiliaryInteraction) private var interaction
+    let anchor: FileActionAnchor
 
     func makeNSView(context: Context) -> AnchorView { AnchorView() }
     func updateNSView(_ view: AnchorView, context: Context) {
-        view.model = model
-        view.interaction = interaction
-        model.sharingAnchor = view
-        model.sharingInteraction = interaction
+        anchor.view = view
     }
 
     final class AnchorView: NSView {
-        weak var model: FilesFeatureModel?
-        var interaction = NotchAuxiliaryInteractionHandler()
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            if window != nil {
-                model?.sharingAnchor = self
-                model?.sharingInteraction = interaction
-            }
-        }
     }
 }
