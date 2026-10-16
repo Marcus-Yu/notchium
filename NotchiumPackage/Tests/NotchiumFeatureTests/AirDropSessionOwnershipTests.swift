@@ -173,12 +173,17 @@ final class AirDropSessionOwnershipTests: XCTestCase {
         let sharing = sharing([service])
         XCTAssertEqual(sharing.airDrop(files, from: nil, interaction: model.auxiliaryInteractionHandler), .presented)
         let center = NotificationCenter.default
+        var scope = NSSharingService.SharingContentScope.item
+        let owner = service.delegate?.sharingService?(service, sourceWindowForShareItems: [], sharingContentScope: &scope)
+        XCTAssertNotNil(owner)
         let sheet = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.borderless],
                              backing: .buffered, defer: false)
         let companion = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.borderless],
                                  backing: .buffered, defer: false)
         sheet.isReleasedWhenClosed = false
         companion.isReleasedWhenClosed = false
+        owner?.addChildWindow(sheet, ordered: .above)
+        owner?.addChildWindow(companion, ordered: .above)
         defer { sheet.orderOut(nil); companion.orderOut(nil) }
         [sheet, companion].forEach { $0.orderFrontRegardless() }
         center.post(name: NSWindow.didBecomeKeyNotification, object: sheet)
@@ -192,6 +197,25 @@ final class AirDropSessionOwnershipTests: XCTestCase {
         XCTAssertFalse(sharing.isActive)
         XCTAssertFalse(model.isAuxiliaryInteractionPresented)
         service.complete() // The late callback, if it ever comes, is ignored.
+        XCTAssertFalse(model.isAuxiliaryInteractionPresented)
+    }
+
+    func testUnrelatedKeyWindowCannotEndSharingAndExplicitShutdownReleasesIt() {
+        let model = makeModel()
+        defer { model.reset() }
+        let service = ScriptedSharingService()
+        let sharing = sharing([service])
+        XCTAssertEqual(sharing.airDrop(files, from: nil, interaction: model.auxiliaryInteractionHandler), .presented)
+        let unrelated = NSWindow(contentRect: .zero, styleMask: [], backing: .buffered, defer: false)
+        unrelated.isReleasedWhenClosed = false
+        defer { unrelated.close() }
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: unrelated)
+        NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: unrelated)
+        XCTAssertTrue(sharing.isActive)
+        XCTAssertTrue(model.isAuxiliaryInteractionPresented)
+        sharing.cancel()
+        sharing.cancel()
+        XCTAssertFalse(sharing.isActive)
         XCTAssertFalse(model.isAuxiliaryInteractionPresented)
     }
 
