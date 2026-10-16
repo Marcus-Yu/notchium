@@ -3,6 +3,116 @@ import XCTest
 
 @MainActor
 final class NotchiumUITests: XCTestCase {
+    func testShelfFirstClickFilePickerAndRepeatedCancelPreserveThePage() throws {
+        let app = XCUIApplication()
+        defer { app.terminate() }
+        app.launchArguments = fixtureArguments(display: "builtInMock", surface: "physical",
+            presentation: "collapsed", appearance: "dark")
+        app.launch()
+        ensureExpanded(app)
+        let shelf = app.buttons["notchium.page.shelf"]
+        XCTAssertTrue(shelf.waitForExistence(timeout: 5), app.debugDescription)
+        clickVisibleFrame(shelf, in: app, anchor: app.dialogs["notchium.shell.panel"])
+        for attempt in 0..<3 {
+            let addFiles = app.buttons["Add Files…"].firstMatch
+            XCTAssertTrue(addFiles.waitForExistence(timeout: 3))
+            XCTAssertTrue(addFiles.isEnabled)
+            addFiles.click()
+            let cancel = app.windows["Add to Shelf"].buttons["CancelButton"].firstMatch
+            XCTAssertTrue(cancel.waitForExistence(timeout: 5), app.debugDescription)
+            XCTAssertTrue(app.buttons["Add"].firstMatch.exists, app.debugDescription)
+            if attempt == 0 { attachScreenshot(named: "stage26-first-click-file-picker") }
+            clickVisibleFrame(cancel, in: app, anchor: app.windows["Add to Shelf"])
+            XCTAssertTrue(shelf.isSelected)
+            XCTAssertFalse(app.staticTexts["File is no longer available"].exists)
+        }
+        attachScreenshot(named: "stage26-shelf-after-picker-cancel")
+    }
+
+    func testShelfNativeAirDropCancelAndImmediateReopen() throws {
+        let app = XCUIApplication()
+        defer { app.terminate() }
+        app.launchArguments = fixtureArguments(display: "builtInMock", surface: "physical",
+            presentation: "collapsed", appearance: "dark") + ["--notchium-native-files-fixture"]
+        app.launch()
+        ensureExpanded(app)
+        let shelf = app.buttons["notchium.page.shelf"]
+        XCTAssertTrue(shelf.waitForExistence(timeout: 5), app.debugDescription)
+        clickVisibleFrame(shelf, in: app, anchor: app.dialogs["notchium.shell.panel"])
+        for attempt in 0..<3 {
+            let airDrop = app.buttons["AirDrop"].firstMatch
+            XCTAssertTrue(airDrop.waitForExistence(timeout: 3))
+            XCTAssertTrue(airDrop.isEnabled)
+            clickVisibleFrame(airDrop, in: app, anchor: app.dialogs["notchium.shell.panel"])
+            let cancel = app.dialogs["AirDrop"].buttons["Cancel"].firstMatch
+            XCTAssertTrue(cancel.waitForExistence(timeout: 5), app.debugDescription)
+            if attempt == 0 { attachScreenshot(named: "stage26-native-airdrop") }
+            // ShareKit's remote view can be misclassified as a Touch Bar element by
+            // XCUITest's AX-click path. Click the actual visible native button frame.
+            clickVisibleFrame(cancel, in: app, anchor: app.dialogs["AirDrop"])
+            XCTAssertTrue(NSPredicate(format: "enabled == true").evaluate(with: airDrop) ||
+                          XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"),
+                                                                       object: airDrop)], timeout: 3) == .completed)
+            XCTAssertTrue(shelf.isSelected)
+        }
+        attachScreenshot(named: "stage26-shelf-after-airdrop")
+    }
+
+    private func ensureExpanded(_ app: XCUIApplication) {
+        app.activate()
+        if !shellElement("notchium.shell.state.expanded", in: app).exists {
+            // The fixture's collapsed hover region extends below the 38-point
+            // hardware cutout. A point inside the cutout can lose synthesized clicks.
+            shellElement("notchium.shell", in: app)
+                .coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.125)).click()
+        }
+        XCTAssertTrue(waitForState("expanded", in: app, timeout: 5))
+    }
+
+    private func clickVisibleFrame(_ element: XCUIElement, in app: XCUIApplication, anchor: XCUIElement? = nil) {
+        let frame = element.frame
+        // An agent application's aggregate frame can be infinite. Anchor to the
+        // finite shell instead of the remote ShareKit element or application root.
+        let base = anchor ?? shellElement("notchium.shell", in: app)
+        let origin = base.frame.origin
+        XCTAssertTrue(frame.midX.isFinite && frame.midY.isFinite && origin.x.isFinite && origin.y.isFinite)
+        guard frame.midX.isFinite, frame.midY.isFinite, origin.x.isFinite, origin.y.isFinite else { return }
+        base.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: frame.midX - origin.x, dy: frame.midY - origin.y)).click()
+    }
+
+    func testImplementedPagesVisualAuditInBothAppearances() throws {
+        for appearance in ["light", "dark"] {
+            let app = XCUIApplication()
+            app.launchArguments = fixtureArguments(display: "builtInMock", surface: "physical",
+                presentation: "collapsed", appearance: appearance) + ["--notchium-quality-fixture"]
+            app.launch()
+            defer { app.terminate() }
+            ensureExpanded(app)
+            for page in ["home", "music", "calendar", "audio", "pomodoro", "shelf"] {
+                let button = app.buttons["notchium.page.\(page)"]
+                XCTAssertTrue(button.waitForExistence(timeout: 3))
+                button.click()
+                XCTAssertTrue(button.isSelected)
+                XCTAssertEqual(app.alerts.count, 0)
+                attachScreenshot(named: "stage26-\(appearance)-\(page)")
+            }
+            app.buttons["notchium.shelf.section.clipboard"].firstMatch.click()
+            XCTAssertTrue(app.textFields.firstMatch.waitForExistence(timeout: 3))
+            attachScreenshot(named: "stage26-\(appearance)-clipboard")
+            shellElement("notchium.shell.camera", in: app).click()
+            XCTAssertTrue(shellElement("notchium.camera.close", in: app).waitForExistence(timeout: 3))
+            attachScreenshot(named: "stage26-\(appearance)-mirror-permission")
+            shellElement("notchium.camera.close", in: app).click()
+            shellElement("notchium.shell.settings", in: app).click()
+            let settings = app.windows["com_apple_SwiftUI_Settings_window"]
+            XCTAssertTrue(settings.waitForExistence(timeout: 5))
+            attachScreenshot(named: "stage26-\(appearance)-settings")
+            settings.buttons[XCUIIdentifierCloseWindow].click()
+            app.terminate()
+        }
+    }
+
     func testDisplaySettingsOfferSelectionAndNotchCreation() throws {
         let app = XCUIApplication()
         defer { app.terminate() }
@@ -25,11 +135,13 @@ final class NotchiumUITests: XCTestCase {
         picker.click()
         app.menuItems["All displays"].click()
         XCTAssertEqual(picker.value as? String, "All displays")
-        let createsNotch = settings.descendants(matching: .any)["notchium.settings.display.createNotch"].firstMatch
+        let createsNotch = settings.descendants(matching: .any)
+            .matching(identifier: "notchium.settings.display.createNotch")
+            .matching(NSPredicate(format: "value != nil")).firstMatch
         XCTAssertTrue(createsNotch.waitForExistence(timeout: 5), settings.debugDescription)
-        XCTAssertEqual(createsNotch.value as? String, "0")
+        XCTAssertEqual(createsNotch.value.map { String(describing: $0) }, "0", settings.debugDescription)
         createsNotch.click()
-        XCTAssertEqual(createsNotch.value as? String, "1")
+        XCTAssertEqual(createsNotch.value.map { String(describing: $0) }, "1", settings.debugDescription)
         attachScreenshot(named: "display-settings")
         settings.buttons[XCUIIdentifierCloseWindow].click()
         app.typeKey(.escape, modifierFlags: [])
@@ -41,8 +153,9 @@ final class NotchiumUITests: XCTestCase {
         let app = XCUIApplication()
         defer { app.terminate() }
         app.launchArguments = fixtureArguments(display: "builtInMock", surface: "physical",
-            presentation: "expanded", appearance: "dark") + ["--notchium-quality-fixture"]
+            presentation: "collapsed", appearance: "dark") + ["--notchium-quality-fixture"]
         app.launch()
+        ensureExpanded(app)
         XCTAssertTrue(waitForState("expanded", in: app, timeout: 5), app.debugDescription)
         let mirror = shellElement("notchium.shell.camera", in: app)
         XCTAssertTrue(mirror.waitForExistence(timeout: 5), app.debugDescription)
@@ -424,21 +537,21 @@ final class NotchiumUITests: XCTestCase {
             app,
             display: "builtInMock",
             surface: "physical",
-            presentation: "expanded",
+            presentation: "collapsed",
             appearance: "light"
         )
-        XCTAssertTrue(waitForState("expanded", in: app, timeout: 5))
+        ensureExpanded(app)
         attachScreenshot(named: "physical-light-expanded")
 
         app.terminate()
         app.launchArguments = fixtureArguments(
             display: "builtInMock",
             surface: "physical",
-            presentation: "expanded",
+            presentation: "collapsed",
             appearance: "dark"
         )
         app.launch()
-        XCTAssertTrue(waitForState("expanded", in: app, timeout: 5))
+        ensureExpanded(app)
         attachScreenshot(named: "physical-dark-expanded")
     }
 
@@ -466,8 +579,8 @@ final class NotchiumUITests: XCTestCase {
 
         for _ in 0..<6 {
             app.terminate()
-            launch(app, display: "builtInMock", surface: "physical", presentation: "expanded")
-            XCTAssertTrue(waitForState("expanded", in: app, timeout: 5))
+            launch(app, display: "builtInMock", surface: "physical", presentation: "collapsed")
+            ensureExpanded(app)
             shellElement("notchium.shell.close", in: app).click()
             XCTAssertTrue(waitForState("collapsed", in: app, timeout: 2))
         }
