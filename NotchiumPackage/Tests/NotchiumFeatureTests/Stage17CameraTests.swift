@@ -8,6 +8,22 @@ import XCTest
 
 @MainActor
 final class Stage17CameraTests: XCTestCase {
+    func testCollapsingOrRemovingOneDisplayKeepsAnotherPreviewAlive() async {
+        let service = MockCameraService()
+        let model = CameraModel(service: service, preferences: defaults())
+        defer { model.stop() }
+        model.openPreview()
+        model.setPreviewVisible(true, source: "builtIn")
+        model.setPreviewVisible(false, source: "external")
+        XCTAssertTrue(model.isPreviewPresented)
+        model.setPreviewVisible(true, source: "external")
+        model.setPreviewVisible(false, source: "builtIn")
+        XCTAssertTrue(model.isPreviewPresented)
+        model.setPreviewVisible(false, source: "external")
+        XCTAssertFalse(model.isPreviewPresented)
+        XCTAssertEqual(model.status, .idle)
+    }
+
     private let builtIn = CameraDevice(id: "built-in", name: "FaceTime HD Camera")
     private let external = CameraDevice(id: "usb", name: "Studio Display Camera")
 
@@ -53,7 +69,7 @@ final class Stage17CameraTests: XCTestCase {
         defer { presentation.reset() }
         presentation.cameraController = model
         presentation.present(.expanded, animated: false)
-        model.togglePreview()
+        model.togglePreview(source: presentation.cameraPresentationSource)
         await waitUntil { service.isRunning }
         presentation.collapse()
         XCTAssertFalse(model.isPreviewPresented)
