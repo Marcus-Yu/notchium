@@ -7,10 +7,12 @@ import Foundation
 @MainActor
 final class SpotifyAudioTap: SystemAudioCapturing {
     private let processFinder: SpotifyProcessFinder
-    private var tap: CoreAudioProcessTap?
+    private let session = SpotifyProcessTapSession()
     private var publish: (@Sendable ([CGFloat]) -> Void)?
     private var failure: (@Sendable () -> Void)?
     private var started = false
+    private var generation: UInt64 = 0
+    private var reconnectTask: Task<Void, Never>?
 
     init(processFinder: SpotifyProcessFinder = SpotifyProcessFinder()) {
         self.processFinder = processFinder
@@ -19,6 +21,8 @@ final class SpotifyAudioTap: SystemAudioCapturing {
     func start(levels: @escaping @Sendable ([CGFloat]) -> Void,
                failure: @escaping @Sendable () -> Void) async throws {
         guard !started else { return }
+        generation &+= 1
+        let generation = generation
         started = true
         publish = levels
         self.failure = failure
@@ -32,54 +36,52 @@ final class SpotifyAudioTap: SystemAudioCapturing {
         }
 
         do {
-            try attach(to: processIdentifier)
+            try await session.replace(processIdentifier: processIdentifier, generation: generation, levels: levels)
         } catch {
-            stopResources()
+            guard self.generation == generation else { return }
+            await stopResources()
             throw error
         }
     }
 
     func stop() async {
         guard started else { return }
-        stopResources()
+        await stopResources()
         NSLog("[SpotifyAudioTap] Tap stopped")
     }
 
     private func spotifyProcessChanged(to processIdentifier: pid_t?) {
-        guard started else { return }
-        tap?.stop()
-        tap = nil
-        guard let processIdentifier else { return }
-        do {
-            try attach(to: processIdentifier)
-        } catch {
-            log(error, operation: "Reconnect")
-            failure?()
+        guard started, let publish else { return }
+        generation &+= 1
+        let generation = generation
+        reconnectTask?.cancel()
+        reconnectTask = Task { [weak self, session] in
+            defer { if self?.generation == generation { self?.reconnectTask = nil } }
+            guard !Task.isCancelled else { return }
+            do {
+                if let processIdentifier {
+                    try await session.replace(processIdentifier: processIdentifier, generation: generation, levels: publish)
+                } else {
+                    await session.stop(generation: generation)
+                }
+            } catch {
+                guard let self, self.started, self.generation == generation, !Task.isCancelled else { return }
+                self.log(error, operation: "Reconnect")
+                self.failure?()
+            }
         }
     }
 
-    private func attach(to processIdentifier: pid_t) throws {
-        guard tap == nil, let publish else { return }
-        NSLog("[AudioTap] Creating Spotify process tap for current PID %d", processIdentifier)
-        let tap = CoreAudioProcessTap(publish: publish)
-        do {
-            try tap.start(processIdentifier: processIdentifier)
-            self.tap = tap
-            NSLog("[AudioTap] Tap started")
-        } catch {
-            tap.stop()
-            log(error, operation: "Create Spotify process tap")
-            throw error
-        }
-    }
-
-    private func stopResources() {
+    private func stopResources() async {
         started = false
+        generation &+= 1
+        let generation = generation
+        reconnectTask?.cancel()
+        reconnectTask = nil
         processFinder.stop()
-        tap?.stop()
-        tap = nil
         publish = nil
         failure = nil
+        await session.stop(generation: generation)
     }
 
     private func log(_ error: any Error, operation: String) {
@@ -87,12 +89,14 @@ final class SpotifyAudioTap: SystemAudioCapturing {
     }
 
     deinit {
-        tap?.stop()
+        reconnectTask?.cancel()
     }
 }
 
 /// Owns every HAL object in creation order and destroys them in reverse order.
-private final class CoreAudioProcessTap: @unchecked Sendable {
+// Mutable HAL state is confined to SpotifyProcessTapSession; its I/O callback accesses
+// only the analyzer's existing synchronized input queue.
+final class CoreAudioProcessTap: SpotifyProcessTapping, @unchecked Sendable {
     private let analyzer: SpotifyPCMAnalyzer
     private var tapID = AudioObjectID(kAudioObjectUnknown)
     private var aggregateDeviceID = AudioObjectID(kAudioObjectUnknown)
