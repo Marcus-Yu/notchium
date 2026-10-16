@@ -48,7 +48,7 @@ public struct TransferSnapshot: Identifiable, Equatable, Sendable {
         self.displayName = displayName
         self.operation = operation
         self.phase = phase
-        self.fraction = fraction.map { min(max($0, 0), 1) }
+        self.fraction = fraction.flatMap { $0.isFinite ? min(max($0, 0), 1) : nil }
         self.completedBytes = completedBytes
         self.totalBytes = totalBytes
         self.estimatedTimeRemaining = estimatedTimeRemaining
@@ -95,12 +95,10 @@ public final class RealFileTransferService: FileTransferService {
 
     isolated deinit { stopObservation() }
 
-    private var access: FeatureAvailability = .available
-
-    /// Re-probes when previously denied, so a grant in System Settings is picked up.
+    /// Public Progress subscriptions require no folder enumeration or Files & Folders
+    /// permission. Access to a completed file is checked only when the user acts on it.
     public func availability() async -> FeatureAvailability {
-        if access != .available { probeAccess() }
-        return access
+        .available
     }
 
     public func updates() async -> AsyncStream<TransferSnapshot> {
@@ -114,25 +112,9 @@ public final class RealFileTransferService: FileTransferService {
         return pair.stream
     }
 
-    /// Progress subscription itself needs no folder access, but acting on a finished transfer
-    /// (Show in Finder, Add to Shelf) reads the folder. That legitimate read-only access is made
-    /// when monitoring starts, so macOS asks once, up front, instead of at a random later click.
-    private func probeAccess() {
-        access = .available
-        for folder in folders {
-            do { _ = try FileManager.default.contentsOfDirectory(atPath: folder.path) }
-            catch {
-                let code = (error as NSError).code
-                access = code == NSFileReadNoPermissionError || code == Int(EPERM)
-                    ? .unavailable(.permissionDenied) : .unavailable(.temporarilyUnavailable)
-            }
-        }
-    }
-
     private func subscribe() {
         subscriptionGeneration &+= 1
         let generation = subscriptionGeneration
-        probeAccess()
         for folder in folders {
             // The handler runs on the main thread (verified); it is still hopped explicitly.
             let token = Progress.addSubscriber(forFileURL: folder) { [weak self] progress in
