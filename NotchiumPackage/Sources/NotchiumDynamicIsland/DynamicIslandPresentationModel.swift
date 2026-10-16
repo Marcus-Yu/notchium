@@ -170,6 +170,7 @@ public final class DynamicIslandPresentationModel {
     @ObservationIgnored private var hoverGeneration = 0
     @ObservationIgnored private var transitionGeneration = 0
     @ObservationIgnored lazy var auxiliaryInteractionHandler = NotchAuxiliaryInteractionHandler(model: self)
+    @ObservationIgnored let cameraPresentationSource = UUID().uuidString
     @ObservationIgnored private var auxiliaryInteractionObservedClick = false
     @ObservationIgnored private var suppressNextAuxiliaryActionClick = false
     @ObservationIgnored private var auxiliaryReturnsToOpenSession = false
@@ -320,7 +321,7 @@ public final class DynamicIslandPresentationModel {
             transitionGeneration &+= 1
             if state == .collapsed {
                 isHeldAfterSystemPresentation = false
-                cameraController?.closePreview()
+                cameraController?.setPreviewVisible(false, source: cameraPresentationSource)
                 pageModel.endExpansion()
             } else { pageModel.beginExpansion(default: automaticOpenPage) }
             phase = Self.phase(for: state)
@@ -328,7 +329,7 @@ public final class DynamicIslandPresentationModel {
     }
 
     public func reset(clearingActivities: Bool = true) {
-        if visualState != .collapsed { cameraController?.closePreview() }
+        cameraController?.setPreviewVisible(false, source: cameraPresentationSource)
         if clearingActivities { activityCoordinator.clearAll() }
         fileDrag = .idle
         pendingHoverTask?.cancel()
@@ -499,7 +500,7 @@ public final class DynamicIslandPresentationModel {
         // The camera preview never outlives the open notch: capture stops as closing begins.
         if target == .collapsed {
             isHeldAfterSystemPresentation = false
-            cameraController?.closePreview()
+            cameraController?.setPreviewVisible(false, source: cameraPresentationSource)
         }
 
         transitionTask?.cancel()
