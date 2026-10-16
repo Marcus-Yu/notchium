@@ -245,6 +245,7 @@ private struct NotchShellOuterSurface: View {
                            pomodoroRenderer: model.pomodoroRenderer,
                            clipboardRenderer: model.clipboardRenderer,
                            camera: model.cameraController,
+                           cameraPresentationSource: model.cameraPresentationSource,
                            close: model.collapse)
             .padding(.top, layout.collapsedVisibleFrame.height)
             .overlay(alignment: .bottom) {
