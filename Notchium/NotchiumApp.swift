@@ -76,6 +76,9 @@ struct NotchiumApp: App {
                                  pomodoroModel: appDelegate.controller.pomodoroModel,
                                  systemFeedback: appDelegate.controller.systemFeedback,
                                  displayCoordinator: appDelegate.controller.displayCoordinator)
+#if DEBUG
+                .preferredColorScheme(debugSettingsColorScheme)
+#endif
                 .background {
                     SettingsWindowLifecycle(onOpenChanged: appDelegate.settingsWindowOpenChanged)
                         .frame(width: 0, height: 0)
@@ -97,6 +100,16 @@ struct NotchiumApp: App {
         .defaultSize(width: 720, height: 520)
 #endif
     }
+
+#if DEBUG
+    private var debugSettingsColorScheme: ColorScheme? {
+        switch appDelegate.controller.shellDebugModel.appearance {
+        case .system: nil
+        case .light: .light
+        case .dark: .dark
+        }
+    }
+#endif
 
     private var menuBarInsertion: Binding<Bool> {
         Binding(
