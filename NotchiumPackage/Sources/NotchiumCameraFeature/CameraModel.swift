@@ -30,6 +30,7 @@ public final class CameraModel {
     @ObservationIgnored private var startTask: Task<Void, Never>?
     @ObservationIgnored private var permissionTask: Task<Void, Never>?
     @ObservationIgnored private var recoveringSession = false
+    @ObservationIgnored private var visiblePresentations: Set<String> = []
 
     private enum Keys {
         static let mirrored = "notchium.camera.mirrored.v1"
@@ -63,6 +64,14 @@ public final class CameraModel {
         isPreviewPresented ? closePreview() : openPreview()
     }
 
+    public func togglePreview(source: String) {
+        if isPreviewPresented { closePreview() }
+        else {
+            visiblePresentations.insert(source)
+            openPreview()
+        }
+    }
+
     public func openPreview() {
         guard !isPreviewPresented else { return }
         observePreview()
@@ -78,6 +87,7 @@ public final class CameraModel {
 
     /// Stops capture immediately; safe to call repeatedly.
     public func closePreview() {
+        visiblePresentations.removeAll()
         generation &+= 1
         startTask?.cancel(); startTask = nil
         permissionTask?.cancel(); permissionTask = nil
@@ -88,6 +98,16 @@ public final class CameraModel {
         isPreviewPresented = false
         activeDevice = nil
         status = .idle
+    }
+
+    /// Capture is shared across display shells. A collapsed/removed shell cannot stop
+    /// another display's live preview; the last actual presentation releases capture.
+    public func setPreviewVisible(_ visible: Bool, source: String) {
+        if visible, isPreviewPresented {
+            visiblePresentations.insert(source)
+        } else if visiblePresentations.remove(source) != nil, visiblePresentations.isEmpty {
+            closePreview()
+        }
     }
 
     /// First use: macOS asks once; a refusal shows the Settings recovery.
