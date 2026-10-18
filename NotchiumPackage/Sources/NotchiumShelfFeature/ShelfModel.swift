@@ -48,11 +48,16 @@ public final class ShelfModel {
         let cutoff = now().addingTimeInterval(-Self.maximumAge)
         var restored: [Item] = []
         for record in service.loadRecords() where record.addedAt >= cutoff && restored.count < Self.capacity {
-            guard let resolved = service.resolve(record.reference), service.fileExists(resolved.url),
-                  !restored.contains(where: { Self.sameFile($0.url, resolved.url) }) else { continue }
+            guard let resolved = service.resolve(record.reference) else { continue }
+            let acquired = service.startAccessing(resolved.url)
+            guard service.fileExists(resolved.url),
+                  !restored.contains(where: { Self.sameFile($0.url, resolved.url) }) else {
+                if acquired { service.stopAccessing(resolved.url) }
+                continue
+            }
             references[record.id] = resolved.isStale
                 ? service.reference(for: resolved.url) ?? record.reference : record.reference
-            if service.startAccessing(resolved.url) { accessing[record.id] = resolved.url }
+            if acquired { accessing[record.id] = resolved.url }
             restored.append(Item(id: record.id, url: resolved.url, addedAt: record.addedAt, isAvailable: true))
         }
         items = restored
@@ -112,8 +117,16 @@ public final class ShelfModel {
                 if !item.isAvailable { items[index].isAvailable = true; changed = true }
                 continue
             }
-            if let reference = references[item.id], let resolved = service.resolve(reference),
-               service.fileExists(resolved.url) {
+            if let reference = references[item.id], let resolved = service.resolve(reference) {
+                let acquired = service.startAccessing(resolved.url)
+                guard service.fileExists(resolved.url) else {
+                    if acquired { service.stopAccessing(resolved.url) }
+                    items[index].isAvailable = false
+                    changed = true
+                    continue
+                }
+                if let previous = accessing.removeValue(forKey: item.id) { service.stopAccessing(previous) }
+                if acquired { accessing[item.id] = resolved.url }
                 items[index].url = resolved.url
                 items[index].isAvailable = true
                 references[item.id] = service.reference(for: resolved.url) ?? reference
