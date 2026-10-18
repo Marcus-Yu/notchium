@@ -1,0 +1,424 @@
+{
+  "date": "2026-10-17",
+  "timezone": "America/Toronto",
+  "baseline_commit": "7ef5522d287fe5c6d498dd5251958d49cbf566db",
+  "branch": "main",
+  "source_sha256": {
+    "NotchiumPackage/Sources/NotchiumMediaFeature/MediaProgressView.swift": "cb719222a9cc1eea83d02eefad9ff669b295e06b7308f39f8feccaf04ad38f13",
+    "NotchiumPackage/Sources/NotchiumMediaFeature/MediaViews.swift": "9965725817758a0baa339a447a630a6e299d6f5d03180185be6bee84b7f0a288",
+    "NotchiumPackage/Sources/NotchiumMediaFeature/MediaArtwork.swift": "36fb2bcfa768ad940658eb7cab51fc2af93f8ab62e5dfe0a5c9cce72f27bf93a",
+    "NotchiumPackage/Tests/NotchiumFeatureTests/MediaArtworkTests.swift": "5f4a8e77ad8b4dee91e2ab9a9ac196cfbe52a0810c7ccc713bc9144947194197",
+    "NotchiumPackage/Tests/NotchiumFeatureTests/Stage27A1UIQualityTests.swift": "db98b568330f490bcead98d7d09cf9b94029705e87878955e80bca6ae6b9a544"
+  },
+  "scope": {
+    "committed": false,
+    "published": false,
+    "production_code_changed_by_continuation": false,
+    "stage27b_started": false,
+    "dmg_packaged": false
+  },
+  "host": {
+    "model": "Mac16,12",
+    "cpu": "Apple M4",
+    "cpu_cores": 10,
+    "memory_gib": 16,
+    "macos": "27.0.1 (26A434)",
+    "xcode": "27.0 (27A266a)",
+    "swift_compiler": "6.4",
+    "language_mode": "Swift 6",
+    "deployment_target": "macOS 26",
+    "display_points": [
+      1470,
+      956
+    ],
+    "display_max_hz": 60
+  },
+  "historical_handoff": {
+    "attribution": "Reported by Claude in the supplied continuation handoff; not new Codex measurements",
+    "playing_cpu_one_core_pct": {
+      "before": 19.6,
+      "after": 6.5,
+      "reduction_pct": 66.83673469387755
+    },
+    "animation_hitches": 17,
+    "total_hitch_ms": 533,
+    "worst_hitch_ms": 66.7,
+    "main_stalls": 11,
+    "stall_range_ms": [
+      42,
+      66
+    ],
+    "reported_hang_risks": 0,
+    "collapsed_cpu_one_core_pct": 0.3,
+    "collapsed_memory_approx_mb": 47
+  },
+  "native_cpu_pair": {
+    "configuration": "Release -O; NOTCH_FREE_DISTRIBUTION DEBUG; all coverage flags disabled; original SwiftUI.App entry; guarded mock fixtures; QA-only auxiliary presentation hold; Music playing; separate bundle identities; sequential runs; no concurrent build/test/trace during counters",
+    "before_variant": "Only MediaProgressView schedule restored to the original .animation(minimumInterval: 0.1, paused: ...)",
+    "after_variant": "Inherited MediaProgressSchedule with 0.1-second entries",
+    "before": {
+      "duration_s": 20.069327,
+      "cpu_one_core_pct": 0.485379,
+      "physical_footprint_start_mib": 54.110497,
+      "physical_footprint_end_mib": 54.141747,
+      "peak_rss_mib": 132.28125,
+      "interrupt_wakeups_per_s": 60.390665,
+      "idle_wakeups_per_s": 40.061134
+    },
+    "after": {
+      "duration_s": 20.017467,
+      "cpu_one_core_pct": 0.49753,
+      "physical_footprint_start_mib": 57.001144,
+      "physical_footprint_end_mib": 54.532394,
+      "peak_rss_mib": 137.59375,
+      "interrupt_wakeups_per_s": 60.597078,
+      "idle_wakeups_per_s": 43.062391
+    },
+    "conclusion": "No meaningful CPU reduction reproduced. One window per variant, different workload from Claude. Not production service qualification."
+  },
+  "nsapplication_harness_counters": {
+    "configuration": "Custom NSApplication entry linked to optimized package objects; mock providers; auxiliary hold; not equivalent to the original SwiftUI.App or live services",
+    "collapsed_before": {
+      "duration_s": 20.102055,
+      "cpu_one_core_pct": 0.000117,
+      "physical_footprint_start_mib": 46.501099,
+      "physical_footprint_end_mib": 46.251076,
+      "peak_rss_mib": 122.59375,
+      "interrupt_wakeups_per_s": 0.248731,
+      "idle_wakeups_per_s": 0.049746
+    },
+    "playing": {
+      "duration_s": 20.072948,
+      "cpu_one_core_pct": 0.528318,
+      "physical_footprint_start_mib": 48.110451,
+      "physical_footprint_end_mib": 49.063599,
+      "peak_rss_mib": 127.921875,
+      "interrupt_wakeups_per_s": 60.080861,
+      "idle_wakeups_per_s": 38.061176
+    },
+    "paused": {
+      "duration_s": 20.027365,
+      "cpu_one_core_pct": 0.000672,
+      "physical_footprint_start_mib": 58.438622,
+      "physical_footprint_end_mib": 51.797997,
+      "peak_rss_mib": 126.75,
+      "interrupt_wakeups_per_s": 0.549248,
+      "idle_wakeups_per_s": 0.199727
+    },
+    "hidden_playing": {
+      "duration_s": 20.068878,
+      "cpu_one_core_pct": 0.00851,
+      "physical_footprint_start_mib": 55.360497,
+      "physical_footprint_end_mib": 51.719872,
+      "peak_rss_mib": 121.296875,
+      "interrupt_wakeups_per_s": 1.54468,
+      "idle_wakeups_per_s": 0.797254
+    },
+    "playing_after_100_page_round_trips": {
+      "duration_s": 20.049646,
+      "cpu_one_core_pct": 0.534536,
+      "physical_footprint_start_mib": 51.735497,
+      "physical_footprint_end_mib": 51.766747,
+      "peak_rss_mib": 119.828125,
+      "interrupt_wakeups_per_s": 60.300317,
+      "idle_wakeups_per_s": 38.50442
+    },
+    "collapsed_after": {
+      "duration_s": 20.035338,
+      "cpu_one_core_pct": 4.6e-05,
+      "physical_footprint_start_mib": 50.266747,
+      "physical_footprint_end_mib": 50.251122,
+      "peak_rss_mib": 119.640625,
+      "interrupt_wakeups_per_s": 0.349383,
+      "idle_wakeups_per_s": 0.199647
+    },
+    "schedule_pair_before": {
+      "duration_s": 20.049802,
+      "cpu_one_core_pct": 0.505141,
+      "physical_footprint_start_mib": 50.313599,
+      "physical_footprint_end_mib": 49.829224,
+      "peak_rss_mib": 124.515625,
+      "interrupt_wakeups_per_s": 60.299847,
+      "idle_wakeups_per_s": 48.080275
+    },
+    "schedule_pair_after": {
+      "duration_s": 20.069154,
+      "cpu_one_core_pct": 0.485904,
+      "physical_footprint_start_mib": 50.985474,
+      "physical_footprint_end_mib": 50.329224,
+      "peak_rss_mib": 124.8125,
+      "interrupt_wakeups_per_s": 60.29153,
+      "idle_wakeups_per_s": 45.791666
+    }
+  },
+  "runtime_cadence": {
+    "configuration": "Temporary log probe inside TimelineView closure, in disposable source only; same optimized original SwiftUI.App fixture; not used for CPU measurements",
+    "steady_window_rule": "For each phase, use seconds 1 through 5; exclude transition/setup and the 100 page round trips",
+    "results": [
+      {
+        "phase": "playing",
+        "steady_window_s": 4.0,
+        "visible_callbacks": 40,
+        "hidden_callbacks": 0,
+        "visible_hz": 10.0,
+        "median_interval_s": 0.10001179166647489,
+        "min_interval_s": 0.09862329166571726,
+        "max_interval_s": 0.10113854166775127
+      },
+      {
+        "phase": "paused",
+        "steady_window_s": 4.0,
+        "visible_callbacks": 0,
+        "hidden_callbacks": 0,
+        "visible_hz": 0.0,
+        "median_interval_s": null,
+        "min_interval_s": null,
+        "max_interval_s": null
+      },
+      {
+        "phase": "hidden-playing",
+        "steady_window_s": 4.0,
+        "visible_callbacks": 0,
+        "hidden_callbacks": 0,
+        "visible_hz": 0.0,
+        "median_interval_s": null,
+        "min_interval_s": null,
+        "max_interval_s": null
+      },
+      {
+        "phase": "after-100-transitions",
+        "steady_window_s": 4.0,
+        "visible_callbacks": 40,
+        "hidden_callbacks": 0,
+        "visible_hz": 10.0,
+        "median_interval_s": 0.09997987499991723,
+        "min_interval_s": 0.09921433333329333,
+        "max_interval_s": 0.10097862499969779
+      },
+      {
+        "phase": "stopped",
+        "steady_window_s": 4.0,
+        "visible_callbacks": 0,
+        "hidden_callbacks": 0,
+        "visible_hz": 0.0,
+        "median_interval_s": null,
+        "min_interval_s": null,
+        "max_interval_s": null
+      }
+    ],
+    "seeking": "26 targeted tests include hosted pointer seek and paused-seek/confirmation/failure tests. No new live Spotify seek claim.",
+    "stop_phase_limit": "The probe phase named stopped issued .pause; it is a second paused window, not a new live-service stopped-state qualification."
+  },
+  "native_motion_trace": {
+    "configuration": "Attach to PID verified by private QA executable path, explicit mock arguments, and bundle identity; Animation Hitches plus Time Profiler; 20.859037 seconds; QA-only debug entitlement; automatic model/page/Mirror transitions, not pointer input",
+    "recorded_workload": "19 page selections, 3 shell opens, 4 Mirror opens/closes and 4 shell collapses; capture began during cycle 0 of a 24-page/four-cycle scenario",
+    "hitches": {
+      "count": 13,
+      "total_ms": 1999.982958,
+      "worst_ms": 1033.325875,
+      "events": [
+        {
+          "start_ms": 774.904333,
+          "duration_ms": 16.667125
+        },
+        {
+          "start_ms": 1274.901625,
+          "duration_ms": 16.666
+        },
+        {
+          "start_ms": 2858.221541,
+          "duration_ms": 16.667125
+        },
+        {
+          "start_ms": 3258.219541,
+          "duration_ms": 16.666
+        },
+        {
+          "start_ms": 3741.549125,
+          "duration_ms": 16.666
+        },
+        {
+          "start_ms": 4791.539875,
+          "duration_ms": 516.663125
+        },
+        {
+          "start_ms": 6241.5295,
+          "duration_ms": 16.666
+        },
+        {
+          "start_ms": 6724.859083,
+          "duration_ms": 16.666
+        },
+        {
+          "start_ms": 7008.189083,
+          "duration_ms": 1033.325875
+        },
+        {
+          "start_ms": 8524.844041,
+          "duration_ms": 283.331708
+        },
+        {
+          "start_ms": 9558.170541,
+          "duration_ms": 16.666
+        },
+        {
+          "start_ms": 10008.167083,
+          "duration_ms": 16.666
+        },
+        {
+          "start_ms": 10608.162416,
+          "duration_ms": 16.666
+        }
+      ]
+    },
+    "main_thread_delays": {
+      "count": 4,
+      "total_ms": 1886.774833,
+      "worst_ms": 1062.700708,
+      "events": [
+        {
+          "start_ms": 2825.424958,
+          "duration_ms": 33.254625,
+          "type": "Potential Interaction Delay"
+        },
+        {
+          "start_ms": 4748.279166,
+          "duration_ms": 521.748625,
+          "type": "Hang"
+        },
+        {
+          "start_ms": 6958.707583,
+          "duration_ms": 1062.700708,
+          "type": "Hang"
+        },
+        {
+          "start_ms": 8488.136416,
+          "duration_ms": 269.070875,
+          "type": "Microhang"
+        }
+      ]
+    },
+    "stack_running_ms_per_delay": [
+      28,
+      25,
+      40,
+      7
+    ],
+    "interpretation": "Short delay includes SwiftUI/AttributeGraph/AppKit layout. Long intervals have sparse main-running samples; no blocked user-code stack established. Do not claim the media fix resolved click stalls.",
+    "scenario_duration_with_instruments_s": 11.7044545,
+    "scenario_duration_without_instruments_sampled_s": 10.005,
+    "without_instruments_limit": "One repeat under sample at 1 ms; scheduled phase intervals close to expected; not a compositor frame-pacing pass or proof of no stalls.",
+    "comparison_limit": "Not matched to Claude pre-fix clicks; no before/after hitch improvement claim."
+  },
+  "exploratory_swiftui_trace": {
+    "configuration": "Different NSApplication harness, 22.904095 seconds; SwiftUI template; automatic transitions",
+    "hitches": 940,
+    "total_hitch_ms_from_raw_ns": 15982.714326,
+    "worst_hitch_ms": 199.992,
+    "potential_hang_rows": 0,
+    "limits": "Heavy SwiftUI instrumentation; different app entry/workload; no production comparison. Helper correlation coverage assumed 1 ms despite 0.1 ms sample weights, so those coverage percentages were not used."
+  },
+  "leaks": {
+    "restricted_probe": {
+      "allocations_reported": 417,
+      "bytes_reported": 19952,
+      "inspection_restricted": true
+    },
+    "qa_debuggable_probe": {
+      "allocations_reported": 4298,
+      "bytes_reported": 204336,
+      "inspection_restricted": false,
+      "allocation_stack_logging": false
+    },
+    "conclusion": "No application-owned leak established. Debuggable diagnostic-process graph contains framework/Metal/AppIntents objects; allocation stack ownership remains unattributed. No clean production leak verdict."
+  },
+  "regression": {
+    "initial_package_main": {
+      "executed": 737,
+      "skipped": 6,
+      "reported_assertion_failures": 2,
+      "failed_cases": 1,
+      "cause": "Artwork test read Retina NSCGImageSnapshotRep backing dimensions rather than the CGImage"
+    },
+    "final_package_main": {
+      "executed": 737,
+      "skipped": 6,
+      "failures": 0
+    },
+    "final_proactive": {
+      "executed": 38,
+      "failures": 0
+    },
+    "final_swift_testing": {
+      "executed": 5,
+      "failures": 0
+    },
+    "targeted_after_test_fix": {
+      "executed": 26,
+      "failures": 0
+    },
+    "xcode_unit": {
+      "executed": 737,
+      "skipped": 6,
+      "failures": 0,
+      "swift_testing": 5
+    },
+    "offscreen_normal": {
+      "executed": 2,
+      "failures": 0,
+      "png_files": 120
+    },
+    "offscreen_reduced_motion": {
+      "executed": 1,
+      "failures": 0,
+      "png_files": 98
+    },
+    "native_ui": {
+      "test_cases_executed": 0,
+      "runner_errors": 1,
+      "error": "Timed out while enabling automation mode.",
+      "diagnostic": "Writer daemon requires authentication to enable automation mode.",
+      "isolation": "Disposable project with distinct application/test bundle IDs and ad-hoc test signing; no production signing or OS security setting changed."
+    },
+    "debug_build": "passed",
+    "release_build": "passed; coverage-free universal binary contains no fixture/profile markers",
+    "static_analysis": "passed",
+    "diff_check": "passed",
+    "existing_warnings": [
+      "FocusService.swift:61 asynchronous alternative suggestion",
+      "AppIntents metadata extraction skipped (no AppIntents dependency)",
+      "FocusState outside View body warning in rendering tests"
+    ]
+  },
+  "preservation": {
+    "qa_apps_removed": 6,
+    "support_files_captured": 25,
+    "support_hashes_unchanged": 25,
+    "cached_track_restored": true,
+    "wrong_target_trace_deleted": true,
+    "user_confirmed_other_activity": true,
+    "original_preferences_hash_not_immutable": true,
+    "cached_track_restore_user_authorized": true,
+    "other_preference_keys_changed_during_restore": [],
+    "shelf_json_unchanged_across_launch_incident": true,
+    "incident": "xctrace --launch resolved the disposable wrapper to two installed-app processes. Both new instances were stopped. Trace excluded and deleted. Subsequent profiling used verified PID attachment. Cached track entry restored from private pre-incident snapshot with explicit user approval."
+  },
+  "provenance": {
+    "local_spotify_introduction_commit": "f903e7df91971b81f335e795170a39fcfd2ff53c",
+    "spotify_logo_introduction_commit": "788336576e6d24f82035d9f83b0ed6e79c3815c4",
+    "independent_authorship_proven": false,
+    "asset_redistribution_rights_verified": false,
+    "evidence_needed": [
+      "Author/source-generation origin records and confirmation for LocalSpotifyController and referenced upstream ideas",
+      "Original Spotify asset download URL, asset checksum, applicable branding/redistribution permission and review of current usage"
+    ]
+  },
+  "verdicts": {
+    "ui_visual": "CONDITIONAL",
+    "animation_interaction": "CONDITIONAL",
+    "performance": "NO-GO",
+    "security_licensing": "NO-GO",
+    "regression": "GO for executed automated scope",
+    "overall": "NO-GO; not ready for Stage 27B"
+  }
+}
