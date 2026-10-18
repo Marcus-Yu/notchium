@@ -245,6 +245,7 @@ private actor MemoryMediaSnapshotStore: MediaSnapshotStoring {
         try await provider.apply(.longTitle)
         state = await provider.snapshot
         XCTAssertGreaterThan(state.title!.count, 120)
+        XCTAssertGreaterThan(state.duration ?? 0, 3_600, "The long fixture also exercises hour-long times")
         try await provider.apply(.spotify)
         state = await provider.snapshot; XCTAssertEqual(state.source, .spotify)
         try await provider.apply(.queue)
