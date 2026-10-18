@@ -68,10 +68,13 @@ public struct CollapsedMediaView: View {
 }
 
 private enum MusicPlayerSpacing {
-    static let artworkSize: CGFloat = 84
+    static let metadataRowHeight: CGFloat = 84
     static let metadataGap: CGFloat = 6
     static let metadataToProgress: CGFloat = 5
     static let outputRowHeight: CGFloat = 26
+    static let playerHeight = metadataRowHeight + 2 * ExpandedPageStyle.groupGap + 2 * ExpandedPageStyle.controlSize
+    // Match the visible source logo's bottom edge within the 32-point output row.
+    static let artworkSize = playerHeight - (ExpandedPageStyle.controlSize - ExpandedPageStyle.compactControlSize) / 2
 }
 
 public struct MediaPageView: View {
@@ -154,49 +157,53 @@ public struct MediaPageView: View {
         .accessibilityIdentifier("notchium.media.status.\(model.state.experienceState.rawValue)")
     }
     private var player: some View {
-        let trackIdentity = model.state.trackID ?? model.state.title ?? "unknown-track"
-        return VStack(spacing: ExpandedPageStyle.groupGap) {
-            HStack(alignment: .center, spacing: ExpandedPageStyle.Space.lg) {
-                MediaArtworkSlot(url: model.state.artwork, size: MusicPlayerSpacing.artworkSize, expanded: true)
-                VStack(alignment: .leading, spacing: MusicPlayerSpacing.metadataToProgress) {
-                    HStack(alignment: .center, spacing: ExpandedPageStyle.Space.sm) {
-                        VStack(alignment: .leading, spacing: MusicPlayerSpacing.metadataGap) {
-                            Text(model.state.title ?? "")
-                                .font(ExpandedPageStyle.title)
-                                .lineLimit(1).truncationMode(.tail)
-                                .help(model.state.title ?? "")
-                            Text(model.state.artist ?? "")
-                                .font(ExpandedPageStyle.body)
-                                .foregroundStyle(ExpandedPageStyle.secondary)
-                                .lineLimit(1)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        MediaWaveform(isPlaying: model.state.isPlaying, meter: model.audioMeter,
-                                      color: model.waveformAppearance.color,
-                                      isPresented: isExpanded && isPageVisible)
-                            .frame(width: 24, height: 16)
-                    }
-                    .id(trackIdentity)
-                    .transition(.opacity)
-                    .animation(MediaMotion.track(reduceMotion: reduceMotion), value: trackIdentity)
-                    .opacity(model.isShowingCachedTrack ? 0.94 : 1)
-                    MediaProgressView(model: model)
+        HStack(alignment: .top, spacing: ExpandedPageStyle.Space.lg) {
+            MediaArtworkSlot(url: model.state.artwork, size: MusicPlayerSpacing.artworkSize, expanded: true)
+            VStack(spacing: ExpandedPageStyle.groupGap) {
+                trackDetails
+                    .frame(height: MusicPlayerSpacing.metadataRowHeight)
+                controls
+                HStack(spacing: ExpandedPageStyle.Space.lg) {
+                    SpotifyVolumeControl(model: model)
+                        .frame(maxWidth: .infinity)
+                    MediaSourceButton(source: model.state.source ?? .spotify)
+                        // Align the logo artwork while retaining its padded hit target.
+                        .padding(.trailing, -MediaSourceButton.contentInset)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(height: ExpandedPageStyle.controlSize)
             }
-            .frame(minHeight: MusicPlayerSpacing.artworkSize, alignment: .top)
-            controls
-            HStack(spacing: ExpandedPageStyle.Space.lg) {
-                SpotifyVolumeControl(model: model)
-                    .frame(maxWidth: .infinity)
-                MediaSourceButton(source: model.state.source ?? .spotify)
-                    // Align the logo artwork while retaining its padded hit target.
-                    .padding(.trailing, -MediaSourceButton.contentInset)
-            }
-            .frame(height: ExpandedPageStyle.controlSize)
+            .frame(maxWidth: .infinity)
         }
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    }
+    private var trackDetails: some View {
+        let trackIdentity = model.state.trackID ?? model.state.title ?? "unknown-track"
+        return VStack(alignment: .leading, spacing: MusicPlayerSpacing.metadataToProgress) {
+            HStack(alignment: .center, spacing: ExpandedPageStyle.Space.sm) {
+                VStack(alignment: .leading, spacing: MusicPlayerSpacing.metadataGap) {
+                    Text(model.state.title ?? "")
+                        .font(ExpandedPageStyle.title)
+                        .lineLimit(1).truncationMode(.tail)
+                        .help(model.state.title ?? "")
+                    Text(model.state.artist ?? "")
+                        .font(ExpandedPageStyle.body)
+                        .foregroundStyle(ExpandedPageStyle.secondary)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                MediaWaveform(isPlaying: model.state.isPlaying, meter: model.audioMeter,
+                              color: model.waveformAppearance.color,
+                              isPresented: isExpanded && isPageVisible)
+                    .frame(width: 24, height: 16)
+            }
+            .id(trackIdentity)
+            .transition(.opacity)
+            .animation(MediaMotion.track(reduceMotion: reduceMotion), value: trackIdentity)
+            .opacity(model.isShowingCachedTrack ? 0.94 : 1)
+            MediaProgressView(model: model)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
     private var controls: some View {
         HStack(spacing: ExpandedPageStyle.Space.lg) {
