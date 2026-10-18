@@ -8,6 +8,8 @@
 
 **Last reviewed:** 2026-08-28
 
+**Current-source qualification (October 16, 2026):** Historical V1 planning below is not a receipt for current first-launch behavior. Calendar currently requests EventKit access from its enabled startup lifecycle; screenshot observation starts with Files and can access the configured screenshot folder. Local Spotify requires Apple Events consent, and Quick Reminder uses Reminders consent. Clipboard capture defaults off. The current free direct build has no entitlements; the reduced Store profile uses user-selected **read-only** file access. Shelf stores references, opens each resolved security scope before validation/use, and balances every successful acquisition on rejection, replacement or teardown. Shelf bookmarks request read-only scope, consistent with Quick Actions. These facts supersede conflicting historical no-launch-prompt, no-Automation/Reminders, managed-copy, or read-write Shelf claims below. Fresh consent/revocation acceptance remains unverified in Stage 27A; onboarding validation has not begun. See [Stage 27A](STAGE27A_AUDIT.md) and [local Spotify validation](SPOTIFY_LOCAL_VALIDATION.md).
+
 ## 1. Permission principles
 
 - Initial launch triggers no system permission, account authorization, protected-folder, pasteboard, or extension prompt.
