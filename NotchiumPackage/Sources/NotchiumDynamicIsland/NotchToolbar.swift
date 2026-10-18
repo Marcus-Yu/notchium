@@ -66,10 +66,11 @@ public struct NotchToolbarButtonStyle: ButtonStyle {
         configuration.label
             .background(.white.opacity(fill), in: .circle)
             .overlay { Circle().strokeBorder(.white.opacity(isEnabled && isHovered ? 0.18 : 0), lineWidth: 0.5) }
-            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.93 : 1)
+            // The shared press feedback used by header utilities and media controls.
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
             .onHover { isHovered = $0 && isEnabled }
             .animation(.easeOut(duration: 0.12), value: isHovered)
-            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+            .animation(reduceMotion ? .easeOut(duration: 0.1) : .smooth(duration: 0.16), value: configuration.isPressed)
     }
 }
 
