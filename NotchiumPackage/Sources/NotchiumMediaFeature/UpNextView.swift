@@ -80,8 +80,5 @@ private struct QueueTrackRow: View {
         .accessibilityIdentifier("notchium.media.queue.\(track.id)")
     }
 
-    private var duration: String {
-        let seconds = Int(min(max(track.duration, 0), 86_400))
-        return "\(seconds / 60):\(String(format: "%02d", seconds % 60))"
-    }
+    private var duration: String { MediaProgressView.time(track.duration) }
 }
