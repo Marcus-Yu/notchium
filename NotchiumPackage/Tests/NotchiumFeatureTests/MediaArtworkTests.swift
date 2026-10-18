@@ -25,10 +25,11 @@ private final class ArtworkURLProtocol: URLProtocol, @unchecked Sendable {
 
 @MainActor final class MediaArtworkTests: XCTestCase {
     func testArtworkLoadsThumbnailAndSharesCacheWhileFailuresUseFallback() async throws {
-        let bitmap = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 4, pixelsHigh: 4,
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 640, pixelsHigh: 320,
             bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
             colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
-        for x in 0..<4 { for y in 0..<4 { bitmap.setColor(.systemBlue, atX: x, y: y) } }
+        let pixels = try XCTUnwrap(bitmap.bitmapData)
+        pixels.initialize(repeating: 255, count: bitmap.bytesPerRow * bitmap.pixelsHigh)
         let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
         ArtworkURLProtocol.fixture.withLock { $0 = .init(png: png) }
         let config = URLSessionConfiguration.ephemeral
@@ -40,6 +41,11 @@ private final class ArtworkURLProtocol: URLProtocol, @unchecked Sendable {
         let first = try await cache.load(url)
         let second = try await cache.load(url)
         XCTAssertNotNil(first?.image); XCTAssertTrue(first === second)
+        // NSCGImageSnapshotRep reports backing-scale pixels (640 × 320 on a 2×
+        // display). Inspect the decoded CGImage to verify the actual cache limit.
+        let thumbnail = try XCTUnwrap(first?.image.cgImage(forProposedRect: nil, context: nil, hints: nil))
+        XCTAssertEqual(thumbnail.width, 320, "Keep enlarged artwork sharp within the decode limit")
+        XCTAssertEqual(thumbnail.height, 160, "Thumbnail decoding preserves the source aspect ratio")
         XCTAssertEqual(ArtworkURLProtocol.fixture.withLock { $0.requests.count }, 1)
         let failed = try await cache.load(URL(string: "https://i.scdn.co/image/failure")!)
         XCTAssertNil(failed)
