@@ -65,9 +65,10 @@ public struct CalendarActivityView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
                 Circle().fill(color(event.calendarColor)).frame(width: 5, height: 5)
+                // Same label style as "Up Next": the two column headings read as one row.
                 Text(event.calendarName)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.6))
+                    .font(ExpandedPageStyle.sectionTitle)
+                    .foregroundStyle(ExpandedPageStyle.secondary)
                     .lineLimit(1)
             }
             Text(event.title)
@@ -150,6 +151,8 @@ public struct CalendarActivityView: View {
                 }
             }
         }
+        // The main event's vertical inset: both column headings share one top line.
+        .padding(.top, ExpandedPageStyle.Space.sm)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
