@@ -8,6 +8,10 @@ struct NotchCompactActivitySlot: View {
     @Environment(\.notchCompactReveal) private var reveal
     @Environment(\.notchCompactRetracting) private var retracting
     @State private var retained: NotchNotification?
+    /// Entries this slot has already introduced. An entry restored after a higher priority
+    /// activity (a battery alert over a fresh AirPods connection) returns at rest: replaying
+    /// its entrance would announce a connection that did not happen again.
+    @State private var introduced: [UUID] = []
 
     private var current: NotchNotification? {
         guard let notification = model.presentedNotification,
@@ -30,12 +34,16 @@ struct NotchCompactActivitySlot: View {
                                          reveal: reveal,
                                          entryID: shown.id, reduceMotion: model.reduceMotion,
                                          action: model.activateCurrentActivity,
-                                         blendsMedia: activity.blendsWithMedia && model.mediaVisiblyPlaying)
+                                         blendsMedia: activity.blendsWithMedia && model.mediaVisiblyPlaying,
+                                         entersFresh: !introduced.contains(shown.id))
                     // A coalesced update keeps its ID: the same view updates in place.
                     .id(shown.id)
-                    .transition(model.reduceMotion ? .opacity :
-                        .asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.96)),
-                                    removal: .opacity))
+                    // Two rows never cross-fade in one slot: their right-aligned values would
+                    // overlap as garbled text. Reduce Motion removes the old row outright.
+                    .transition(model.reduceMotion
+                        ? .asymmetric(insertion: .opacity, removal: .opacity.animation(nil))
+                        : .asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.96)),
+                                      removal: .opacity.animation(NotchMotion.compactSwapExit)))
                     .allowsHitTesting(current != nil)
             }
         }
@@ -43,6 +51,15 @@ struct NotchCompactActivitySlot: View {
         .onChange(of: current, initial: true) { _, value in
             if let value { retained = value }
         }
+        .onChange(of: shown?.id, initial: true) { _, id in
+            if let id { introduced = Self.introducing(id, after: introduced) }
+        }
+    }
+
+    /// Most recent last, bounded: only entries that can still be waiting underneath matter.
+    static func introducing(_ id: UUID, after introduced: [UUID]) -> [UUID] {
+        guard !introduced.contains(id) else { return introduced }
+        return Array((introduced + [id]).suffix(8))
     }
 
     static func retainsContent(reveal: CGFloat, restoresMedia: Bool) -> Bool {
@@ -62,6 +79,8 @@ struct NotchCompactActivityView: View {
     var inlineWidth: CGFloat? = nil
     /// Music is visibly playing: artwork and countdown lead, the waveform trails.
     var blendsMedia = false
+    /// False when a waiting entry is restored: its one-off entrance flourish does not replay.
+    var entersFresh = true
     @Environment(\.notchMediaRenderer) private var mediaRenderer
 
     private var progress: CGFloat { min(max(reveal, 0), 1) }
@@ -154,7 +173,8 @@ struct NotchCompactActivityView: View {
                 }
                 .scaleEffect(reduceMotion ? 1 : 0.55 + 0.45 * progress, anchor: .trailing)
         case let .device(style, connected):
-            NotchDeviceTurnGlyph(style: style, connected: connected, trigger: entryID, reduceMotion: reduceMotion)
+            NotchDeviceTurnGlyph(style: style, connected: connected, trigger: entryID, reduceMotion: reduceMotion,
+                                 turnsOnAppear: entersFresh)
                 .foregroundStyle(tint)
                 .scaleEffect(reduceMotion ? 1 : 0.7 + 0.3 * progress)
         }
@@ -324,13 +344,14 @@ private struct NotchDeviceTurnGlyph: View {
     let reduceMotion: Bool
     @State private var turnStart: Date?
 
-    init(style: NotchDeviceStyle, connected: Bool, trigger: UUID, reduceMotion: Bool) {
+    init(style: NotchDeviceStyle, connected: Bool, trigger: UUID, reduceMotion: Bool, turnsOnAppear: Bool = true) {
         self.style = style
         self.connected = connected
         self.trigger = trigger
         self.reduceMotion = reduceMotion
         // Start turned away on the very first frame; the turn never pops from rest.
-        _turnStart = State(initialValue: Self.turns(style, connected, reduceMotion) ? .now : nil)
+        // A restored entry starts at rest; a later reconnect still turns through onChange.
+        _turnStart = State(initialValue: turnsOnAppear && Self.turns(style, connected, reduceMotion) ? .now : nil)
     }
 
     private static func turns(_ style: NotchDeviceStyle, _ connected: Bool, _ reduceMotion: Bool) -> Bool {
