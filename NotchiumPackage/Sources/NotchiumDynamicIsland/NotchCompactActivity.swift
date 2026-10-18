@@ -229,6 +229,9 @@ extension NotchMotion {
     static let compactOut = Animation.interactiveSpring(response: 0.30, dampingFraction: 1.0, blendDuration: 0)
     /// Replacing one compact activity with another inside an unchanged shell.
     static let compactSwap = Animation.smooth(duration: 0.22)
+    /// The outgoing activity of a swap leaves faster than the incoming one arrives, so two
+    /// right-aligned rows of different widths never overlap at similar opacity.
+    static let compactSwapExit = Animation.easeOut(duration: 0.1)
     /// Continuous values (volume) follow input without restarting entry.
     static let compactLevel = Animation.interactiveSpring(response: 0.22, dampingFraction: 0.92, blendDuration: 0)
     static let deviceTurn: TimeInterval = 0.8
