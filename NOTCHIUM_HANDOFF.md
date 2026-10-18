@@ -1,5 +1,7 @@
 # Notchium Handoff
 
+**Current-source correction, October 16, 2026:** The body below is a September 29 historical handoff. Current code has six pages (Home, Music, Calendar, Focus Timer, Audio, Shelf), with Clipboard inside Shelf and Mirror in the header. Spotify is local Apple Events only; paused seeking stays paused, OAuth/Web API/Connect paths are removed, and queue navigation is absent. Shared feature providers feed one shell session/panel per selected display. The direct release uses the free ad-hoc policy in `docs/RELEASING.md`. The expanded shell remains 524 × 266 pt in a 740 × 322 pt host. Use [Stage 27A](docs/STAGE27A_AUDIT.md) for new engineering evidence and its remaining gates; do not apply the older Music, ownership, feature-status, or distribution claims below as current requirements.
+
 Prepared September 29, 2026 against repository HEAD `bc3ec7e` (`Marcus-Yu/notchium`). This is an implementation handoff, not a new exhaustive audit. Current source was spot-checked against repository implementation/validation notes; historical test results below are attributed to those notes, not rerun for this document. No application code was changed. Prior conversations are not available in this chat, so undocumented historical decisions are not invented.
 
 Paths are repository-relative. In the file map, module paths are relative to `NotchiumPackage/Sources/`. Current source wins over older stage documents. In particular, `docs/ROADMAP.md` still describes Stage 2; historical paragraphs in `ARCHITECTURE.md`, `MEDIA_CENTER.md`, and other documents contain superseded geometry, timers, and ownership claims.
@@ -284,6 +286,8 @@ Native macOS conventions override generic web/mobile recipes. Main shell geometr
 | Opening content reveal | 75% height growth; immediate visibility switch |
 | Notification entry / exit | 0.26 / 0.20 response, damping 1.0 |
 | Same-size notification content change | 100 ms opacity |
+| Compact activity swap | Enter 0.22 s smooth + 0.96 scale; exit 0.1 s ease-out; Reduce Motion removes the old row and fades the new one in 120 ms. A restored waiting entry does not replay its device turn |
+| Media time labels | `m:ss`; `h:mm:ss` from one hour |
 | Calendar / Audio notification content | 88 / 56 pt; shoulders 12/lower corners 34 |
 | Calendar thresholds | 60/30/5 minutes; meeting start; 5 s display |
 | Output / volume-mute feedback | 2.5 / 1.75 s |
