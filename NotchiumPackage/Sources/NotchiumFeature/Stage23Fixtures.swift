@@ -17,7 +17,11 @@ extension NotchiumApplicationController {
         let calendar = MockCalendarService(snapshot: .init(availability: .available, upcomingEvents: [
             .init(id: UUID(), title: "A long calendar meeting title — 設計レビュー with additional detail",
                   startDate: now.addingTimeInterval(1800), endDate: now.addingTimeInterval(3600),
-                  location: "A long meeting room name", calendarName: "Quality fixture")
+                  // Reserved example meeting link: Join layout without a real meeting behind it.
+                  meetingURL: URL(string: "https://meet.google.com/aaa-bbbb-ccc"),
+                  location: "A long meeting room name", calendarName: "Quality fixture"),
+            .init(id: UUID(), title: "Follow-up — 短い", startDate: now.addingTimeInterval(7200),
+                  endDate: now.addingTimeInterval(9000), calendarName: "Quality fixture")
         ]))
         let audio = MockAudioDevicesService(snapshot: .init(availability: .available, outputs: [
             .init(id: "quality-speakers", name: "External headphones — long output name", isDefaultOutput: true,
