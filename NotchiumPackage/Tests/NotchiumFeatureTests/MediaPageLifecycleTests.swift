@@ -78,7 +78,7 @@ final class MediaPageLifecycleTests: XCTestCase {
             "Reopening Media retains the player controls")
     }
 
-    func testCompactPlayerLayoutStaysStableAcrossMetadataAndPlaybackStates() async throws {
+    func testEnlargedArtworkLayoutStaysStableAcrossMetadataAndPlaybackStates() async throws {
         let base = MediaState(playbackState: .playing, title: "Midnight City", artist: "M83",
             elapsed: 48, duration: 244, artwork: URL(string: "notchium-fixture://artwork/midnight"),
             source: .spotify, capabilities: .init(canPlayPause: true, canSeek: true, canSetVolume: true))
@@ -113,10 +113,9 @@ final class MediaPageLifecycleTests: XCTestCase {
                 host.cacheDisplay(in: host.bounds, to: bitmap)
                 // Inspect actual native pixels; ImageRenderer cannot render the slider's AppKit input view.
                 let frames = try [
-                    inkBounds(in: bitmap, region: CGRect(x: 30, y: 0, width: 84, height: 102)),
-                    inkBounds(in: bitmap, region: CGRect(x: 245, y: 100, width: 35, height: 46)),
-                    inkBounds(in: bitmap, region: CGRect(x: 30, y: height - 50, width: 414, height: 40),
-                        neutralOnly: true),
+                    inkBounds(in: bitmap, region: CGRect(x: 30, y: 0, width: 168, height: 190)),
+                    inkBounds(in: bitmap, region: CGRect(x: 210, y: 100, width: 284, height: 46)),
+                    inkBounds(in: bitmap, region: CGRect(x: 210, y: height - 50, width: 234, height: 40)),
                     inkBounds(in: bitmap, region: CGRect(x: 460, y: height - 50, width: 34, height: 40)),
                 ]
                 for frame in frames {
@@ -130,16 +129,21 @@ final class MediaPageLifecycleTests: XCTestCase {
                 } else {
                     referenceFrames = frames
                 }
-                XCTAssertEqual(frames[0].height, 84, accuracy: 1, "Artwork uses the freed player space")
+                XCTAssertGreaterThan(frames[0].height, 160, "Artwork expands through the output row")
+                XCTAssertEqual(frames[0].width, frames[0].height, accuracy: 1, "Artwork remains square")
                 XCTAssertGreaterThanOrEqual(frames[0].minY, 8)
                 XCTAssertLessThanOrEqual(frames[0].minY, 16, "The player has no empty selector band")
-                XCTAssertGreaterThanOrEqual(frames[1].minY - frames[0].maxY, 10)
-                XCTAssertLessThanOrEqual(frames[1].minY - frames[0].maxY, 16,
-                    "Artwork and transport have a compact, even gap")
+                let metadata = try inkBounds(in: bitmap, region: CGRect(x: 210, y: 0, width: 284, height: 94))
+                for frame in [metadata, frames[1], frames[2]] {
+                    XCTAssertGreaterThan(frame.minX, frames[0].maxX + 12,
+                        "Metadata, transport and volume stay to the right of the artwork")
+                }
+                XCTAssertEqual(frames[0].maxY, frames[3].maxY, accuracy: 1,
+                    "The artwork is flush with the bottom of the Spotify logo in the volume row")
                 XCTAssertGreaterThan(frames[2].minY, frames[1].maxY, "Volume stays below transport")
                 XCTAssertLessThanOrEqual(frames[2].minY - frames[1].maxY, 28,
                     "Volume fills the former section-navigation space")
-                XCTAssertGreaterThan(frames[2].width, 380, "Volume uses the full footer width")
+                XCTAssertGreaterThan(frames[2].width, 220, "Volume fills the right column")
                 XCTAssertGreaterThanOrEqual(height - frames[2].maxY, 12)
                 XCTAssertLessThanOrEqual(height - frames[2].maxY, 30,
                     "Volume's smaller glyphs stay centered in the bottom row")
@@ -153,16 +157,13 @@ final class MediaPageLifecycleTests: XCTestCase {
         }
     }
 
-    private func inkBounds(in bitmap: NSBitmapImageRep, region: CGRect, neutralOnly: Bool = false) throws -> CGRect {
+    private func inkBounds(in bitmap: NSBitmapImageRep, region: CGRect) throws -> CGRect {
         let scale = CGFloat(bitmap.pixelsWide) / 524
         var bounds = CGRect.null
         for y in Int(region.minY * scale)..<Int(region.maxY * scale) {
             for x in Int(region.minX * scale)..<Int(region.maxX * scale) {
                 guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
                       max(color.redComponent, color.greenComponent, color.blueComponent) > 0.025 else { continue }
-                // Ignore colored artwork when measuring the neutral volume control.
-                if neutralOnly && (abs(color.redComponent - color.greenComponent) > 0.01
-                    || abs(color.greenComponent - color.blueComponent) > 0.01) { continue }
                 bounds = bounds.union(CGRect(x: CGFloat(x) / scale, y: CGFloat(y) / scale,
                     width: 1 / scale, height: 1 / scale))
             }
@@ -183,8 +184,8 @@ final class MediaPageLifecycleTests: XCTestCase {
         host.cacheDisplay(in: host.bounds, to: bitmap)
         let scale = bitmap.pixelsWide / 524
         var whitePixels = 0
-        for y in (120 * scale)..<(152 * scale) {
-            for x in (245 * scale)..<(280 * scale) {
+        for y in (100 * scale)..<(146 * scale) {
+            for x in (210 * scale)..<(494 * scale) {
                 guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
                 if min(color.redComponent, color.greenComponent, color.blueComponent) > 0.8 {
                     whitePixels += 1
