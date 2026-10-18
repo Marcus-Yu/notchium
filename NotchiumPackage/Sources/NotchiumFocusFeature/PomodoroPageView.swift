@@ -44,11 +44,11 @@ struct PomodoroPageView: View {
 }
 
 /// Color only on key information: the phase chip, progress, the primary control, cycle dots and
-/// the Today/Streak glyphs. Warm for Focus, fresh mint for a short break, calm blue for the long one.
+/// the Today/Streak glyphs. Soft blue for Focus, mint for a short break, lavender for a long one.
 enum PomodoroStyle {
-    static let focus = Color(red: 1.0, green: 0.52, blue: 0.40)
-    static let shortBreak = Color(red: 0.42, green: 0.86, blue: 0.66)
-    static let longBreak = Color(red: 0.46, green: 0.70, blue: 1.0)
+    static let focus = Color(red: 130 / 255, green: 177 / 255, blue: 245 / 255)
+    static let shortBreak = Color(red: 123 / 255, green: 204 / 255, blue: 170 / 255)
+    static let longBreak = Color(red: 184 / 255, green: 162 / 255, blue: 232 / 255)
     static let streak = Color(red: 1.0, green: 0.66, blue: 0.30)
 
     static func accent(_ phase: PomodoroPhase) -> Color {
@@ -251,100 +251,5 @@ struct PomodoroHistoryView: View {
         .padding(.leading, 12)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Total \(title): \(value)")
-    }
-}
-
-private struct PomodoroMonthBars: View {
-    let days: [PomodoroStatistics.Day]
-    let calendar: Calendar
-    @State private var hoveredDayID: Date?
-    @State private var hoverLocation = CGPoint.zero
-
-    var body: some View {
-        let peak = max(days.map(\.focus).max() ?? 0, 3600)
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .bottom, spacing: 0) {
-                ForEach(Array(days.enumerated()), id: \.element.id) { index, day in
-                    let isToday = index == days.count - 1
-                    VStack(spacing: 0) {
-                        Spacer(minLength: 0)
-                        RoundedRectangle(cornerRadius: 3, style: .continuous)
-                            .fill(day.focus > 0 ? PomodoroStyle.focus.opacity(isToday ? 1 : 0.85) : .white.opacity(0.10))
-                            .overlay {
-                                if hoveredDayID == day.id {
-                                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                        .strokeBorder(.white.opacity(0.65), lineWidth: 1)
-                                        .shadow(color: PomodoroStyle.focus.opacity(0.55), radius: 3)
-                                        .allowsHitTesting(false)
-                                }
-                            }
-                            .frame(height: day.focus > 0 ? max(5, 92 * day.focus / peak) : 4)
-                    }
-                    .frame(width: 9)
-                    .contentShape(.rect)
-                    .onContinuousHover(coordinateSpace: .named("pomodoro.history.bars")) { phase in
-                        switch phase {
-                        case let .active(location):
-                            hoveredDayID = day.id
-                            hoverLocation = location
-                        case .ended:
-                            if hoveredDayID == day.id { hoveredDayID = nil }
-                        }
-                    }
-                    .padding(.leading, index == 0 ? 0 : (startsWeek(day.date) ? 7 : 3.5))
-                    .accessibilityElement()
-                    .accessibilityLabel(description(day))
-                }
-            }
-            .frame(height: 92, alignment: .bottom)
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel("Focus time per day")
-            HStack(spacing: 0) {
-                ForEach(Array(days.enumerated()), id: \.element.id) { index, day in
-                    Text(startsWeek(day.date) || index == 0 ? day.date.formatted(.dateTime.month(.abbreviated).day()) : "")
-                        .font(.system(size: 9, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.45))
-                        .fixedSize()
-                        .frame(width: 9, alignment: .leading)
-                        .padding(.leading, index == 0 ? 0 : (startsWeek(day.date) ? 7 : 3.5))
-                }
-            }
-            .accessibilityHidden(true)
-        }
-        .coordinateSpace(.named("pomodoro.history.bars"))
-        .overlay(alignment: .topLeading) {
-            GeometryReader { geometry in
-                if let day = days.first(where: { $0.id == hoveredDayID }) {
-                    Text("\(PomodoroStatistics.duration(day.focus)) focus")
-                        .font(.system(size: 11, weight: .medium, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(.white)
-                        .frame(width: 112, height: 24)
-                        .padding(.horizontal, 8)
-                        .background(Color(white: 0.16), in: .rect(cornerRadius: 6))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 6)
-                                .strokeBorder(.white.opacity(0.16), lineWidth: 1)
-                        }
-                        // Stay beside the pointer while keeping the peek inside the chart.
-                        .offset(x: min(max(0, hoverLocation.x + 12), max(0, geometry.size.width - 128)),
-                                y: hoverLocation.y > 36 ? hoverLocation.y - 32 : hoverLocation.y + 12)
-                }
-            }
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-            .transaction { $0.animation = nil; $0.disablesAnimations = true }
-        }
-        .onDisappear { hoveredDayID = nil }
-    }
-
-    private func startsWeek(_ date: Date) -> Bool {
-        calendar.component(.weekday, from: date) == calendar.firstWeekday
-    }
-
-    private func description(_ day: PomodoroStatistics.Day) -> String {
-        let date = day.date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
-        guard day.focus > 0 else { return "\(date): no focus" }
-        return "\(date): \(PomodoroStatistics.duration(day.focus)), \(day.sessions) session\(day.sessions == 1 ? "" : "s")"
     }
 }
