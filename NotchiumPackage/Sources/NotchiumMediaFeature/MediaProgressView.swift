@@ -10,8 +10,7 @@ struct MediaProgressView: View {
     @Environment(\.notchMediaExpanded) private var isExpanded
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: model.state.isPlaying ? 0.1 : nil,
-                                paused: !model.state.isPlaying || !isExpanded || isSeeking)) { timeline in
+        TimelineView(MediaProgressSchedule(paused: !model.state.isPlaying || !isExpanded || isSeeking)) { timeline in
             let position = mediaSliderDisplayPosition(
                 isSeeking: isSeeking,
                 seekPosition: seekPosition,
@@ -50,9 +49,12 @@ struct MediaProgressView: View {
             if !new.isSameTrack(as: old) || !new.hasMedia { isSeeking = false }
         }
     }
+    /// `m:ss`, or `h:mm:ss` from one hour, matching Spotify and Apple Music for long items.
     static func time(_ seconds: Double) -> String {
         let value = seconds.isFinite ? Int(min(max(0, seconds), 86_400)) : 0
-        return String(format: "%d:%02d", value / 60, value % 60)
+        let hours = value / 3_600
+        return hours > 0 ? String(format: "%d:%02d:%02d", hours, value % 3_600 / 60, value % 60)
+            : String(format: "%d:%02d", value / 60, value % 60)
     }
 
     static func spokenPosition(_ elapsed: Double, duration: Double?) -> String {
@@ -73,6 +75,23 @@ struct MediaProgressView: View {
             parts.append("\(remainingSeconds) second\(remainingSeconds == 1 ? "" : "s")")
         }
         return parts.joined(separator: " ")
+    }
+}
+
+/// Ten progress updates a second while playing and visible, none otherwise. Unlike the
+/// `.animation` schedule, which commits the whole shell on every display frame even when
+/// throttled, a periodic schedule wakes only at these instants.
+struct MediaProgressSchedule: TimelineSchedule {
+    static let interval: TimeInterval = 0.1
+    let paused: Bool
+
+    func entries(from startDate: Date, mode: TimelineScheduleMode) -> AnyIterator<Date> {
+        var next: Date? = startDate
+        return AnyIterator { [paused] in
+            guard let current = next else { return nil }
+            next = paused ? nil : current.addingTimeInterval(Self.interval)
+            return current
+        }
     }
 }
 
