@@ -12,7 +12,7 @@ import NotchiumDynamicIsland
     }
 }
 
-/// At most eight 160px thumbnails (~800KB decoded), each with one sampled palette.
+/// At most eight 320px thumbnails (~3.3MB decoded), each with one sampled palette.
 /// Artwork and adaptive colour share bounded requests; cancelled consumers ignore the result.
 @MainActor final class MediaArtworkCache {
     static let shared = MediaArtworkCache()
@@ -21,7 +21,7 @@ import NotchiumDynamicIsland
     private let session: URLSession
     init(session: URLSession? = nil) {
         images.countLimit = 8
-        images.totalCostLimit = 1_000_000
+        images.totalCostLimit = 4_000_000
         let configuration = URLSessionConfiguration.ephemeral
         configuration.urlCache = nil
         configuration.timeoutIntervalForResource = 20
@@ -51,7 +51,7 @@ import NotchiumDynamicIsland
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceThumbnailMaxPixelSize: 160,
+                kCGImageSourceThumbnailMaxPixelSize: 320,
                 kCGImageSourceCreateThumbnailWithTransform: true
               ] as CFDictionary) else { return nil }
         let image = MediaArtworkResource(thumbnail: thumbnail)
