@@ -59,7 +59,7 @@ public struct ResolvedShelfReference: Equatable, Sendable {
     }
 
     public func reference(for url: URL) -> Data? {
-        let scoped: URL.BookmarkCreationOptions = isSandboxed ? [.withSecurityScope] : []
+        let scoped: URL.BookmarkCreationOptions = isSandboxed ? [.withSecurityScope, .securityScopeAllowOnlyReadAccess] : []
         return try? url.bookmarkData(options: scoped, includingResourceValuesForKeys: nil, relativeTo: nil)
     }
 
