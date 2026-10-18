@@ -71,8 +71,12 @@ void NTAudioMixFloat32(
                 if (channel >= output->mNumberBuffers) continue;
                 AudioBuffer *destination = &output->mBuffers[channel];
                 if (!destination->mData) continue;
+                // HAL buffers describe their own storage. Another channel's frame count
+                // cannot authorize writes beyond this buffer, even during a route change.
+                const uint32_t destination_frames = destination->mDataByteSize / (uint32_t)sizeof(float);
+                const uint32_t destination_count = count < destination_frames ? count : destination_frames;
                 float *destination_samples = (float *)destination->mData;
-                for (uint32_t frame = 0; frame < count; ++frame) {
+                for (uint32_t frame = 0; frame < destination_count; ++frame) {
                     destination_samples[frame] += source_samples[frame * source_channels + channel % source_channels] * gain;
                 }
             } else {
