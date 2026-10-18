@@ -84,6 +84,32 @@ private actor LocalSpotifyEvents: SpotifyPlaybackEventProviding, SpotifyLifecycl
 }
 
 @MainActor final class SpotifyMediaTests: XCTestCase {
+    func testConfiguredComputerNamesRecognizeLocalPlayback() {
+        let names = SystemSpotifyApplicationLauncher.localDeviceNames(
+            computerName: "  QA Computer  ", localHostName: "QA-Computer")
+        let model = MediaFeatureModel(provider: MockMediaProvider(),
+                                      coordinator: ActivityCoordinator(clock: TestAppClock(now: .now, automaticallyAdvances: false)),
+                                      localDeviceNames: names)
+        for name in ["This Mac", "QA Computer", "QA-Computer", "QA-Computer.local"] {
+            model.receive(.init(playbackState: .paused, title: "Disposable test track",
+                                activeDeviceID: "legacy-device", activeDeviceName: name,
+                                activeDeviceType: "Computer", source: .spotify))
+            XCTAssertTrue(model.isPlaybackLocal, name)
+        }
+        model.receive(.init(playbackState: .paused, title: "Disposable test track",
+                            activeDeviceID: "remote-device", activeDeviceName: "Another Computer",
+                            activeDeviceType: "Computer", source: .spotify))
+        XCTAssertFalse(model.isPlaybackLocal)
+        model.stop()
+    }
+
+    func testMissingConfiguredNamesKeepLocalDeviceFallback() {
+        XCTAssertEqual(SystemSpotifyApplicationLauncher.localDeviceNames(
+            computerName: nil, localHostName: nil), ["this mac"])
+        XCTAssertEqual(SystemSpotifyApplicationLauncher.localDeviceNames(
+            computerName: " \n", localHostName: "\t"), ["this mac"])
+    }
+
     private func snapshot(_ provider: RealMediaProvider) async -> MediaState {
         var iterator = await provider.updates().makeAsyncIterator()
         return await iterator.next()!
