@@ -114,7 +114,14 @@ final class AudioMixerTests: XCTestCase {
         let suiteName = "AudioMixerTests.\(UUID().uuidString)"
         let preferences = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { preferences.removePersistentDomain(forName: suiteName) }
-        let mixer = MockAppAudioMixerService()
+        let firstApplied = expectation(description: "Mixer applied the speaker route")
+        let secondApplied = expectation(description: "Mixer applied the headphone route")
+        let exitApplied = expectation(description: "Mixer removed the exited process")
+        let mixer = RouteObservedMixer { targets, output in
+            if !targets.isEmpty, output == "20" { firstApplied.fulfill() }
+            if !targets.isEmpty, output == "21" { secondApplied.fulfill() }
+            if targets.isEmpty, output == "21" { exitApplied.fulfill() }
+        }
         let model = AudioFeatureModel(devices: MockAudioDevicesService(),
                                       processes: MockAudioProcessesService(),
                                       mixer: mixer, preferences: preferences)
@@ -126,19 +133,19 @@ final class AudioMixerTests: XCTestCase {
         model.receiveProcesses([process])
         model.setAppVolume(0.6, process: process)
         model.commitAppVolume(process)
-        for _ in 0..<4 { await Task.yield() }
+        await fulfillment(of: [firstApplied], timeout: 2)
         let firstOutput = await mixer.outputDeviceID
         XCTAssertEqual(firstOutput, "20")
 
         model.receive(AudioDevicesSnapshot(availability: .available, outputs: [
             AudioDevice(id: "21", name: "Headphones", isDefaultOutput: true)
         ]))
-        for _ in 0..<4 { await Task.yield() }
+        await fulfillment(of: [secondApplied], timeout: 2)
         let secondOutput = await mixer.outputDeviceID
         XCTAssertEqual(secondOutput, "21")
 
         model.receiveProcesses([])
-        for _ in 0..<4 { await Task.yield() }
+        await fulfillment(of: [exitApplied], timeout: 2)
         let remaining = await mixer.targets
         XCTAssertTrue(remaining.isEmpty)
     }
@@ -244,4 +251,22 @@ final class AudioMixerTests: XCTestCase {
             ["Reset Volume to 100%", "Unpin from Mixer"]
         )
     }
+}
+
+/// Signals actual service application rather than assuming a scheduler-yield budget.
+private actor RouteObservedMixer: AppAudioMixerService {
+    private(set) var targets: [AppAudioMixTarget] = []
+    private(set) var outputDeviceID: String?
+    private let applied: @Sendable ([AppAudioMixTarget], String?) -> Void
+
+    init(applied: @escaping @Sendable ([AppAudioMixTarget], String?) -> Void) { self.applied = applied }
+
+    func apply(targets: [AppAudioMixTarget], outputDeviceID: String?) -> AppAudioMixerStatus {
+        self.targets = targets.filter { $0.isMuted || $0.volume < 0.999 }
+        self.outputDeviceID = outputDeviceID
+        applied(self.targets, outputDeviceID)
+        return self.targets.isEmpty ? .inactive : .running
+    }
+
+    func stop() { targets = []; outputDeviceID = nil }
 }
