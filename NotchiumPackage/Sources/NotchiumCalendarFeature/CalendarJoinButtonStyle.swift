@@ -18,9 +18,10 @@ struct CalendarJoinButtonStyle: ButtonStyle {
             .background(Color.white.opacity(isEnabled && configuration.isPressed ? 0.78
                                             : (isEnabled && isHovered ? 0.9 : 1)), in: Capsule())
             .fixedSize()
-            .scaleEffect(reduceMotion || !isEnabled ? 1 : (configuration.isPressed ? 0.96 : (isHovered ? 1.03 : 1)))
-            .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
-            .animation(.easeOut(duration: 0.16), value: isHovered)
+            // The shared press feedback; hover changes fill only, like every other notch control.
+            .scaleEffect(reduceMotion || !isEnabled || !configuration.isPressed ? 1 : 0.97)
+            .animation(reduceMotion ? .easeOut(duration: 0.1) : .smooth(duration: 0.16), value: configuration.isPressed)
+            .animation(.easeOut(duration: 0.12), value: isHovered)
             .onHover { isHovered = $0 && isEnabled }
     }
 }
