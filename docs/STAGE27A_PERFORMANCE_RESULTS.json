@@ -1,0 +1,92 @@
+{
+  "configuration": "Exploratory Release optimization with DEBUG-gated mocks and local package coverage instrumentation; supplemented by matched coverage-free mock idle samples. Not production integration qualification.",
+  "environment": {
+    "hardware": "MacBook Air Mac16,12; Apple M4; 10 CPU cores; 16 GiB",
+    "macOS": "27.0.1 (26A434)",
+    "Xcode": "27.0 (27A266a)",
+    "Swift": "6.4; Swift 6 language mode"
+  },
+  "metrics": {
+    "before": {
+      "idle": {
+        "pid": 36851,
+        "seconds": 20.089,
+        "cpu_percent_one_core": 0.0,
+        "rss_start": 58507264,
+        "rss_end": 30736384,
+        "rss_sampled_peak": 58507264,
+        "footprint_end": 46220368,
+        "interrupt_wakeups_per_second": 0.0,
+        "package_idle_wakeups_per_second": 0.0
+      },
+      "playing": {
+        "pid": 36851,
+        "seconds": 20.101,
+        "cpu_percent_one_core": 0.4648,
+        "rss_start": 64274432,
+        "rss_end": 55427072,
+        "rss_sampled_peak": 64274432,
+        "footprint_end": 56263832,
+        "interrupt_wakeups_per_second": 60.344,
+        "package_idle_wakeups_per_second": 3.333
+      },
+      "time_profile_samples": 3938
+    },
+    "after": {
+      "idle": {
+        "pid": 39048,
+        "seconds": 20.092,
+        "cpu_percent_one_core": 0.0001,
+        "rss_start": 81248256,
+        "rss_end": 81264640,
+        "rss_sampled_peak": 82264064,
+        "footprint_end": 45892664,
+        "interrupt_wakeups_per_second": 0.05,
+        "package_idle_wakeups_per_second": 0.0
+      },
+      "playing": {
+        "pid": 39048,
+        "seconds": 20.026,
+        "cpu_percent_one_core": 0.4457,
+        "rss_start": 119930880,
+        "rss_end": 103563264,
+        "rss_sampled_peak": 119930880,
+        "footprint_end": 54854760,
+        "interrupt_wakeups_per_second": 60.321,
+        "package_idle_wakeups_per_second": 0.0
+      },
+      "time_profile_samples": 4221
+    }
+  },
+  "limitations": [
+    "Single 20-second windows; other development processes were active.",
+    "Mock services exclude real Apple Events, camera, EventKit, Clipboard polling and Core Audio taps.",
+    "Playback samples began on expanded Home; continuous shell state was not logged. Later final observation was collapsed, so comparisons do not prove steady expanded performance.",
+    "RSS reflects memory pressure and residency; no optimization or leak conclusion follows from these two runs."
+  ],
+  "coverage_free_idle": {
+    "before": {
+      "pid": 40632,
+      "seconds": 20.024,
+      "cpu_percent_one_core": 0.0,
+      "rss_start": 88080384,
+      "rss_end": 88064000,
+      "rss_sampled_peak": 88080384,
+      "footprint_end": 42632272,
+      "interrupt_wakeups_per_second": 0.0,
+      "package_idle_wakeups_per_second": 0.0
+    },
+    "after": {
+      "pid": 40641,
+      "seconds": 20.024,
+      "cpu_percent_one_core": 0.0001,
+      "rss_start": 110641152,
+      "rss_end": 109887488,
+      "rss_sampled_peak": 110739456,
+      "footprint_end": 42615888,
+      "interrupt_wakeups_per_second": 0.0,
+      "package_idle_wakeups_per_second": 0.0
+    }
+  },
+  "coverage_free_idle_method": "Both binaries rebuilt with existing release-policy global coverage-disable flags. DEBUG-gated mocks explicitly enabled. Verified command lines; five-second warmup; simultaneous 20-second windows; no Computer Use calls; real adapters excluded."
+}
