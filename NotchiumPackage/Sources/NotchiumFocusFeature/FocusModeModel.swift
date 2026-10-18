@@ -36,6 +36,8 @@ public final class FocusModeModel {
     @ObservationIgnored private let shortcuts: any ShortcutService
     @ObservationIgnored private let preferences: UserDefaults
     @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private var shortcutTask: Task<Void, Never>?
+    @ObservationIgnored private var shortcutTasks: [UUID: Task<Void, Never>] = [:]
     /// Only a Focus this model turned on is turned off again; a Focus the user chose stays.
     @ObservationIgnored private(set) var turnedOnByTimer = false
 
@@ -72,8 +74,16 @@ public final class FocusModeModel {
 
     public func stop() {
         task?.cancel(); task = nil
+        shortcutTasks.values.forEach { $0.cancel() }
+        shortcutTasks.removeAll()
+        shortcutTask = nil
         activities.reducesInterruptions = false
         activities.notifications.dismiss(coalescingKey: Self.key)
+    }
+
+    deinit {
+        task?.cancel()
+        shortcutTasks.values.forEach { $0.cancel() }
     }
 
     func receive(_ snapshot: FocusSnapshot) {
@@ -109,11 +119,20 @@ public final class FocusModeModel {
 
     private func run(_ shortcut: ExistingShortcut?) {
         guard let shortcut else { return }
-        Task { [weak self, shortcuts] in
+        let previous = shortcutTask
+        let id = UUID()
+        // These finite user-requested operations drain in order. In particular, a slow On
+        // must finish before its compensating Off, even if the timer was ended immediately.
+        shortcutTask = Task { [weak self, shortcuts] in
+            defer { self?.shortcutTasks[id] = nil }
+            await previous?.value
+            guard !Task.isCancelled else { return }
             do { try await shortcuts.run(shortcut) } catch {
+                guard !Task.isCancelled else { return }
                 self?.shortcutError = (error as? LocalizedError)?.errorDescription ?? "The Focus shortcut failed."
             }
         }
+        shortcutTasks[id] = shortcutTask
     }
 
     private func store(_ shortcut: ExistingShortcut?, key: String) {
