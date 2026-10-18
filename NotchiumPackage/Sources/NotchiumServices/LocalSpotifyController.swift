@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import NotchiumCore
+import SystemConfiguration
 
 public protocol SpotifyApplicationLaunching: Sendable {
     func isSpotifyInstalled() async -> Bool
@@ -23,8 +24,23 @@ public struct SystemSpotifyApplicationLauncher: SpotifyApplicationLaunching {
         _ = try await NSWorkspace.shared.openApplication(at: url, configuration: .init())
     }
     public static var localDeviceNames: Set<String> {
-        Set(["this mac", ProcessInfo.processInfo.hostName.lowercased(),
-             Host.current().localizedName?.lowercased()].compactMap { $0 })
+        // These configured names do not perform the DNS resolution used by NSHost.
+        // This property is read during main-thread application initialization.
+        localDeviceNames(computerName: SCDynamicStoreCopyComputerName(nil, nil) as String?,
+                         localHostName: SCDynamicStoreCopyLocalHostName(nil) as String?)
+    }
+
+    static func localDeviceNames(computerName: String?, localHostName: String?) -> Set<String> {
+        var names: Set<String> = ["this mac"]
+        for name in [computerName, localHostName].compactMap({ $0 }) {
+            let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if !normalized.isEmpty { names.insert(normalized) }
+        }
+        if let localHostName = localHostName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !localHostName.isEmpty {
+            names.insert("\(localHostName.lowercased()).local")
+        }
+        return names
     }
 }
 
