@@ -1,5 +1,7 @@
 # Architecture — Stage 21 Display and Presentation Intelligence
 
+**Current-source note (October 16, 2026):** This document contains historical stage descriptions. Current navigation has Home, Music, Calendar, Focus Timer, Audio and Shelf; Clipboard is within Shelf. Shared providers remain composed once, with one `NotchDisplaySession`/panel per selected display and display projections of the source activity coordinator. Spotify control uses local Apple Events, with no OAuth/Web API/Connect transport or queue UI. Current engineering fixes, the lifecycle map and qualification limits are in [Stage 27A](STAGE27A_AUDIT.md).
+
 **Status:** Stage 11 adds native Quick Actions and Quick Reminder and removes Keyboard Lock. Stage 7 Music, Calendar, Audio, and Caffeine coordination remains intact. See [STAGE11_QUICK_ACTIONS.md](STAGE11_QUICK_ACTIONS.md). See [MEDIA_CENTER.md](MEDIA_CENTER.md), [CALENDAR_ACTIVITY.md](CALENDAR_ACTIVITY.md), and [AUDIO.md](AUDIO.md) for feature boundaries and limitations.
 
 **Minimum OS:** macOS 26
