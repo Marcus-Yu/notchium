@@ -91,6 +91,8 @@ public actor MockMediaProvider: MediaProviding {
         case .longTitle:
             loadTrack(offset: 0)
             snapshot.title = "A Walk Through the City at Midnight — " + String(repeating: "The Extended Live Session ", count: 8)
+            // A worst-case length as well as a worst-case title: times must read h:mm:ss.
+            snapshot.duration = 7_265
         case .noArtwork: loadTrack(offset: 0); snapshot.artwork = nil
         case .spotify: loadTrack(offset: 0); snapshot.source = .spotify
         case .queue:
