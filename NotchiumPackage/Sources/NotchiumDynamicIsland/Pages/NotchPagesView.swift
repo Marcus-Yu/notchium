@@ -36,6 +36,10 @@ struct NotchPagesView: View {
                     .accessibilityHidden(cameraOpen)
                 if cameraOpen, let camera {
                     camera.preview()
+                        // Opaque like the shell and explicitly above the page: a removed view
+                        // otherwise loses its ZStack order, and the returning page drew through it.
+                        .background(.black)
+                        .zIndex(1)
                         .transition(reduceMotion ? .opacity : .modifier(active: NotchDownwardReveal(progress: 0),
                                                                         identity: NotchDownwardReveal(progress: 1)))
                 }
