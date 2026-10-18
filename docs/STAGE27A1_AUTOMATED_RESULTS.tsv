@@ -1,0 +1,11 @@
+run	framework	target	executed	skipped	reported_failures	runner_errors	result
+initial-package	XCTest	main	737	6	2	0	FAIL: one artwork case, two assertions
+final-package	XCTest	main	737	6	0	0	PASS
+final-package	XCTest	proactive	38	0	0	0	PASS
+final-package	Swift Testing	package	5	0	0	0	PASS
+targeted-after-fix	XCTest	media/artwork/visibility/quality	26	0	0	0	PASS
+xcode-unit	XCTest	NotchiumFeatureTests	737	6	0	0	PASS
+xcode-unit	Swift Testing	NotchiumFeatureTests	5	0	0	0	PASS
+offscreen-normal	XCTest	visual capture	2	0	0	0	PASS
+offscreen-reduced-motion	XCTest	visual capture	1	0	0	0	PASS
+native-ui	XCUITest	keyboard/escape	0	0	0	1	BLOCKED: automation-mode authentication
