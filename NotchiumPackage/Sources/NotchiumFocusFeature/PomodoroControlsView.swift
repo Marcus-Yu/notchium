@@ -14,18 +14,20 @@ struct PomodoroControlsView: View {
         let primary = controls.first(where: \.isPrimary)
         Group {
             if centersPrimary, let primary, let index = controls.firstIndex(of: primary) {
-                ZStack {
+                PomodoroCenteredControlsLayout(spacing: 8) {
                     HStack(spacing: 8) {
                         ForEach(Array(controls[..<index])) { control in
                             controlButton(control, primary: false)
                         }
-                        Spacer(minLength: 0)
+                    }
+                    controlButton(primary, primary: true)
+                    HStack(spacing: 8) {
                         ForEach(Array(controls[(index + 1)...])) { control in
                             controlButton(control, primary: false)
                         }
                     }
-                    controlButton(primary, primary: true)
                 }
+                .frame(maxWidth: .infinity)
             } else {
                 HStack(spacing: 8) {
                     ForEach(controls) { control in
@@ -50,5 +52,25 @@ struct PomodoroControlsView: View {
         }
         .buttonStyle(NotchUtilityButtonStyle())
         .accessibilityIdentifier("\(identifierPrefix).\(primary ? "primary" : control.rawValue)")
+    }
+}
+
+/// Equal space on either side keeps the primary centered, with each secondary 8 pt beside it.
+private struct PomodoroCenteredControlsLayout: Layout {
+    let spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        return CGSize(width: sizes[1].width + 2 * (max(sizes[0].width, sizes[2].width) + spacing),
+                      height: sizes.map(\.height).max() ?? 0)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let primaryWidth = subviews[1].sizeThatFits(.unspecified).width
+        subviews[0].place(at: CGPoint(x: bounds.midX - primaryWidth / 2 - spacing, y: bounds.midY),
+                          anchor: .trailing, proposal: .unspecified)
+        subviews[1].place(at: CGPoint(x: bounds.midX, y: bounds.midY), anchor: .center, proposal: .unspecified)
+        subviews[2].place(at: CGPoint(x: bounds.midX + primaryWidth / 2 + spacing, y: bounds.midY),
+                          anchor: .leading, proposal: .unspecified)
     }
 }
