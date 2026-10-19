@@ -296,7 +296,7 @@ Stage 2 is verified with the installed Xcode 26.6 toolchain using isolated Deriv
 
 ## Stage 8 Home dashboard (superseded by Stage 20)
 
-Home is the idle/default page and contains only a fixed Music-left / Calendar-right composition inside the canonical expanded shell. Existing application-lifetime Media and Calendar models supply compact renderers. Playback keeps Home as the fresh default; existing Music-targeting alerts and Focus Timer eligibility still apply. There is no Home customization or Window Snapping in this phase. See [HOME_DASHBOARD.md](HOME_DASHBOARD.md) for layout, ownership, behavior, and validation boundaries.
+Home is the idle/default page and contains only a fixed Music-left / Calendar-right composition inside the canonical expanded shell. Existing application-lifetime Media and Calendar models supply compact renderers. Active local playback and existing Music-targeting alerts select Music on fresh expansion, followed by eligible Focus Timer state, then Home. There is no Home customization or Window Snapping in this phase. See [HOME_DASHBOARD.md](HOME_DASHBOARD.md) for layout, ownership, behavior, and validation boundaries.
 
 ## Stage 20 Home ownership
 
