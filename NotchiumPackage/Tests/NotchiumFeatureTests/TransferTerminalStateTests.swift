@@ -1,5 +1,6 @@
 import Foundation
 import NotchiumCore
+import Synchronization
 import XCTest
 @testable import NotchiumDynamicIsland
 @testable import NotchiumServices
@@ -189,6 +190,39 @@ final class TransferTerminalStateTests: XCTestCase {
         XCTAssertEqual(model.recent.map(\.phase), [.completed])
     }
 
+    func testServiceTerminalDeliverySurvivesWallClockMovingBackwards() async {
+        let wallTime = Mutex(Date(timeIntervalSince1970: 10))
+        let service = RealFileTransferService(folders: [], now: { wallTime.withLock { $0 } })
+        let (received, collector) = await record(service)
+        defer { collector.cancel() }
+        let activities = ActivityCoordinator(clock: TestAppClock(now: .now, automaticallyAdvances: false))
+        defer { activities.clearAll() }
+        let model = TransferActivityModel(notifications: activities.notifications)
+        let completed = download("complete.bin"), cancelled = download("cancelled.bin")
+        let ids = [completed, cancelled].map { service.published($0) }
+        await waitUntil { received.values.count == 2 }
+        received.values.forEach(model.receive)
+        XCTAssertEqual(model.active.count, 2)
+
+        wallTime.withLock { $0 = Date(timeIntervalSince1970: 8) }
+        completed.completedUnitCount = 100
+        cancelled.cancel()
+        for (progress, id) in zip([completed, cancelled], ids) { service.unpublished(progress, id: id) }
+        await waitUntil { ids.allSatisfy { received.terminal($0) != nil } }
+        for id in ids {
+            let first = received.values.first { $0.id == id }!
+            let terminal = received.terminal(id)!
+            XCTAssertGreaterThanOrEqual(terminal.updatedAt, first.updatedAt)
+            model.receive(terminal)
+        }
+        XCTAssertTrue(model.active.isEmpty, "An authoritative service result cannot become stale after a clock adjustment")
+        XCTAssertEqual(ids.map { id in model.recent.first { $0.id == id }?.phase }, [.completed, .stopped])
+        // Replaying an older event still cannot reverse the delivered terminal outcomes.
+        received.values.filter { !$0.phase.isTerminal }.forEach(model.receive)
+        XCTAssertTrue(model.active.isEmpty)
+        XCTAssertEqual(model.recent.count, 2)
+    }
+
     // MARK: Deterministic order stress
 
     private enum Step: CaseIterable { case progress, complete, reset, cancel, rename, unpublish, stale }
@@ -247,7 +281,8 @@ final class TransferTerminalStateTests: XCTestCase {
                     expected[0] == .completed && expected[2] == .completed ? .text("Done") : .text("Stopped")
                 pair.reset()
                 if serviceResult != expected || modelResult != expected || label != expectedLabel {
-                    failures.append("\(run.order): expected \(expected) label \(expectedLabel), service \(serviceResult), model \(modelResult), label \(String(describing: label))")
+                    let timestamps = received.delivered(ids).map { "\($0.phase)@\($0.updatedAt.timeIntervalSince1970)" }
+                    failures.append("\(run.order): expected \(expected) label \(expectedLabel), service \(serviceResult), model \(modelResult), label \(String(describing: label)), delivered \(timestamps)")
                 }
             }
             received.removeAll()
