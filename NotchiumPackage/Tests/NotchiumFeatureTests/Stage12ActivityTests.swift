@@ -395,7 +395,7 @@ final class Stage12ActivityTests: XCTestCase {
                             activeDeviceName: "This Mac", activeDeviceType: "Computer", source: .spotify))
         XCTAssertEqual(second.activityCoordinator.liveActivities.map(\.key), [.media])
         XCTAssertNil(second.activityCoordinator.activeTransient)
-        XCTAssertEqual(second.activityCoordinator.preferredExpandedPage, .home)
+        XCTAssertEqual(second.activityCoordinator.preferredExpandedPage, .music)
     }
 
     // MARK: Lifecycle
