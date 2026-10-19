@@ -12,7 +12,7 @@ public enum NotchPomodoroPageState: Equatable, Sendable {
 public final class NotchPageModel: ObservableObject {
     public static let pomodoroPausedPageGrace: Duration = .seconds(30)
 
-    /// Evaluate only when opening a fresh expansion. Music-targeting transients retain
+    /// Evaluate only when opening a fresh expansion. Media's local/remote resolver retains
     /// precedence; no scheduled work changes a page when this grace expires.
     public static func automaticOpenPage(existingDefault: NotchPage,
                                          pomodoro: NotchPomodoroPageState,
