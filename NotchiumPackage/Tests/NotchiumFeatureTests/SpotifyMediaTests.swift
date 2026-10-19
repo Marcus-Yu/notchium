@@ -29,7 +29,7 @@ private actor LocalSpotifyScripts: SpotifyScriptExecuting {
     var access: SpotifyAutomationPermission = .allowed
     var fields = LocalSpotifyScripts.track()
     private var nextResponses: [[String]] = []
-    private var heldRead: CheckedContinuation<[String], Never>?
+    private var heldRead: CheckedContinuation<[String], any Error>?
     private var shouldHoldRead = false
     private var readObservers: [(Int, CheckedContinuation<Void, Never>)] = []
     private(set) var reads = 0
@@ -53,7 +53,7 @@ private actor LocalSpotifyScripts: SpotifyScriptExecuting {
             ready.forEach { $0.1.resume() }
             if shouldHoldRead {
                 shouldHoldRead = false
-                return await withCheckedContinuation { heldRead = $0 }
+                return try await withCheckedThrowingContinuation { heldRead = $0 }
             }
             if !nextResponses.isEmpty { return nextResponses.removeFirst() }
             return fields
@@ -67,6 +67,7 @@ private actor LocalSpotifyScripts: SpotifyScriptExecuting {
         await withCheckedContinuation { readObservers.append((count, $0)) }
     }
     func releaseRead(_ value: [String]) { heldRead?.resume(returning: value); heldRead = nil }
+    func failRead(_ failure: SpotifyScriptFailure) { heldRead?.resume(throwing: failure); heldRead = nil }
     func waitForHeldRead() async { while heldRead == nil { await Task.yield() } }
 }
 private actor LocalSpotifyEvents: SpotifyPlaybackEventProviding, SpotifyLifecycleEventProviding {
@@ -211,6 +212,67 @@ private actor LocalSpotifyEvents: SpotifyPlaybackEventProviding, SpotifyLifecycl
         XCTAssertThrowsError(try LocalSpotifyController.decode(fields))
         let stopped = try LocalSpotifyController.decode(["stopped"]); XCTAssertFalse(stopped.hasMedia)
     }
+
+    func testPositiveDurationBoundsPreserveLongFormMetadataAndClampProgress() throws {
+        for milliseconds in [1, 398, 240_000, 43_200_000, Int(Int32.max)] {
+            var fields = LocalSpotifyScripts.track(position: "99999999")
+            fields[6] = String(milliseconds)
+            let state = try LocalSpotifyController.decode(fields)
+            XCTAssertEqual(state.duration, Double(milliseconds) / 1000)
+            XCTAssertEqual(state.elapsed, state.duration)
+            XCTAssertEqual(state.progress, 1)
+            XCTAssertTrue(state.canSeek)
+            XCTAssertEqual(state.title, "Title one")
+        }
+    }
+
+    func testMalformedDurationRefreshPreservesPlaybackThenRecovers() async throws {
+        let scripts = LocalSpotifyScripts()
+        let provider = provider(scripts)
+        try await provider.connect()
+        let valid = await snapshot(provider)
+        // These are defensive boundaries, not claims about legitimate unknown-duration media.
+        for duration in ["0", "-1", "-2147483648", "nan", "inf", "-inf", "", "missing value"] {
+            var fields = LocalSpotifyScripts.track(id: "invalid", position: "0")
+            fields[6] = duration
+            await scripts.setFields(fields)
+            await provider.refresh()
+            let retained = await snapshot(provider)
+            XCTAssertEqual(retained.trackID, valid.trackID)
+            XCTAssertEqual(retained.playbackState, valid.playbackState)
+            XCTAssertEqual(retained.duration, valid.duration)
+            XCTAssertEqual(retained.elapsed, valid.elapsed)
+            XCTAssertNotNil(retained.issue)
+        }
+        await scripts.setFields(LocalSpotifyScripts.track(id: "recovered", playing: false))
+        await provider.refresh()
+        let recovered = await snapshot(provider)
+        XCTAssertEqual(recovered.trackID, "recovered")
+        XCTAssertFalse(recovered.isPlaying)
+        XCTAssertNil(recovered.issue)
+        await provider.shutdown()
+    }
+
+    func testQuitDuringMetadataReadCannotRestoreTheOldTrack() async throws {
+        let scripts = LocalSpotifyScripts()
+        let app = LocalSpotifyApplication()
+        let provider = provider(scripts, application: app)
+        try await provider.connect()
+        await scripts.holdNextRead()
+        let refresh = Task { await provider.refresh() }
+        await scripts.waitForHeldRead()
+        await app.set(running: false)
+        await scripts.failRead(SpotifyScriptFailure(code: -600))
+        await refresh.value
+        let quit = await snapshot(provider)
+        XCTAssertEqual(quit.localSpotifyStatus, .notRunning)
+        XCTAssertFalse(quit.hasMedia)
+        await app.set(running: true)
+        await provider.refresh()
+        let relaunched = await snapshot(provider)
+        XCTAssertTrue(relaunched.hasMedia)
+        await provider.shutdown()
+    }
     func testEveryLocalControlUsesDictionaryAndSeekingNeverPlays() throws {
         let state = try LocalSpotifyController.decode(LocalSpotifyScripts.track(playing: false))
         let commands: [(MediaCommand, String)] = [(.playPause, "playpause"), (.play, "play"), (.pause, "pause"),
@@ -316,8 +378,19 @@ private actor LocalSpotifyEvents: SpotifyPlaybackEventProviding, SpotifyLifecycl
         await events.send(SpotifyLifecycleEvent.wake); await scripts.waitForReads(2)
         await app.set(running: false); await provider.refresh()
         let notRunning = await snapshot(provider); XCTAssertEqual(notRunning.localSpotifyStatus, .notRunning)
+        // A started script read is not yet a published provider state.
+        let restored = expectation(description: "Lifecycle refresh publishes restored playback")
+        let updates = await provider.updates()
+        let observer = Task {
+            for await state in updates where state.hasMedia {
+                restored.fulfill()
+                break
+            }
+        }
+        defer { observer.cancel() }
         await app.set(running: true); await events.send(SpotifyLifecycleEvent.applicationChanged)
         await scripts.waitForReads(3); await provider.refresh()
+        await fulfillment(of: [restored], timeout: 2)
         let resumed = await snapshot(provider); XCTAssertTrue(resumed.hasMedia)
         await provider.shutdown()
     }
