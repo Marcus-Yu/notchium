@@ -130,6 +130,30 @@ private actor HeldSeekProvider: MediaProviding {
         }
         XCTAssertEqual(estimatedPlaybackPosition(at: now, state: sample(rate: .nan)), 30)
     }
+
+    func testUnavailableDurationKeepsMetadataAndTransportWithoutSeekUntilValid() {
+        let model = MediaFeatureModel(provider: MockMediaProvider(), coordinator:
+            ActivityCoordinator(clock: TestAppClock(now: now, automaticallyAdvances: false)))
+        defer { model.stop() }
+        // Model safety is independent of whether Spotify accepts a durationless snapshot.
+        let durations: [Double?] = [nil, 0, -1, .nan, .infinity]
+        for duration in durations {
+            var state = sample()
+            state.duration = duration
+            state.capabilities.canPlayPause = true
+            model.receive(state)
+            XCTAssertEqual(model.state.title, "Track")
+            XCTAssertTrue(model.state.isPlaying)
+            XCTAssertTrue(model.state.capabilities.canPlayPause)
+            XCTAssertFalse(model.state.canSeek)
+            XCTAssertNil(model.state.validDuration)
+            XCTAssertEqual(model.state.progress, 0)
+            XCTAssertEqual(model.displayedPosition(at: now.addingTimeInterval(10)), 0)
+        }
+        model.receive(sample())
+        XCTAssertTrue(model.state.canSeek)
+        XCTAssertEqual(model.displayedPosition(at: now.addingTimeInterval(10)), 40)
+    }
     func testSeekRejectsBufferedPreActionSampleThenAcceptsSnapshot() async {
         let provider = HeldSeekProvider()
         let model = MediaFeatureModel(provider: provider, coordinator: ActivityCoordinator(clock: TestAppClock(now: now, automaticallyAdvances: false)))
