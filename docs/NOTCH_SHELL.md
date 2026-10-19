@@ -67,6 +67,8 @@ Regression tests cover timing, pin persistence, timer cancellation, repeated poi
 
 October 14, 2026: 88 focused tests pass for Home opening during playback, navigation ownership, the 600 ms exit grace, re-entry cancellation, pinning, auxiliary interactions, and activity/timer policies. The Debug app build passes for `Notchium.xcworkspace`, scheme `Notchium`, macOS destination, with signing disabled. Live pointer feel was not manually verified.
 
+October 18, 2026: active local playback again selects Music on fresh expansion. The 600 ms exit grace is retained. All 69 focused navigation, media-default, timer, activity, Home, and presentation tests pass, along with the unsigned Debug app build for the same workspace, scheme, and macOS destination. Live pointer feel was not manually verified.
+
 These tests do not certify visual acceptance. The release gate is a real 60 fps recording on a built-in notched MacBook of passive → hover → expanded → collapse, plus click opening/closing, mid-animation reversal, fullscreen hover, and three-finger Space swipes. Inspect every frame for a separate software notch and horizontal drift. Do not mark PASS from geometry tests, mocked displays, still screenshots, or a synthetic animation recording.
 
 Black-transition regression coverage includes stale completion rejection, repeated reversals, full-size opaque endpoint content, and 60 Hz sampled raster invariants across sampled shell sizes. These are synthetic samples, not a live capture. The current computer-use interface exposes still screenshots but no video recording API; live 60 fps acceptance remains unverified.
