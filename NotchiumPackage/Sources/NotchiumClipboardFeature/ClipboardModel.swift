@@ -91,7 +91,7 @@ public final class ClipboardModel {
 
     public init(service: any ClipboardService, store: any ClipboardStoring, preferences: UserDefaults = .standard,
                 now: @escaping () -> Date = Date.init, captureEnabledByDefault: Bool = true,
-                storageClock: any AppClock = ContinuousAppClock()) {
+                storageClock: any AppClock = ContinuousAppClock(), loadStorageOnInit: Bool = true) {
         self.service = service
         self.store = store
         self.preferences = preferences
@@ -113,7 +113,7 @@ public final class ClipboardModel {
                 self.storageState = state
             }
         }
-        if store.loadsAsynchronously { loadStorage(allowAuthentication: false) }
+        if store.loadsAsynchronously && loadStorageOnInit { loadStorage(allowAuthentication: false) }
         else { enforceBounds(at: now()) }
     }
 
