@@ -62,11 +62,15 @@ public final class RealScreenshotService: ScreenshotService {
     private var validationRequested: Set<URL> = []
     private var access: FeatureAvailability = .available
     private let locate: @Sendable () -> URL
+    private let selectedFolderAccess: ScreenshotFolderAccess?
+    private var selectedFolder: URL?
+    private var ownsFolderScope = false
     private var generation = 0
 
     /// `location` overrides the configured folder (tests); production reads screencapture's setting.
-    public init(location: (@Sendable () -> URL)? = nil) {
+    public init(location: (@Sendable () -> URL)? = nil, folderAccess: ScreenshotFolderAccess? = nil) {
         locate = location ?? { RealScreenshotService.configuredLocation() }
+        selectedFolderAccess = location == nil ? (folderAccess ?? ScreenshotFolderAccess()) : nil
     }
 
     isolated deinit { stopObservation() }
@@ -89,6 +93,13 @@ public final class RealScreenshotService: ScreenshotService {
             Task { @MainActor [weak self] in self?.removeObserver(token) }
         }
         if query == nil {
+            selectedFolder = selectedFolderAccess?.resolve()
+            if selectedFolderAccess?.hasSelection == true, selectedFolder == nil {
+                // A broken/revoked selection must not silently broaden back to Desktop/home.
+                access = .unavailable(.permissionDenied)
+                return pair.stream
+            }
+            ownsFolderScope = selectedFolder?.startAccessingSecurityScopedResource() ?? false
             startedAt = Date()
             startQuery()
             requestWatch()
@@ -127,7 +138,7 @@ public final class RealScreenshotService: ScreenshotService {
             defer { if self.watchRequestGeneration == request { self.watchTask = nil } }
             while self.watchRequested, !Task.isCancelled {
                 self.watchRequested = false
-                let location = await Self.resolveLocation(using: self.locate)
+                let location = await self.watchLocation()
                 guard !Task.isCancelled, self.query != nil else { return }
                 await self.watch(location)
             }
@@ -185,7 +196,7 @@ public final class RealScreenshotService: ScreenshotService {
             defer { if self.generation == generation { self.scanTask = nil } }
             while self.scanRequested, !Task.isCancelled {
                 self.scanRequested = false
-                let location = await Self.resolveLocation(using: self.locate)
+                let location = await self.watchLocation()
                 guard !Task.isCancelled, self.generation == generation else { return }
                 guard location.standardizedFileURL == self.folder?.standardizedFileURL else {
                     self.requestWatch()
@@ -272,6 +283,11 @@ public final class RealScreenshotService: ScreenshotService {
         try names(in: folder)
     }
 
+    private func watchLocation() async -> URL {
+        if let selectedFolder { return selectedFolder }
+        return await Self.resolveLocation(using: locate)
+    }
+
     @concurrent private static func resolveLocation(using locate: @Sendable () -> URL) async -> URL {
         locate()
     }
@@ -319,7 +335,7 @@ public final class RealScreenshotService: ScreenshotService {
         let query = NSMetadataQuery()
         query.predicate = NSPredicate(format: "kMDItemIsScreenCapture == 1 AND kMDItemFSCreationDate >= %@",
                                       startedAt as NSDate)
-        query.searchScopes = [NSMetadataQueryUserHomeScope]
+        query.searchScopes = selectedFolder.map { [$0.path] } ?? [NSMetadataQueryUserHomeScope]
         query.notificationBatchingInterval = 0.2
         let identity = ObjectIdentifier(query)
         observers.append(NotificationCenter.default.addObserver(forName: .NSMetadataQueryDidUpdate, object: query,
@@ -395,6 +411,9 @@ public final class RealScreenshotService: ScreenshotService {
         readinessTasks.values.forEach { $0.cancel() }
         readinessTasks.removeAll()
         validationRequested.removeAll()
+        if ownsFolderScope { selectedFolder?.stopAccessingSecurityScopedResource() }
+        ownsFolderScope = false
+        selectedFolder = nil
     }
 }
 
