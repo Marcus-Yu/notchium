@@ -136,6 +136,16 @@ Hard-coding any of the following in Stage 2 is prohibited because it would obstr
 
 ## Service boundaries
 
+Stage 27B adds a permission-only boundary, `OnboardingPermissionProviding`, implemented by
+`NativeOnboardingPermissions` in Services. It does not start feature providers or read their
+protected data. The composition root creates `OnboardingModel` and its atomic
+`OnboardingStore` before constructing features, then gates `start()` until setup is complete
+or a returning installation is recognized. The standard AppKit setup window hosts SwiftUI;
+the notch geometry is unchanged. The same model supplies Settings → Permissions with fresh
+OS status. The persistent record contains steps, explicit choices, and completion provenance,
+never cached OS grants. Clipboard hydration is deferred for an incomplete new setup.
+See [Stage 27B](STAGE27B_ONBOARDING_PERSISTENCE.md).
+
 Every requested service has a `Sendable` protocol, a real adapter type, a mock type, typed snapshots, and typed commands where applicable.
 
 | Area | Protocol | Real adapter | Mock adapter |
