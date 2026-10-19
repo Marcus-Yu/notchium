@@ -8,7 +8,8 @@ final class NotchiumAppDelegate: NSObject, NSApplicationDelegate {
     private var isSettingsWindowOpen = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApplication.shared.setActivationPolicy(isSettingsWindowOpen ? .regular : .accessory)
+        let needsSetup = controller.needsOnboardingPresentation
+        NSApplication.shared.setActivationPolicy(isSettingsWindowOpen || needsSetup ? .regular : .accessory)
 #if DEBUG
         print("Notchium launched; bundle=\(Bundle.main.bundleIdentifier ?? "unknown"); macOS=\(ProcessInfo.processInfo.operatingSystemVersionString); activationPolicy=\(NSApp.activationPolicy().rawValue); LSUIElement=\(String(describing: Bundle.main.object(forInfoDictionaryKey: "LSUIElement")))")
         // Diagnostic evidence only. Never overwrite macOS-owned visibility preferences.
@@ -22,7 +23,7 @@ final class NotchiumAppDelegate: NSObject, NSApplicationDelegate {
     func settingsWindowOpenChanged(_ isOpen: Bool) {
         isSettingsWindowOpen = isOpen
         let application = NSApplication.shared
-        let policy: NSApplication.ActivationPolicy = isOpen ? .regular : .accessory
+        let policy: NSApplication.ActivationPolicy = isOpen || controller.needsOnboardingPresentation ? .regular : .accessory
         guard application.activationPolicy() != policy,
               application.setActivationPolicy(policy) else { return }
         if isOpen { application.activate() }
@@ -64,6 +65,12 @@ struct NotchiumApp: App {
         .menuBarExtraStyle(.menu)
 
         Settings {
+            if appDelegate.controller.needsOnboardingPresentation {
+                VStack(spacing: 16) {
+                    Text("Complete Notchium setup to continue.")
+                    Button("Resume Setup…") { appDelegate.controller.showOnboarding() }
+                }.padding(40)
+            } else {
             NotchiumSettingsView(environment: appDelegate.controller.environment,
                                  audioMeter: appDelegate.controller.mediaModel.audioMeter,
                                  waveformAppearance: appDelegate.controller.mediaModel.waveformAppearance,
@@ -75,7 +82,8 @@ struct NotchiumApp: App {
                                  focusModeModel: appDelegate.controller.focusModeModel,
                                  pomodoroModel: appDelegate.controller.pomodoroModel,
                                  systemFeedback: appDelegate.controller.systemFeedback,
-                                 displayCoordinator: appDelegate.controller.displayCoordinator)
+                                 displayCoordinator: appDelegate.controller.displayCoordinator,
+                                 onboarding: appDelegate.controller.onboarding)
 #if DEBUG
                 .preferredColorScheme(debugSettingsColorScheme)
 #endif
@@ -83,6 +91,7 @@ struct NotchiumApp: App {
                     SettingsWindowLifecycle(onOpenChanged: appDelegate.settingsWindowOpenChanged)
                         .frame(width: 0, height: 0)
                 }
+            }
         }
 
 #if DEBUG
