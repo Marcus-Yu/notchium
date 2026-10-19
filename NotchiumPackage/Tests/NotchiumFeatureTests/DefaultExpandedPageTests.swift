@@ -7,7 +7,7 @@ import NotchiumServices
 @testable import NotchiumMediaFeature
 
 @MainActor final class DefaultExpandedPageTests: XCTestCase {
-    func testPlaybackAndCachedPausedTrackOpenHomeOnEveryFreshExpansion() {
+    func testLocalPlaybackOpensMusicAndPausedTracksOpenHomeOnFreshExpansion() {
         for state in [NotchStableState.hovered, .expanded] {
             let model = presentation()
             let media = MediaSessionController(provider: MockMediaProvider(), coordinator: model.activityCoordinator,
@@ -18,8 +18,8 @@ import NotchiumServices
                                     title: "Track", trackID: "track", activeDeviceID: "mac",
                                     activeDeviceName: "This Mac", activeDeviceType: "Computer", source: .spotify))
                 model.setExpanded(true, target: state)
-                XCTAssertEqual(model.pageModel.selectedPage, .home)
-                model.pageModel.selectedPage = .music
+                XCTAssertEqual(model.pageModel.selectedPage, playing ? .music : .home)
+                model.pageModel.selectedPage = .calendar
                 model.present(.collapsed, animated: false) // Complete collapse before a fresh expansion.
             }
             media.receive(.init(connectionState: .authenticated, source: .spotify))
@@ -46,7 +46,7 @@ import NotchiumServices
         }
     }
 
-    func testCalendarAndAudioKeepHomeAsTheFreshDefaultDuringPlayback() {
+    func testCalendarAndAudioDoNotBecomeFreshDefaultsOrHidePlayingMusic() {
         for kind in [NotchActivityKind.calendar, .audioDevice] {
             for playing in [false, true] {
                 let model = presentation()
@@ -56,7 +56,7 @@ import NotchiumServices
                 model.activityCoordinator.present(activity(kind))
                 XCTAssertEqual(model.activityCoordinator.activeTransient?.kind, kind)
                 model.setExpanded(true)
-                XCTAssertEqual(model.pageModel.selectedPage, .home)
+                XCTAssertEqual(model.pageModel.selectedPage, playing ? .music : .home)
                 model.reset()
             }
         }
