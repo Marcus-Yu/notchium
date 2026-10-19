@@ -30,7 +30,7 @@ final class FocusedBugFixTests: XCTestCase {
 
     func testAirDropCancelAndCompletionReturnToSameHoveredPage() async throws {
         for completed in [false, true] {
-            let clock = ControlledAppClock()
+            let clock = TestAppClock(now: .now, automaticallyAdvances: false)
             let model = DynamicIslandPresentationModel(phase: .hovered, clock: clock)
             defer { model.reset() }
             model.pageModel.selectedPage = .shelf
@@ -48,14 +48,25 @@ final class FocusedBugFixTests: XCTestCase {
             XCTAssertFalse(model.isAuxiliaryInteractionPresented)
             XCTAssertEqual(model.visualState, .hovered)
             XCTAssertEqual(model.pageModel.selectedPage, .shelf)
-            let sleepers = await clock.pendingCount()
+            let sleepers = await clock.pendingSleepCount()
             XCTAssertEqual(sleepers, 0, "Lease dismissal is not a new hover exit")
             // A fresh pointer boundary resumes the ordinary hover lifecycle.
             model.setHovered(true)
             model.setHovered(false)
-            await waitForPendingSleep(clock)
-            await clock.releaseAll()
-            await waitUntil { model.visualState == .collapsed }
+            // Wait for the actual hover-exit sleep, not a cancelled hover-entry sleeper.
+            // Releasing every currently registered sleeper can miss the new exit task.
+            let registrationDeadline = ContinuousClock.now.advanced(by: .seconds(2))
+            while !(await clock.sleepHistory()).contains(.milliseconds(600)),
+                  ContinuousClock.now < registrationDeadline {
+                try await Task.sleep(for: .milliseconds(1))
+            }
+            let sleeps = await clock.sleepHistory()
+            XCTAssertTrue(sleeps.contains(.milliseconds(600)))
+            await clock.advance(by: .milliseconds(600))
+            let completionDeadline = ContinuousClock.now.advanced(by: .seconds(2))
+            while model.visualState != .collapsed, ContinuousClock.now < completionDeadline {
+                try await Task.sleep(for: .milliseconds(1))
+            }
             XCTAssertEqual(model.visualState, .collapsed)
         }
     }
