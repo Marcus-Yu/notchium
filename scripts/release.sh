@@ -5,18 +5,20 @@ umask 022
 export PYTHONDONTWRITEBYTECODE=1
 
 die() { printf 'Release stopped: %s\n' "$*" >&2; exit 1; }
-usage() { printf 'Usage: %s VERSION [--preview] [--zip]\n' "$0"; }
+usage() { printf 'Usage: %s VERSION [--preview | --candidate] [--zip]\n' "$0"; }
 [[ $# -ge 1 ]] || { usage; exit 2; }
 version="$1"; shift
 [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || die "Use a semantic version such as 1.0.0."
-preview=0; format=dmg
+preview=0; candidate=0; format=dmg
 for option in "$@"; do
     case "$option" in
         --preview) preview=1 ;;
+        --candidate) candidate=1 ;;
         --zip) format=zip ;;
         *) usage; die "Unknown option." ;;
     esac
 done
+[[ "$preview" == 0 || "$candidate" == 0 ]] || die "Choose either --preview or --candidate."
 [[ "$(uname -s)" == Darwin ]] || die "Run on macOS with Xcode installed."
 root="$(cd "$(dirname "$0")/.." && pwd -P)"
 cd "$root"
@@ -27,7 +29,11 @@ revision="$(git rev-parse HEAD)"
 suffix=""
 if [[ "$preview" == 0 ]]; then
     [[ -z "$(git status --porcelain --untracked-files=all)" ]] || die "Commit reviewed source and release support files first; use --preview only for local validation."
-    [[ "$(git rev-parse "refs/tags/v$version^{commit}" 2>/dev/null)" == "$revision" ]] || die "Tag v$version must already point to HEAD. No tag is created automatically."
+    if [[ "$candidate" == 0 ]]; then
+        [[ "$(git rev-parse "refs/tags/v$version^{commit}" 2>/dev/null)" == "$revision" ]] || die "Tag v$version must already point to HEAD. No tag is created automatically."
+    else
+        suffix=-candidate
+    fi
 else
     suffix=-preview
 fi
@@ -131,7 +137,9 @@ find "$app" -type f -exec chmod go-w {} +
     > "$output/logs/signing.txt" 2>&1
 python3 "$source/scripts/verify-release.py" --app "$app" --version "$version" --build "$build" \
     > "$output/logs/app-audit.txt"
-filename="Notchium-$version$suffix.$format"
+artifact_suffix=""
+if [[ "$preview" == 1 ]]; then artifact_suffix=-preview; fi
+filename="Notchium-$version$artifact_suffix.$format"
 artifact="$work/$filename"
 if [[ "$format" == dmg ]]; then
     ln -s /Applications "$stage/Applications"
@@ -159,15 +167,18 @@ if [[ "$mounted" == 1 ]]; then /usr/bin/hdiutil detach "$mount" >/dev/null; moun
 if [[ -d "$work/release/Build/Products/Release/Notchium.app.dSYM" ]]; then
     /usr/bin/ditto "$work/release/Build/Products/Release/Notchium.app.dSYM" "$output/symbols/Notchium.app.dSYM"
 fi
-python3 - "$source" "$output" "$filename" "$revision" "$preview" "$version" "$build" "$package_tests" <<'PY'
+python3 - "$source" "$output" "$filename" "$revision" "$preview" "$candidate" "$version" "$build" "$package_tests" <<'PY'
 import hashlib, json, pathlib, subprocess, sys
 source, output = map(pathlib.Path, sys.argv[1:3])
-filename, revision, preview, version, build, package_tests = sys.argv[3:]
+filename, revision, preview, candidate, version, build, package_tests = sys.argv[3:]
 artifact = output / filename
 digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
 manifest = {
-    'version': version, 'build': build, 'base_commit': revision, 'tag': None if preview == '1' else 'v' + version,
-    'preview': preview == '1', 'artifact': filename, 'size_bytes': artifact.stat().st_size, 'sha256': digest,
+    'version': version, 'build': build, 'base_commit': revision,
+    'tag': None if preview == '1' or candidate == '1' else 'v' + version,
+    'preview': preview == '1', 'candidate': candidate == '1',
+    'artifact': filename, 'size_bytes': artifact.stat().st_size, 'sha256': digest,
+    'executable_sha256': hashlib.sha256((output / 'Notchium.app/Contents/MacOS/Notchium').read_bytes()).hexdigest(),
     'package_tests': package_tests,
     'minimum_macos': '26.0', 'architectures': ['arm64'], 'signing': 'ad-hoc, no trusted identity',
     'xcode': subprocess.check_output(['xcodebuild', '-version'], text=True).strip(),
@@ -182,6 +193,8 @@ for key, value in {'ARTIFACT': filename, 'SHA256': digest, 'SIZE_BYTES': str(art
     notes = notes.replace('{{' + key + '}}', value)
 if preview == '1':
     notes = 'LOCAL PREVIEW — DO NOT PUBLISH. Built from uncommitted source.\n\n' + notes
+elif candidate == '1':
+    notes = 'LOCAL RELEASE CANDIDATE — NOT APPROVED FOR PUBLICATION. Built from committed source; acceptance and tag approval are pending.\n\n' + notes
 (output / 'release-notes.md').write_text(notes)
 print(json.dumps({k: manifest[k] for k in ('artifact', 'size_bytes', 'sha256', 'preview')}, indent=2))
 PY

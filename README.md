@@ -44,10 +44,12 @@ If macOS blocks the first launch:
 3. Scroll to **Security**, find the Notchium message, and click **Open Anyway**.
 4. Confirm **Open**, authenticating if macOS asks.
 
-macOS saves an exception for that app, so future launches normally work.
+When macOS accepts the exception, future launches normally work.
 The button is available for a limited time after the launch attempt. Managed
 Macs may restrict exceptions. This follows
 [Apple's documented approval flow](https://support.apple.com/102445).
+The exact downloaded-build flow on a fresh macOS account is still awaiting
+release acceptance; these are Apple's documented steps, not a completed local test.
 If macOS reports damage or malware, stop and report the exact message rather
 than changing your Mac's security policy.
 
@@ -106,8 +108,10 @@ approval is requested in the free build. See [the permission contract](docs/PERM
   requires an Apple-trusted signing identity and is omitted from the download.
   Ordinary Caffeine still prevents idle sleep with the lid open.
 - **Keychain upgrades:** Ad-hoc releases may require Keychain approval again after
-  an update. Clipboard history from a provisioned development build uses a different
-  Keychain backend and is not migrated automatically; unreadable history is preserved.
+  an update. Older development histories may use a different Keychain backend.
+  Recovery authenticates the existing history before copying the same original key
+  into an absent login-Keychain slot; it never overwrites an existing key.
+  Inaccessible history remains preserved. Exact packaged upgrade acceptance is pending.
 - The current v1 artifact supports Apple Silicon only. First-run permission and
   Gatekeeper acceptance on a fresh user/Mac must be completed before publication.
 
@@ -122,6 +126,31 @@ calendar contents, credentials, or private screenshots.
 The [release guide](docs/RELEASING.md) describes the local command, clean Git tag,
 artifact checks, and manual first-run acceptance. Updates are downloaded manually
 from GitHub Releases.
+
+## Updating and removing Notchium
+
+Quit Notchium using its menu before updating. Download the new DMG, drag the app
+into Applications, confirm **Replace** in Finder, eject the image, and reopen
+Notchium from Applications. Keep the existing app data and Keychain item so the
+new version can restore your preferences and encrypted history. macOS may require
+permission or Keychain authorization again after an ad-hoc update. Use Settings →
+Permissions to review access; Clipboard settings provide storage recovery when needed.
+Completed setup does not restart merely because a permission was revoked.
+
+To uninstall, quit Notchium and move **Applications → Notchium** to Trash.
+Removing the app keeps its preferences, saved bookmarks, setup record, Pomodoro
+history, and encrypted Clipboard history for a later reinstall. Original Shelf
+files and screenshot files remain at their original locations.
+
+For deliberate removal of saved data, keep Notchium quit, use Finder → Go → Go to
+Folder to remove `~/Library/Application Support/Notchium`, then run
+`defaults delete com.marcusyu.notchium` in Terminal to remove its preferences.
+This removes setup progress, Clipboard history/pins/images, Pomodoro history,
+and saved settings/bookmarks. In Keychain Access, the Clipboard item has service
+`Notchium.Clipboard` and account `payload-key.v1`; delete only that exact item if
+you also intend to discard the encryption key. Deleting it makes surviving
+encrypted history or backups unreadable. These instructions are optional;
+updating and ordinary uninstall do not require data removal.
 
 ## License
 

@@ -65,10 +65,8 @@ ad-hoc executable signatures may still require explicit Keychain authorization.
 
 Before a publishable build:
 
-1. Review and commit all intended production changes, including the outstanding
-   Stage 21–23 edits, new Home settings source, and Stage 24 configuration,
-   scripts, tests, README, MIT license, notices, and release documentation.
-   Decide whether the untracked CLAUDE/workspace files belong in the commit.
+1. Review and commit all intended production changes, including onboarding,
+   release scripts, tests, notices, and release documentation.
    Local `.DS_Store` and profiling output are ignored and never packaged.
 2. Set `MARKETING_VERSION` to the requested version and increment
    `CURRENT_PROJECT_VERSION` above every prior semantic release tag's build.
@@ -106,6 +104,24 @@ A normal release stops immediately on a failed test. Neither path skips tests.
 Xcode builds use `Notchium.xcworkspace`, which supplies the local package;
 building the standalone project cannot resolve its package product.
 
+For Stage 27C acceptance before authorizing a release tag:
+
+```sh
+./scripts/release.sh 1.0.0 --candidate
+```
+
+Candidate mode requires a clean, committed source baseline and archives HEAD,
+exactly like a tagged release. It keeps the build-number, full-suite, free-profile,
+Debug/optimized Release, signing, packaging, and verifier gates; any failed test
+stops the build. It creates no tag. `--candidate` and `--preview` cannot be combined.
+Outputs go to `dist/1.0.0-candidate/`, with the production filename
+`Notchium-1.0.0.dmg`. The manifest records `candidate: true`, `preview: false`, no tag,
+the exact source commit/file hashes, and the executable and DMG hashes. Release notes
+mark publication approval as pending. The filename alone is not approval to publish.
+Normal release mode still requires the matching tag. Any rebuilt DMG has a new
+artifact identity and must receive its own affected acceptance checks; do not reuse
+a candidate receipt for a later tagged rebuild without comparing the exact bytes.
+
 The default is a minimal compressed, read-only DMG with `Notchium.app` and an
 `Applications` symlink. No custom background, Finder scripting, installation
 scripts, helpers, or privileged installer is added. If disk-image creation is
@@ -121,7 +137,7 @@ bundled app is re-audited. No tooling is downloaded.
 - `Notchium.app`, copied back from the packaged artifact.
 - `release-notes.md` with measured size, SHA-256, and commit filled in.
 - `release-manifest.json` with source file hashes, toolchain, version/build,
-  architecture, and pending manual acceptance.
+  architecture, executable SHA-256, and pending manual acceptance.
 - `logs/` and `symbols/` for local review/crash diagnosis only.
 
 Upload **only the DMG/ZIP and checksum**. Logs can contain build paths and
@@ -153,11 +169,14 @@ Record candidate SHA-256, macOS version, CPU, account freshness, and outcomes:
 2. Double-click Notchium. Record the exact first-launch warning.
 3. Follow **System Settings → Privacy & Security → Security → Open Anyway**;
    confirm Open. Record whether macOS offered and accepted the exception.
-4. Verify the menu-bar/notch UI, then quit and launch again normally.
+4. Verify the mandatory fifteen-item setup appears before normal feature startup.
+   Complete available authorizations, folder selection, the explicit Clipboard
+   choice, and truthful non-pregrantable/unavailable exceptions. Verify the
+   menu-bar/notch UI, then quit and launch again repeatedly without setup returning.
 5. Exercise Calendar allow/deny, Quick Reminder, Mirror allow/deny and close,
    system audio capture allow/deny, and screenshot-folder access. Existing TCC
    approvals on the development Mac do not establish fresh-user correctness.
-6. Check Home shortcuts, Spotify Connect/media, Shelf import/export/share/AirDrop,
+6. Check Home shortcuts, local Spotify controls and paused seeking, Shelf import/export/share/AirDrop,
    opt-in Clipboard save/relaunch, Pomodoro, ordinary Caffeine, volume HUD,
    a screenshot activity, and one real download including Done/Stopped.
 7. Confirm Focus and closed-lid mode are unavailable without administrator prompts.
@@ -171,6 +190,21 @@ app as an identified-developer distribution. Record this separately from a
 successful local launch; it does not itself test the user exception flow.
 Managed Macs may disallow user overrides. See
 [Apple's supported flow](https://support.apple.com/102445).
+
+The Stage 27C report must distinguish Apple's documented procedure from observed
+Finder/quarantine behavior. A local non-quarantined launch or command-line
+assessment does not establish first-install acceptance. This host runs macOS
+27.0.1; macOS 26 runtime behavior requires separate hardware/OS evidence.
+
+Also use a disposable account with an actual trusted previous production-identity
+build. Populate synthetic preferences, encrypted Clipboard items/pins, Shelf
+bookmarks and Pomodoro state through that app; record non-secret expected values.
+Quit it, replace it from the candidate DMG in Finder, eject, and launch the installed
+app. Check data restoration, Keychain reauthorization, surviving/re-requested TCC
+grants, repeated relaunch, same-version reinstall and canceled replacement.
+Do not reset the owner's TCC/preferences, export keys, replace encrypted history,
+or weaken Keychain ACLs. Without an isolated environment these checks remain
+unverified and the candidate is not fully qualified for Stage 28.
 
 ## Publishing (manual, after acceptance)
 

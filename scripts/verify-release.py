@@ -73,7 +73,7 @@ def verify_app(app, version, build):
     }
     for key, value in expected.items():
         require(info.get(key) == value, f"Unexpected {key}")
-    for key in ("NSCameraUsageDescription", "NSCalendarsFullAccessUsageDescription",
+    for key in ("NSAppleEventsUsageDescription", "NSCameraUsageDescription", "NSCalendarsFullAccessUsageDescription",
                 "NSRemindersFullAccessUsageDescription", "NSAudioCaptureUsageDescription",
                 "NSDesktopFolderUsageDescription", "NSDownloadsFolderUsageDescription",
                 "NSDocumentsFolderUsageDescription"):
