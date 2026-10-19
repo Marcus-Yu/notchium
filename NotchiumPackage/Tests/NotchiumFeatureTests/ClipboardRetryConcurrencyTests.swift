@@ -8,6 +8,25 @@ import XCTest
 
 @MainActor
 final class ClipboardRetryConcurrencyTests: XCTestCase {
+    func testOnboardingDefersHistoryAndKeychainLoadingUntilNormalStart() async {
+        let loaded = expectation(description: "normal launch hydrates storage")
+        let store = GatedClipboardRecoveryStore(loadsAsynchronously: true, started: { loaded.fulfill() })
+        let preferences = preferences()
+        let model = ClipboardModel(service: MockClipboardService(), store: store, preferences: preferences,
+                                   captureEnabledByDefault: false, loadStorageOnInit: false)
+        defer { model.stop(); preferences.removePersistentDomain(forName: preferencesSuite) }
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(store.attempts, 0)
+        XCTAssertFalse(model.isLoadingStorage)
+        XCTAssertFalse(model.captureEnabled)
+        model.start()
+        await fulfillment(of: [loaded], timeout: 2)
+        XCTAssertEqual(store.attempts, 1)
+        store.complete(with: [])
+        await awaitStorage(model)
+        XCTAssertFalse(model.captureEnabled)
+    }
+
     func testStopThenStartDuringInitialLoadCannotOverwriteCommittedHistory() async {
         let firstRead = expectation(description: "initial read started")
         let secondRead = expectation(description: "restart read started")
