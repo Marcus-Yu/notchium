@@ -49,7 +49,7 @@ final class AudioMixerTests: XCTestCase {
         model.setAppVolume(0.42, process: process)
         model.commitAppVolume(process)
         model.toggleAppMute(process)
-        for _ in 0..<6 { await Task.yield() }
+        try await waitForMixerStatus(.running, of: model)
 
         XCTAssertEqual(model.appVolume(process), 0.42, accuracy: 0.001)
         XCTAssertTrue(model.isAppMuted(process))
@@ -98,12 +98,12 @@ final class AudioMixerTests: XCTestCase {
         model.receiveProcesses([process])
         model.setAppVolume(0.2, process: process)
         model.commitAppVolume(process)
-        for _ in 0..<4 { await Task.yield() }
+        try await waitForMixerStatus(.running, of: model)
         let adjustedTargets = await mixer.targets
         XCTAssertFalse(adjustedTargets.isEmpty)
 
         model.resetAppVolume(process)
-        for _ in 0..<4 { await Task.yield() }
+        try await waitForMixerStatus(.inactive, of: model)
         let restoredTargets = await mixer.targets
         XCTAssertTrue(restoredTargets.isEmpty)
         XCTAssertEqual(model.appVolume(process), 1)
@@ -250,6 +250,14 @@ final class AudioMixerTests: XCTestCase {
             AudioAppOptionsButton.itemTitles(isPinned: true),
             ["Reset Volume to 100%", "Unpin from Mixer"]
         )
+    }
+
+    private func waitForMixerStatus(_ expected: AppAudioMixerStatus, of model: AudioFeatureModel) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while model.mixerStatus != expected, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        XCTAssertEqual(model.mixerStatus, expected, "Wait for service completion, not a scheduler-yield budget")
     }
 }
 
