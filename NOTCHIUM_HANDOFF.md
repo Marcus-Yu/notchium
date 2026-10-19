@@ -144,7 +144,7 @@ Generic activity kinds include media, systemHUD, charging, audioDevice, download
 
 Generic same-family replacement rejects lower priority; higher priority preempts and can retain a previous generic family entry. Generic transient timers can pause on hover and expire pending entries. **Do not confuse those generic timers with unified notification lifetimes:** notifications have no second activity duration and use their own absolute non-pausing timer.
 
-A stable media activity can survive paused/cached state, while collapsed media visibility is separately gated by live local audio. Playback keeps Home as the fresh expansion default. Explicitly Music-targeting transients and Focus Timer eligibility retain their opening policies.
+A stable media activity can survive paused/cached state, while collapsed media visibility is separately gated by live local audio. Active local playback and explicitly Music-targeting transients select Music on fresh expansion, followed by eligible Focus Timer state, then Home. Paused and remote playback do not select Music automatically.
 
 Music + Calendar reminder: Calendar becomes foreground, Music remains underlying and its eligible collapsed flanks remain visible; expiry exposes the same Music without provider restart. Home + Audio HUD: page selection remains Home; the compact notification is hidden while expanded and expires normally. Closing shows only remaining unexpired feedback, then the underlying state.
 
