@@ -15,7 +15,6 @@ public final class CalendarActivityModel: NotchCalendarRendering {
     @ObservationIgnored private let openMeeting: @MainActor (URL) -> Void
     public let reminders: CalendarReminderCoordinator
     @ObservationIgnored private var observation: Task<Void, Never>?
-    @ObservationIgnored private var permissionTask: Task<Void, Never>?
     @ObservationIgnored private var serviceStopTask: Task<Void, Never>?
 
     public init(service: any CalendarService, coordinator: ActivityCoordinator,
@@ -60,17 +59,10 @@ public final class CalendarActivityModel: NotchCalendarRendering {
                 await self.reminders.update(events: snapshot.upcomingEvents)
             }
         }
-        // The first launch asks once. EventKit will not prompt again after a decision.
-        permissionTask = Task { [service] in
-            await previousStop?.value
-            guard !Task.isCancelled else { return }
-            await service.requestAccess()
-        }
     }
 
     public func stop() {
         observation?.cancel(); observation = nil
-        permissionTask?.cancel(); permissionTask = nil
         reminders.stop()
         let previousStop = serviceStopTask
         serviceStopTask = Task { [service] in
@@ -81,7 +73,6 @@ public final class CalendarActivityModel: NotchCalendarRendering {
 
     isolated deinit {
         observation?.cancel()
-        permissionTask?.cancel()
         reminders.stop()
     }
 
