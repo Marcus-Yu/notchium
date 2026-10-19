@@ -17,6 +17,7 @@ import NotchiumShelfFeature
 import Foundation
 import NotchiumPersistence
 import NotchiumServices
+import AppKit
 
 @MainActor
 @Observable
@@ -34,6 +35,8 @@ public final class NotchiumApplicationController {
     public let cameraModel: CameraModel
     public let focusModeModel: FocusModeModel
     public let pomodoroModel: PomodoroModel
+    public let onboarding: OnboardingModel?
+    @ObservationIgnored private var onboardingWindow: OnboardingWindowController?
 #if DEBUG
     public let mockMediaProvider = MockMediaProvider()
 #endif
@@ -41,6 +44,10 @@ public final class NotchiumApplicationController {
     @ObservationIgnored private var mediaShutdownTask: Task<Void, Never>?
     @ObservationIgnored private var batteryTask: Task<Void, Never>?
     public private(set) var isRunning = false
+    /// Ready stays in the setup window until its Open action starts the feature lifecycle.
+    public var needsOnboardingPresentation: Bool {
+        !isRunning && (onboarding?.requiresOnboarding == true || onboardingWindow != nil)
+    }
 
 #if DEBUG
     public let developerPanelModel: DeveloperPanelModel
@@ -54,8 +61,10 @@ public final class NotchiumApplicationController {
                 actionStore: QuickActionStore? = nil,
                 clipboardStore: (any ClipboardStoring)? = nil,
                 pomodoroStore: (any PomodoroPersisting)? = nil,
+                onboarding: OnboardingModel? = nil,
                 audioMeter: SystemAudioMeter = SystemAudioMeter(captureEnabled: false)) {
         self.environment = environment
+        self.onboarding = onboarding
 #if DEBUG
         let shellDebugModel = NotchShellDebugModel()
         self.shellDebugModel = shellDebugModel
@@ -109,7 +118,8 @@ public final class NotchiumApplicationController {
         clipboardModel = ClipboardModel(service: environment.services.clipboard,
                                          store: clipboardStore ?? InMemoryClipboardStore(),
                                          captureEnabledByDefault: environment.services.clipboard is MockClipboardService,
-                                         storageClock: environment.clock)
+                                         storageClock: environment.clock,
+                                         loadStorageOnInit: onboarding?.requiresOnboarding != true)
         cameraModel = CameraModel(service: environment.services.camera)
         focusModeModel = FocusModeModel(service: environment.services.focus,
                                         activities: presentation.activityCoordinator, shortcuts: shortcutService)
@@ -149,16 +159,21 @@ public final class NotchiumApplicationController {
 
     public static func production() -> NotchiumApplicationController {
 #if DEBUG
+        if let fixture = onboardingFixture() { return fixture }
         if CommandLine.arguments.contains("--notchium-stage11-fixture") { return stage11Fixture() }
 #endif
+        let onboarding = OnboardingModel(store: OnboardingStore(), permissions: NativeOnboardingPermissions(
+            camera: RealCameraService(), profile: .current))
         return NotchiumApplicationController(environment: .production(), reminderService: EventKitReminderService(),
                                       shortcutService: AppleShortcutService(),
                                       clipboardStore: FileClipboardStore(), pomodoroStore: FilePomodoroStore(),
+                                      onboarding: onboarding,
                                       audioMeter: SystemAudioMeter())
     }
 
     public func start() {
         guard !isRunning else { return }
+        if onboarding?.requiresOnboarding == true { showOnboarding(); return }
         isRunning = true
         displayCoordinator.start()
         if environment.featureFlags[.calendar] { calendarModel.start() }
@@ -188,6 +203,7 @@ public final class NotchiumApplicationController {
     }
 
     public func stop() {
+        onboarding?.stop()
         guard isRunning else { return }
         mediaConnectionTask?.cancel()
         mediaConnectionTask = nil
@@ -217,5 +233,25 @@ public final class NotchiumApplicationController {
 
         let logger = environment.logger
         Task { await logger.record(.applicationStopped, level: .notice) }
+    }
+
+    public func showOnboarding() {
+        guard let onboarding else { return }
+        if onboardingWindow == nil {
+            onboardingWindow = OnboardingWindowController(model: onboarding) { [weak self] in
+                self?.enterAfterOnboarding()
+            }
+        }
+        onboardingWindow?.show()
+    }
+
+    private func enterAfterOnboarding() {
+        guard let onboarding, !onboarding.requiresOnboarding else { return }
+        // Apply only the explicit first-run choice, preserving subsequent Settings changes.
+        if let choice = onboarding.state.clipboardChoice { clipboardModel.captureEnabled = choice }
+        onboardingWindow?.dismiss()
+        onboardingWindow = nil
+        NSApplication.shared.setActivationPolicy(.accessory)
+        start()
     }
 }
