@@ -6,19 +6,21 @@
 
 **Canonical distribution:** Stage 24 zero-cost GitHub Release; local ad-hoc signature, no Apple-trusted identity. See [RELEASING.md](RELEASING.md).
 
-**Last reviewed:** 2026-08-28
+**Last reviewed:** 2026-10-19 (Stage 27B)
 
-**Current-source qualification (October 16, 2026):** Historical V1 planning below is not a receipt for current first-launch behavior. Calendar currently requests EventKit access from its enabled startup lifecycle; screenshot observation starts with Files and can access the configured screenshot folder. Local Spotify requires Apple Events consent, and Quick Reminder uses Reminders consent. Clipboard capture defaults off. The current free direct build has no entitlements; the reduced Store profile uses user-selected **read-only** file access. Shelf stores references, opens each resolved security scope before validation/use, and balances every successful acquisition on rejection, replacement or teardown. Shelf bookmarks request read-only scope, consistent with Quick Actions. These facts supersede conflicting historical no-launch-prompt, no-Automation/Reminders, managed-copy, or read-write Shelf claims below. Fresh consent/revocation acceptance remains unverified in Stage 27A; onboarding validation has not begun. See [Stage 27A](STAGE27A_AUDIT.md) and [local Spotify validation](SPOTIFY_LOCAL_VALIDATION.md).
+**Current-source contract (Stage 27B):** A genuinely new profile must complete the dedicated first-launch permission wizard before the shell and feature observation start. Calendar no longer requests authorization from its startup model. All implemented requirements are introduced together; available Calendar, Reminders, Spotify Automation, Camera, Accessibility/event-post access, and entitled Focus requests are handled in setup. Screenshot-folder access uses a native folder chooser. Clipboard monitoring requires an explicit Enable or Keep Off choice and stays stopped during setup. Core Audio process-tap authorization, future file selections, shortcut-specific permissions, and per-item Keychain access cannot be granted universally in advance; the user must explicitly review those exceptions. Denied available permissions block completion. OS-managed restrictions and genuinely missing hardware/application are separately explained and explicitly acknowledged. No acknowledgment is an OS grant.
+
+`OnboardingModel` owns the setup state; `OnboardingStore` atomically persists `Notchium/Onboarding.json` in Application Support. Existing configuration is recognized separately as `legacyRecognized`, preserving all preferences and data and providing Settings → Permissions instead of forcing a welcome loop. Completed setup is never invalidated by build changes or permission revocation. `NativeOnboardingPermissions` refreshes real statuses; it never queries personal events, creates reminders, starts camera/audio capture, reads the pasteboard, or opens Keychain items. The older ledger includes future/removed features and is historical where it conflicts with this contract. See [Stage 27B onboarding and persistence](STAGE27B_ONBOARDING_PERSISTENCE.md) for the actual inventory and validation limits.
 
 ## 1. Permission principles
 
-- Initial launch triggers no system permission, account authorization, protected-folder, pasteboard, or extension prompt.
-- A prompt occurs only after the user enables a feature and first invokes the protected operation.
+- First launch presents setup before normal use. Supported upfront permission requests follow explicit, sequential user actions in the wizard.
+- Native requests are never simultaneous. Already-granted and denied choices are rechecked without repeatedly requesting the same one-shot prompt.
 - Education appears immediately before the system/provider prompt and accurately states the data, purpose, retention, visible indicator, and fallback.
 - System wording and state remain authoritative. The app never draws a fake system prompt or claims that denial can be overridden.
-- Clipboard History, application tracking, recent screenshots, and download observation are introduced together during onboarding, but each is independently deselectable and remains off unless selected.
+- Clipboard History has a separate affirmative opt-in. Completing setup does not infer monitoring consent. OS pasteboard privacy remains independent.
 - Denial, restriction, revocation, unavailable hardware/account, and cancellation are normal states. The rest of the app remains functional.
-- The app requests the narrowest access. It never requests Full Disk Access, Automation/Apple Events, Bluetooth, microphone, Contacts, Reminders, or Network Extension permission for the V1 contract.
+- Only requirements of implemented features are requested. There is no Full Disk Access, microphone, Contacts, Bluetooth, Input Monitoring, or Network Extension request in setup. Accessibility is used only for the implemented optional volume-key replacement.
 - Direct and Mac App Store profiles share the same in-app privacy promises. App Sandbox adds entitlements; it does not relax consent or retention.
 - Revocation stops protected work immediately, releases resources, clears sensitive in-memory buffers, and changes the feature state before offering a retry.
 
@@ -98,20 +100,9 @@ Every permission-dependent feature follows this sequence:
 
 ## 6. Onboarding contract
 
-The initial explanation may show the value and privacy posture of all features, but it must not invoke protected APIs merely to determine whether a prompt would appear.
+Stage 27B supersedes the former point-of-use policy for technically requestable authorizations. The five screens are Welcome, Permissions Overview, sequential Permissions, Final Review, and Ready. Every supported request has its own explicit action and visible result. There is no Skip All. Review separates verified grants, completed app/file choices, explicit exceptions, and unresolved requirements. Quit & Resume Later preserves the current step without enabling normal use or marking setup complete.
 
-The optional-observation screen contains four independent controls:
-
-- Clipboard History
-- Application Tracking
-- Recent Screenshots
-- Recent Downloads
-
-Each defaults to off unless the user affirmatively selects it. Selecting an option records intent; the relevant system prompt or folder/extension chooser waits until the user first enters or starts that feature. “Enable all” may select all four but may not collapse their disclosures or requests into one consent.
-
-Stage 5 Calendar requests full access at first app launch so upcoming events can appear without a separate setup step. System Audio Recording, Camera, direct Screen Capture, Notifications, Keyboard Lock trust, Apple Music, Spotify, Safari extension access, and each Chromium browser adapter are introduced and requested separately at point of use.
-
-Enabling Ambient Edge itself never triggers a system prompt. Selecting Beat Reactive may lead to the existing System Audio Recording education only when the user deliberately starts that mode and no authorized shared meter is active. A mode preview uses synthetic fixture data until authorization succeeds. Ambient Edge never prompts for Screen Recording or Accessibility to improve suppression.
+macOS remains the authorization authority. Setup cannot pregrant Core Audio process-tap recording (the prompt belongs to first capture), arbitrary future file selections, per-shortcut actions, or a specific Keychain item's future authorization. Those exceptions are reviewed without doing protected work to force a dialog. The release build has no Focus entitlement or closed-lid helper. Notifications are in-app; no UserNotifications prompt is invented. Existing-user migration does not claim any OS authorization. Settings → Permissions repairs current access without reopening welcome.
 
 ## 7. Privacy-safe purpose-string requirements
 
