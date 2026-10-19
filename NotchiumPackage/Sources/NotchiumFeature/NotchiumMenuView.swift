@@ -15,6 +15,9 @@ public struct NotchiumMenuView: View {
 
     public var body: some View {
         Group {
+            if controller.needsOnboardingPresentation {
+                Button("Resume Notchium Setup…") { controller.showOnboarding() }
+            } else {
             Button("Open Notchium") { controller.displayCoordinator.openForKeyboard() }
 
             Button {
@@ -31,6 +34,7 @@ public struct NotchiumMenuView: View {
                 Label("Developer Panel", systemImage: "hammer")
             }
 #endif
+            }
 
             Divider()
 
