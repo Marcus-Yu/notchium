@@ -143,7 +143,7 @@ final class Stage15StabilizationTests: XCTestCase {
         XCTAssertEqual(artwork.minX, layout.hardwareNotchGeometry?.frame.maxX, "Artwork sits right of hardware")
     }
 
-    // MARK: Fresh expansion stays on Home; local/remote truth still follows playback
+    // MARK: Fresh expansion follows active local playback; remote playback keeps Home
 
     private func media(_ presentation: DynamicIslandPresentationModel) -> MediaSessionController {
         MediaSessionController(provider: MockMediaProvider(), coordinator: presentation.activityCoordinator,
@@ -154,7 +154,7 @@ final class Stage15StabilizationTests: XCTestCase {
                    activeDeviceID: device, activeDeviceName: device, activeDeviceType: type, source: .spotify)
     }
 
-    func testRemoteAndLocalPlaybackKeepHomeAsTheFreshDefault() {
+    func testRemotePlaybackKeepsHomeAndLocalPlaybackOpensMusicAsTheFreshDefault() {
         let presentation = DynamicIslandPresentationModel(clock: clock())
         let controller = media(presentation)
         defer { controller.stop(); presentation.reset() }
@@ -167,8 +167,8 @@ final class Stage15StabilizationTests: XCTestCase {
         controller.receive(playing(on: "Marcus’s MacBook Air", type: "Computer"))
         XCTAssertTrue(controller.isPlaybackLocal)
         presentation.setExpanded(true)
-        XCTAssertEqual(presentation.pageModel.selectedPage, .home,
-                       "Local playback no longer overrides the current Home-on-open contract")
+        XCTAssertEqual(presentation.pageModel.selectedPage, .music,
+                       "Active local playback selects Music on a fresh expansion")
     }
 
     func testManualMusicChoiceAndHandoffsNeverMoveAnOpenPage() {
