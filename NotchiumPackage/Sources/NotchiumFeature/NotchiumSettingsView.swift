@@ -23,6 +23,7 @@ public struct NotchiumSettingsView: View {
     private let pomodoroModel: PomodoroModel?
     private let systemFeedback: SystemFeedbackCoordinator?
     private let displayCoordinator: NotchiumDisplayCoordinator?
+    private let onboarding: OnboardingModel?
 
     public init(environment: AppEnvironment, audioMeter: SystemAudioMeter? = nil,
                 waveformAppearance: WaveformAppearanceModel? = nil,
@@ -34,7 +35,9 @@ public struct NotchiumSettingsView: View {
                 focusModeModel: FocusModeModel? = nil,
                 pomodoroModel: PomodoroModel? = nil,
                 systemFeedback: SystemFeedbackCoordinator? = nil,
-                displayCoordinator: NotchiumDisplayCoordinator? = nil) {
+                displayCoordinator: NotchiumDisplayCoordinator? = nil,
+                onboarding: OnboardingModel? = nil) {
+        self.onboarding = onboarding
         self.displayCoordinator = displayCoordinator
         self.systemFeedback = systemFeedback
         self.clipboardModel = clipboardModel
@@ -54,6 +57,7 @@ public struct NotchiumSettingsView: View {
             List(selection: $selection) {
                 Section("Notchium") {
                     categoryLink(.general)
+                    if onboarding != nil { categoryLink(.permissions) }
                 }
                 Section("Features") {
                     ForEach(featureCategories) { category in
@@ -87,7 +91,7 @@ public struct NotchiumSettingsView: View {
     private var featureCategories: [SettingsCategory] {
         SettingsCategory.allCases.filter { category in
             switch category {
-            case .general: false
+            case .general, .permissions: false
             case .home: quickActions != nil
             case .media: environment.services.media is RealMediaProvider || waveformAppearance != nil
             case .audio: audioMeter != nil || systemFeedback != nil
@@ -108,6 +112,8 @@ public struct NotchiumSettingsView: View {
 
     @ViewBuilder private func settings(for category: SettingsCategory) -> some View {
         switch category {
+        case .permissions:
+            if let onboarding { PermissionsSettingsSection(model: onboarding) }
         case .general:
             if let displayCoordinator { NotchDisplaySettingsSection(coordinator: displayCoordinator) }
             if let menuBarInsertion {
