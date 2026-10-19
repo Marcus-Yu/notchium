@@ -54,7 +54,7 @@ final class Stage10CoordinationTests: XCTestCase {
         XCTAssertEqual(activities.primary, music)
         XCTAssertNil(activities.activeTransient)
         XCTAssertEqual(persistentChanges, 0)
-        XCTAssertEqual(activities.preferredExpandedPage, .home)
+        XCTAssertEqual(activities.preferredExpandedPage, .music)
     }
 
     func testEveryManualPageSurvivesNotificationReplacementAndExpiry() async {
