@@ -72,15 +72,19 @@ public final class RealFileTransferService: FileTransferService {
     private final class Tracked {
         let id = UUID().uuidString
         let progress: Progress
-        let startedAt = Date()
+        let startedAt: Date
         var observations: [NSKeyValueObservation] = []
         var lastSent: TransferSnapshot?
         let samples = TransferSampleBuffer()
         var flushTask: Task<Void, Never>?
-        init(progress: Progress) { self.progress = progress }
+        init(progress: Progress, startedAt: Date) {
+            self.progress = progress
+            self.startedAt = startedAt
+        }
     }
 
     private let folders: [URL]
+    private let now: @Sendable () -> Date
     private var subscriptions: [Any] = []
     private var tracked: [ObjectIdentifier: Tracked] = [:]
     private var continuations: [UUID: AsyncStream<TransferSnapshot>.Continuation] = [:]
@@ -88,7 +92,12 @@ public final class RealFileTransferService: FileTransferService {
     /// Progress KVO can fire per chunk; the notch needs a few updates a second at most.
     private let flushInterval: Duration = .milliseconds(250)
 
-    public init(folders: [URL]? = nil) {
+    public convenience init(folders: [URL]? = nil) {
+        self.init(folders: folders, now: Date.init)
+    }
+
+    init(folders: [URL]?, now: @escaping @Sendable () -> Date) {
+        self.now = now
         self.folders = folders
             ?? FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)
     }
@@ -155,16 +164,17 @@ public final class RealFileTransferService: FileTransferService {
         let key = ObjectIdentifier(progress)
         // Overlapping folder subscriptions must not give one progress proxy a new identity.
         if let entry = tracked[key] { return entry.id }
-        let entry = Tracked(progress: progress)
+        let entry = Tracked(progress: progress, startedAt: now())
         tracked[key] = entry
         let id = entry.id
         let startedAt = entry.startedAt
         let samples = entry.samples
+        let now = now
         let capture: @Sendable (Progress) -> Void = { [weak self] progress in
             // KVO's value is read NOW, before a later publisher reset/unpublish or actor hop.
             // The small synchronized mailbox also preserves terminal evidence if unpublish
             // reaches the main actor before this callback's queued delivery.
-            let snapshot = Self.snapshot(progress, id: id, phase: Self.phase(progress), startedAt: startedAt)
+            let snapshot = Self.snapshot(progress, id: id, phase: Self.phase(progress), startedAt: startedAt, updatedAt: now())
             // At most one queued actor delivery per proxy. KVO's terminal evidence is
             // still latched synchronously before unpublish, regardless of delivery order.
             guard samples.record(snapshot) else { return }
@@ -176,10 +186,10 @@ public final class RealFileTransferService: FileTransferService {
             progress.observe(\.isPaused) { progress, _ in capture(progress) },
             progress.observe(\.isCancelled) { progress, _ in capture(progress) }
         ]
-        samples.record(Self.snapshot(progress, id: id, phase: Self.phase(progress), startedAt: startedAt))
+        samples.record(Self.snapshot(progress, id: id, phase: Self.phase(progress), startedAt: startedAt, updatedAt: now()))
         samples.deliveryHandled()
         send(entry, snapshot: Self.snapshot(progress, id: id,
-            phase: progress.isPaused ? .paused : .active, startedAt: startedAt))
+            phase: progress.isPaused ? .paused : .active, startedAt: startedAt, updatedAt: now()))
         return id
     }
 
@@ -188,7 +198,7 @@ public final class RealFileTransferService: FileTransferService {
         guard let entry = tracked[key], entry.id == id else { return }
         let captured = entry.samples.latest
         // Final file metadata is read now: browsers can rename the temporary file before unpublishing.
-        let current = Self.snapshot(progress, id: entry.id, phase: Self.phase(progress), startedAt: entry.startedAt)
+        let current = Self.snapshot(progress, id: entry.id, phase: Self.phase(progress), startedAt: entry.startedAt, updatedAt: now())
         let fileURL = current.fileURL ?? captured?.fileURL
         let totalUnits = progress.totalUnitCount > 0 ? progress.totalUnitCount : captured?.totalBytes ?? 0
         let phase = Self.outcome(latched: captured?.phase, atUnpublish: current.phase,
@@ -203,7 +213,10 @@ public final class RealFileTransferService: FileTransferService {
             completedBytes: done ? totalBytes : current.completedBytes,
             totalBytes: done ? totalBytes : current.totalBytes,
             estimatedTimeRemaining: current.estimatedTimeRemaining,
-            fileURL: fileURL, startedAt: entry.startedAt, updatedAt: current.updatedAt))
+            // Keep this authoritative final event ordered after the last delivered progress,
+            // even if the system wall clock moved backwards during the publication.
+            fileURL: fileURL, startedAt: entry.startedAt,
+            updatedAt: max(current.updatedAt, entry.lastSent?.updatedAt ?? current.updatedAt)))
         tracked[key] = nil
         entry.flushTask?.cancel()
         entry.observations.forEach { $0.invalidate() }
@@ -271,7 +284,8 @@ public final class RealFileTransferService: FileTransferService {
     }
 
     /// `userInfo` is read directly: the typed accessors can be empty on a fresh proxy (verified).
-    nonisolated static func snapshot(_ progress: Progress, id: String, phase: TransferPhase, startedAt: Date) -> TransferSnapshot {
+    nonisolated static func snapshot(_ progress: Progress, id: String, phase: TransferPhase, startedAt: Date,
+                                     updatedAt: Date = Date()) -> TransferSnapshot {
         let fileURL = progress.userInfo[.fileURLKey] as? URL
         let kind = progress.userInfo[.fileOperationKindKey] as? Progress.FileOperationKind
         let operation: TransferOperation = switch kind {
@@ -292,7 +306,7 @@ public final class RealFileTransferService: FileTransferService {
             completedBytes: determinate && isBytes ? progress.completedUnitCount : nil,
             totalBytes: determinate && isBytes ? progress.totalUnitCount : nil,
             estimatedTimeRemaining: progress.estimatedTimeRemaining,
-            fileURL: fileURL, startedAt: startedAt, updatedAt: Date())
+            fileURL: fileURL, startedAt: startedAt, updatedAt: updatedAt)
     }
 }
 
