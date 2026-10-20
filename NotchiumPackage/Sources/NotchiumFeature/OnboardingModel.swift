@@ -47,6 +47,7 @@ import NotchiumServices
     public func isSatisfied(_ permission: SetupPermission) -> Bool {
         guard let status = statuses[permission] else { return false }
         if permission == .clipboard { return state.clipboardChoice != nil }
+        if permission == .spotify, state.reviewed.contains(.spotify) { return true }
         if status.authorization == .granted || status.authorization == .selectionSaved { return true }
         if permission == .clipboardAccess, state.clipboardChoice == false {
             return state.reviewed.contains(.clipboardAccess)
@@ -74,6 +75,7 @@ import NotchiumServices
         operation = Task { [weak self] in
             guard let self else { return }
             await self.readStatuses()
+            guard !Task.isCancelled else { return }
             self.isBusy = false
             self.operation = nil
         }
@@ -97,6 +99,12 @@ import NotchiumServices
         guard canAcknowledge(current) else { return }
         commit { $0.reviewed.insert($0.currentPermission) }
     }
+    /// This is a reviewed integration exception, never an OS grant or playback opt-in.
+    public func continueWithoutSpotify() {
+        guard statuses[.spotify]?.authorization != .granted else { return }
+        commit { $0.reviewed.insert(.spotify) }
+    }
+
     public func chooseClipboard(_ enabled: Bool) {
         if commit({ $0.clipboardChoice = enabled; $0.reviewed.insert(.clipboard) }) {
             permissions.setClipboardConsent(enabled)
@@ -120,9 +128,14 @@ import NotchiumServices
         operation = Task { [weak self, permissions] in
             do { try await permissions.request(permission) }
             catch is CancellationError { }
-            catch { self?.error = "macOS could not complete this request. Review the status and try again or open System Settings." }
-            guard let self else { return }
-            if !Task.isCancelled { await self.readStatuses() }
+            catch {
+                guard !Task.isCancelled else { return }
+                self?.error = (error as? SpotifySetupRequestFailure)?.message
+                    ?? "macOS could not complete this request. Review the status and try again or open System Settings."
+            }
+            guard !Task.isCancelled, let self else { return }
+            await self.readStatuses()
+            guard !Task.isCancelled else { return }
             self.isBusy = false
             self.operation = nil
         }
@@ -135,6 +148,7 @@ import NotchiumServices
         operation = Task { [weak self] in
             guard let self else { return }
             await self.readStatuses()
+            guard !Task.isCancelled else { return }
             self.isBusy = false
             self.operation = nil
             guard !Task.isCancelled, self.canFinish else {
@@ -146,7 +160,11 @@ import NotchiumServices
     }
 
     public func openSettings(for permission: SetupPermission) { permissions.openSettings(for: permission) }
-    public func stop() { operation?.cancel() }
+    public func stop() {
+        operation?.cancel()
+        operation = nil
+        isBusy = false
+    }
     isolated deinit { operation?.cancel() }
 
     @discardableResult private func commit(_ update: (inout OnboardingState) -> Void) -> Bool {
