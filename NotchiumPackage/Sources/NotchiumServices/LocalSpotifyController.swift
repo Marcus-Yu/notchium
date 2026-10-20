@@ -15,7 +15,8 @@ public struct SystemSpotifyApplicationLauncher: SpotifyApplicationLaunching {
         NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.spotify.client") != nil
     }
     public func isSpotifyRunning() -> Bool {
-        !NSRunningApplication.runningApplications(withBundleIdentifier: "com.spotify.client").isEmpty
+        NSRunningApplication.runningApplications(withBundleIdentifier: "com.spotify.client")
+            .contains { !$0.isTerminated && $0.isFinishedLaunching }
     }
     @MainActor public func launchSpotify() async throws {
         guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.spotify.client") else {
