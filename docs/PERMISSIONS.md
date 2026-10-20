@@ -194,3 +194,29 @@ Notchium does not suppress the native AirPods banner.
 ## Stage 26 native watcher responsiveness
 
 The implemented screenshot adapter observes the configured screenshot folder (Desktop by default), which can raise Files & Folders authorization. Folder resolution, initial enumeration and descriptor opening now run away from MainActor under an owned, cancellable setup task. A slow or denied folder check cannot freeze Shelf import, Settings or Clipboard recovery. Public Progress subscriptions do not enumerate Downloads. No Screen Recording permission is needed to observe screenshot files. The earlier table describes intended permission boundaries; no separate onboarding or screenshot-folder picker is claimed implemented by this repair.
+
+
+## Spotify onboarding hotfix (1.0.1 / build 3)
+
+Spotify is the sole additional optional-integration exception. **Continue Without
+Spotify** is a deliberate choice recorded in the existing `reviewed` set; it never
+changes the OS authorization snapshot or Clipboard preferences. Final Review accepts
+that choice while all fourteen other requirements retain their existing policy.
+Settings → Permissions can retry Automation or refresh a later grant without
+resetting completed onboarding. Normal media controls still require genuine access.
+
+`SpotifySetupAuthorization` owns one native consent operation and one coalesced
+nonprompting check. The installed app calls `AEDeterminePermissionToAutomateTarget`
+with the live, finished-launching Spotify PID and wildcard events. Consent uses
+`askUserIfNeeded: true` off the main thread on a queue separate from AppleScript and
+preflight. Existing local AppleScript playback remains unchanged. Launch readiness
+is checked for up to five seconds after LaunchServices returns. Status waits are
+bounded at three seconds; request UI waits at thirty seconds. A pending OS request
+continues after that wait, without cancellation or a second consent call. A later
+refresh verifies current OS truth. None of these limits produce a grant.
+
+OSStatus 0 is authorized; −1743 is denied; −1744 remains not determined; −600/−609
+mean the Spotify target is unavailable; −1712 and other codes are recoverable errors.
+Denied consent routes to Privacy & Security → Automation rather than repeating a
+known-denied prompt. Real fresh-account dialog and packaged recovery acceptance
+remain unverified; see `SPOTIFY_ONBOARDING_HOTFIX.md`.
