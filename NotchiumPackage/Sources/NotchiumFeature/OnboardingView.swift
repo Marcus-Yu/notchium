@@ -82,7 +82,7 @@ public struct OnboardingView: View {
             permissionDetail
         case .review:
             Text("Review your setup").font(.title.weight(.semibold))
-            Text("Granted permissions are verified with macOS. Reviewed exceptions remain exceptions; acknowledgments do not grant OS access. Any available required permission still denied or missing blocks completion.")
+            Text("Granted permissions are verified with macOS. Reviewed exceptions remain exceptions; acknowledgments do not grant OS access. Spotify may be explicitly reviewed with Continue Without Spotify. Other available required permissions still denied or missing block completion.")
                 .foregroundStyle(.secondary)
             PermissionChecklist(model: model, allowsReview: true)
         case .ready:
@@ -115,6 +115,17 @@ public struct OnboardingView: View {
                     if let choice = model.state.clipboardChoice {
                         Text(choice ? "Your choice: monitoring enabled after setup." : "Your choice: monitoring stays off.")
                             .font(.callout).foregroundStyle(.secondary)
+                    }
+                } else if permission == .spotify {
+                    PermissionActionButtons(model: model, permission: permission, status: status)
+                    if status.authorization != .granted {
+                        Text("Local Spotify controls remain unavailable without macOS authorization. You can retry later in Settings → Permissions.")
+                            .foregroundStyle(.secondary)
+                        Button(model.state.reviewed.contains(.spotify) ? "Continuing Without Spotify" : "Continue Without Spotify") {
+                            model.continueWithoutSpotify()
+                        }
+                        .disabled(model.isBusy || model.state.reviewed.contains(.spotify))
+                        .accessibilityIdentifier("notchium.setup.spotify.continueWithout")
                     }
                 } else if model.canAcknowledge(permission) {
                     if permission == .clipboardAccess, model.state.clipboardChoice == false {
