@@ -14,7 +14,8 @@ extension NotchiumApplicationController {
         let preferences = UserDefaults(suiteName: "Notchium.SetupUITests.\(id.uuidString)")!
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("Notchium.SetupUITests.\(id.uuidString)")
-        let permissions = FixtureSetupPermissions(denied: arguments.contains("--notchium-setup-denied"))
+        let permissions = FixtureSetupPermissions(denied: arguments.contains("--notchium-setup-denied"),
+            spotifyDenied: arguments.contains("--notchium-setup-spotify-denied"))
         let model = OnboardingModel(store: OnboardingStore(preferences: preferences, supportDirectory: directory),
                                     permissions: permissions)
         let controller = NotchiumApplicationController(environment: .mock(clock: ContinuousAppClock()),
@@ -26,8 +27,10 @@ extension NotchiumApplicationController {
 @MainActor private final class FixtureSetupPermissions: OnboardingPermissionProviding {
     private var states: [SetupPermission: SetupPermissionStatus] = [:]
     private let denied: Bool
-    init(denied: Bool) {
+    private let spotifyDenied: Bool
+    init(denied: Bool, spotifyDenied: Bool) {
         self.denied = denied
+        self.spotifyDenied = spotifyDenied
         for permission in SetupPermission.allCases {
             switch permission {
             case .systemAudio, .clipboardAccess, .files, .shortcuts, .keychain:
@@ -42,7 +45,7 @@ extension NotchiumApplicationController {
     }
     func status(for permission: SetupPermission) async -> SetupPermissionStatus { states[permission]! }
     func request(_ permission: SetupPermission) async throws {
-        states[permission] = .init(denied ? .denied : (permission == .screenshots ? .selectionSaved : .granted),
+        states[permission] = .init((denied || (permission == .spotify && spotifyDenied)) ? .denied : (permission == .screenshots ? .selectionSaved : .granted),
                                    denied ? "Access was denied. Review it in System Settings, then refresh." : "")
     }
     func openSettings(for permission: SetupPermission) { }
