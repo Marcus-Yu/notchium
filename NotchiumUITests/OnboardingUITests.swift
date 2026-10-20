@@ -27,8 +27,17 @@ import XCTest
         capture(app, "stage27b-incomplete-review")
     }
 
+    func testSpotifyDeniedExceptionCompletesSetupReadyAndRelaunches() {
+        completeSetup(spotifyException: true)
+    }
+
     func testCompleteSetupReadyAndTenRelaunches() {
+        completeSetup(spotifyException: false)
+    }
+
+    private func completeSetup(spotifyException: Bool) {
         let app = application(id: UUID())
+        if spotifyException { app.launchArguments.append("--notchium-setup-spotify-denied") }
         defer { app.terminate() }
         app.launch()
         XCTAssertTrue(app.buttons["Get Started"].waitForExistence(timeout: 8))
@@ -42,7 +51,13 @@ import XCTest
                 let request = app.buttons["notchium.setup.request.\(permission)"]
                 XCTAssertTrue(request.waitForExistence(timeout: 4), permission)
                 request.click()
-                XCTAssertTrue(app.staticTexts[permission == "screenshots" ? "Folder Selected" : "Granted"].waitForExistence(timeout: 4))
+                if permission == "spotify" && spotifyException {
+                    XCTAssertTrue(app.staticTexts["Denied"].waitForExistence(timeout: 4))
+                    app.buttons["notchium.setup.spotify.continueWithout"].click()
+                    XCTAssertTrue(app.staticTexts["Denied"].exists)
+                } else {
+                    XCTAssertTrue(app.staticTexts[permission == "screenshots" ? "Folder Selected" : "Granted"].waitForExistence(timeout: 4))
+                }
             } else if permission == "clipboard" {
                 app.buttons["notchium.setup.clipboard.off"].click()
             } else {
