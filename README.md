@@ -79,7 +79,9 @@ Notchium uses these permissions for the corresponding features:
 Clipboard History defaults off. Setup requires an explicit Enable or Keep Off choice;
 monitoring starts only after setup and only with opt-in. macOS pasteboard privacy remains
 separate and may require a system decision on future reads. Setup never reads the Clipboard.
-Available required permissions must be granted to finish setup; denied choices have a
+Spotify offers an explicit **Continue Without Spotify** exception when access cannot be completed;
+local controls remain unavailable without real authorization, and access can be retried in Settings.
+Other available required permissions must be granted to finish setup; denied choices have a
 System Settings recovery path and a safe quit/resume path. Genuine unavailable and
 non-pregrantable requirements need explicit review. No Full Disk Access or administrator
 approval is requested in the free build. See [the permission contract](docs/PERMISSIONS.md).
