@@ -21,7 +21,7 @@ without paid CI, certificates, provisioning, notarization, hosting, or an update
 | Resources | App icon assets and SwiftPM media asset bundle |
 | Release/debug information | Release config; DWARF; developer UI and launch fixtures guarded by DEBUG |
 
-The current configuration is version **1.0.0**, build **2**, macOS **26.0+**.
+The current configuration is version **1.0.1**, build **3**, macOS **26.0+**.
 The release command explicitly builds **arm64** and verifies every executable.
 Intel/universal support requires a separate validated release change; do not infer
 it from Xcode's default architecture list. Validate on macOS 26 before claiming
@@ -219,3 +219,20 @@ Source availability/licensing is separate from a Release attachment. GitHub
 automatically offers source archives for a tag; review the committed repository
 for secrets before pushing. MIT was selected by the owner for this public repo.
 No automatic updater is added. Users check GitHub Releases manually.
+
+
+## 1.0.1 Spotify hotfix
+
+The public GitHub API returned no releases during this hotfix session. Existing
+1.0.0 candidates may have been manually shared; there is no updater. Preserve those
+artifacts. Validate `./scripts/release.sh 1.0.1 --preview` locally, then prepare a
+clean committed candidate through the existing `--candidate` workflow when the
+source is reviewed. Preview artifacts cannot be publicly released. Do not include
+the owner's untracked Stage 27C report in a commit without their authorization.
+
+Affected acceptance is required against the new DMG: real isolated-account Spotify
+consent or explicit exception, Final Review → Ready → Open Notchium, repeated
+relaunch, later Settings repair, and replacement retaining encrypted Clipboard,
+Keychain, Shelf and preferences. No isolated account/Mac was available in the
+hotfix session, so publication remains blocked. Testers must quit and replace the
+app manually, retaining all app data and the existing Keychain item.
