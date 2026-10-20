@@ -46,26 +46,6 @@ public struct SystemSpotifyScriptExecutor: SpotifyScriptExecuting {
         }
     }
 
-    /// Match the existing local controller's normal-event consent path: macOS's prompting
-    /// AEDeterminePermission form can stall before displaying UI. Read only the application
-    /// version, discard it, and recheck OS truth. No song data or playback command is used.
-    public func requestAutomationPermission() async throws -> SpotifyAutomationPermission {
-        switch await permission() {
-        case .allowed: return .allowed
-        case .denied: return .denied
-        case .unavailable: return .unavailable
-        case .notDetermined: break
-        }
-        _ = try await execute("""
-        if application id "com.spotify.client" is not running then error number -600
-        with timeout of 5 seconds
-            tell application id "com.spotify.client" to get version
-        end timeout
-        return {"ok"}
-        """)
-        return await permission()
-    }
-
     public func execute(_ source: String) async throws -> [String] {
         try Task.checkCancellation()
         let cancellation = ScriptCancellation()
