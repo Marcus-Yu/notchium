@@ -26,6 +26,10 @@ struct PermissionChecklist: View {
                                         Text(status.detail).font(.caption).foregroundStyle(.secondary)
                                     }
                                 }
+                                if permission == .spotify, model.state.reviewed.contains(.spotify), statusIsUngranted(permission) {
+                                    Text("Reviewed: continue without Spotify. No Automation grant is claimed. Retry in Settings → Permissions.")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
                                 if permission == .clipboard, let enabled = model.state.clipboardChoice {
                                     Text(enabled ? "Your choice: monitoring enabled after setup." : "Your choice: monitoring stays off.")
                                         .font(.caption).foregroundStyle(.secondary)
@@ -46,6 +50,10 @@ struct PermissionChecklist: View {
                 }
             }
         }
+    }
+
+    private func statusIsUngranted(_ permission: SetupPermission) -> Bool {
+        model.statuses[permission]?.authorization != .granted
     }
 
     private func groupName(_ permission: SetupPermission) -> String {
@@ -101,6 +109,7 @@ struct PermissionActionButtons: View {
     }
     private var canRequest: Bool {
         status.authorization == .notDetermined || status.authorization == .needsFullAccess || status.authorization == .requiresApplication
+            || (permission == .spotify && status.authorization == .needsSystemSettings)
             || permission == .screenshots || (permission == .volumeKeys && status.authorization != .granted)
     }
     private var actionTitle: String {
