@@ -18,6 +18,10 @@ struct PermissionsSettingsSection: View {
                 if let status = model.statuses[permission] {
                     PermissionStatusLabel(status: status, reviewed: model.isSatisfied(permission))
                     if !status.detail.isEmpty { Text(status.detail).font(.callout).foregroundStyle(.secondary) }
+                    if permission == .spotify, model.state.reviewed.contains(.spotify), status.authorization != .granted {
+                        Text("Setup continued without Spotify. Use Request Access or System Settings to enable it later; your completed setup stays saved.")
+                            .font(.callout).foregroundStyle(.secondary)
+                    }
                     if permission != .clipboard && !status.authorization.acceptsAcknowledgment {
                         PermissionActionButtons(model: model, permission: permission, status: status)
                     }
