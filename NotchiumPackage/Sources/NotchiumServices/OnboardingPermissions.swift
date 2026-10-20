@@ -18,8 +18,7 @@ import NotchiumCore
 /// creates an audio tap, reads the pasteboard, or authenticates a Keychain item.
 @MainActor public final class NativeOnboardingPermissions: OnboardingPermissionProviding {
     private let store = EKEventStore()
-    private let spotify = SystemSpotifyScriptExecutor()
-    private let spotifyApp = SystemSpotifyApplicationLauncher()
+    private let spotify: SpotifySetupAuthorization
     private let camera: any CameraService
     private let screenshotFolder: ScreenshotFolderAccess
     private let profile: DistributionProfile
@@ -27,7 +26,9 @@ import NotchiumCore
 
     public init(camera: any CameraService, profile: DistributionProfile,
                 screenshotFolder: ScreenshotFolderAccess = ScreenshotFolderAccess(),
+                spotify: SpotifySetupAuthorization = SpotifySetupAuthorization(),
                 pasteboardBehavior: @escaping @MainActor () -> NSPasteboard.AccessBehavior = { NSPasteboard.general.accessBehavior }) {
+        self.spotify = spotify
         self.camera = camera
         self.profile = profile
         self.screenshotFolder = screenshotFolder
@@ -42,18 +43,7 @@ import NotchiumCore
             guard profile != .appStoreSandboxed else {
                 return .init(.unavailable, "Local Spotify Automation is unavailable in this distribution.")
             }
-            guard spotifyApp.isSpotifyInstalled() else {
-                return .init(.unavailable, "Spotify is not installed. Install it later, then repair access in Settings → Permissions.")
-            }
-            guard spotifyApp.isSpotifyRunning() else {
-                return .init(.requiresApplication, "Spotify must be running to verify or request Automation. The next action opens Spotify without playing music.")
-            }
-            switch await spotify.permission() {
-            case .allowed: return .init(.granted)
-            case .notDetermined: return .init(.notDetermined)
-            case .denied: return .init(.denied, "Allow Notchium to control Spotify in Privacy & Security → Automation.")
-            case .unavailable: return .init(.needsSystemSettings, "Spotify could not be contacted. Reopen Spotify and refresh; authorization is unknown.")
-            }
+            return await spotify.status()
         case .camera:
             let authorization = camera.authorization
             let hasCamera = !camera.devices().isEmpty
@@ -126,11 +116,8 @@ import NotchiumCore
             _ = try await store.requestFullAccessToReminders()
         case .camera where current.authorization == .notDetermined:
             _ = await camera.requestAccess()
-        case .spotify where current.authorization == .notDetermined || current.authorization == .requiresApplication:
-            if current.authorization == .requiresApplication { try await spotifyApp.launchSpotify() }
-            try Task.checkCancellation()
-            NSApp.activate(ignoringOtherApps: true)
-            _ = try await spotify.requestAutomationPermission()
+        case .spotify where profile != .appStoreSandboxed && current.authorization != .granted && current.authorization != .denied:
+            try await spotify.request()
         case .volumeKeys where current.authorization == .needsSystemSettings:
             if !AXIsProcessTrusted() {
                 _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
