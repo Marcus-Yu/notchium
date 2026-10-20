@@ -129,7 +129,7 @@ def verify_app(app, version, build):
     binary = (app / "Contents/MacOS/Notchium").read_bytes()
     for marker in (b"Notchium launched; bundle=", b"Initial isMenuBarExtraInserted=true",
                    b"--notchium-stage11-fixture", b"--ui-testing", b"notchium-fixture://",
-                   b"--notchium-onboarding-fixture", b"--notchium-setup-denied", b"Notchium.SetupUITests.",
+                   b"--notchium-onboarding-fixture", b"--notchium-setup-denied", b"--notchium-setup-spotify-denied", b"Notchium.SetupUITests.",
                    b"default.profraw", b"__llvm_profile", b"__llvm_covmap"):
         require(marker not in binary, "Debug/fixture marker in Release executable")
     run("/usr/bin/codesign", "--verify", "--deep", "--strict", str(app))
