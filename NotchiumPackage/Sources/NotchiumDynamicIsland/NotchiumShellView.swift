@@ -157,6 +157,7 @@ private struct NotchShellOuterSurface: View {
             expanded: model.surfaceState != .collapsed,
             shape: shape,
             reduceMotion: model.reduceMotion,
+            systemTransitionRevision: model.systemTransitionRevision,
             notificationVisible: surfaced,
             // Music is carried through notification transitions only while it is the context the
             // notch shows (media sides / combined); a higher persistent activity (a transfer) wins.
