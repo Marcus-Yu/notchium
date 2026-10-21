@@ -49,6 +49,8 @@ public final class DynamicIslandPresentationModel {
     public private(set) var phase: NotchPresentationPhase
     public private(set) var reduceMotion = false
     public private(set) var isAuxiliaryInteractionPresented = false
+    /// Settles the existing visual surface when a Space change ends an unowned hover.
+    private(set) var systemTransitionRevision = 0
     private var auxiliarySources: Set<String> = []
 
     public let activityCoordinator: ActivityCoordinator
@@ -270,14 +272,18 @@ public final class DynamicIslandPresentationModel {
         setExpanded(visualState != .expanded)
     }
 
-    /// A Space change cancels queued hover work; a pinned, leased or held session keeps its page.
+    /// A Space change preserves active interactions, but must not carry an exit grace or
+    /// an unfinished closing spring onto the destination Space.
     func prepareForSystemTransition() {
         pendingHoverTask?.cancel()
         pendingCollapseTask?.cancel()
         hoverGeneration &+= 1
-        if visualState == .hovered, !isAuxiliaryInteractionPresented, !isHeldAfterSystemPresentation {
-            collapse()
-        }
+        guard visualState != .expanded,
+              !isAuxiliaryInteractionPresented,
+              !isHeldAfterSystemPresentation,
+              !(visualState == .hovered && pointerIsInside) else { return }
+        present(.collapsed, animated: false)
+        systemTransitionRevision &+= 1
     }
 
     /// Pinned and held sessions close on a click outside the shell; a hovered one follows the pointer.
