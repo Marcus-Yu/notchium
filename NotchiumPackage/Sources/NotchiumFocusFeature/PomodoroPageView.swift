@@ -82,7 +82,7 @@ private struct PomodoroTimerColumn: View {
         let state = model.state
         let countdown = model.countdown()
         let accent = PomodoroStyle.accent(state.phase)
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             phaseChip(state, accent: accent)
             // Ticks only while the page is on screen; the deadline is the truth either way.
             Group {
@@ -101,12 +101,12 @@ private struct PomodoroTimerColumn: View {
 
     private func phaseChip(_ state: PomodoroState, accent: Color) -> some View {
         HStack(spacing: 5) {
-            Image(systemName: PomodoroStyle.symbol(state.phase)).font(.system(size: 9, weight: .bold))
-            Text(state.phase.title.uppercased()).font(.system(size: 10, weight: .bold, design: .rounded)).tracking(1.1)
+            Image(systemName: PomodoroStyle.symbol(state.phase)).font(.system(size: 10, weight: .bold))
+            Text(state.phase.title.uppercased()).font(.system(size: 11, weight: .bold, design: .rounded)).tracking(1.1)
         }
         .foregroundStyle(accent)
-        .padding(.horizontal, 9)
-        .frame(height: 20)
+        .padding(.horizontal, 11)
+        .frame(height: 22)
         .background(accent.opacity(0.16), in: .capsule)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isHeader)
@@ -117,7 +117,7 @@ private struct PomodoroTimerColumn: View {
         let paused = model.state.isActive && !countdown.isRunning
         return VStack(spacing: 9) {
             Text(NotchCountdown.label(remaining))
-                .font(PomodoroStyle.rounded(48, .semibold))
+                .font(PomodoroStyle.rounded(52, .semibold))
                 .foregroundStyle(.white.opacity(paused ? 0.5 : 1))
                 .contentTransition(reduceMotion ? .identity : .numericText(countsDown: true))
                 .accessibilityLabel(NotchCountdown.spokenLabel(remaining))
@@ -126,10 +126,11 @@ private struct PomodoroTimerColumn: View {
                 Capsule().fill(.white.opacity(0.10))
                     .overlay(alignment: .leading) {
                         Capsule().fill(accent.opacity(paused ? 0.5 : 1))
-                            .frame(width: max(6, proxy.size.width * countdown.elapsedFraction(at: date)))
+                            .frame(width: max(9, proxy.size.width * countdown.elapsedFraction(at: date)))
                     }
             }
-            .frame(width: 176, height: 6)
+            .frame(height: 9)
+            .padding(.horizontal, 8)
             .accessibilityHidden(true)
         }
     }
@@ -138,22 +139,22 @@ private struct PomodoroTimerColumn: View {
     private func cycleDots(_ state: PomodoroState) -> some View {
         let total = model.configuration.sessionsPerCycle
         let current = model.focusNumber
-        return HStack(spacing: 6) {
-            HStack(spacing: 4) {
+        return HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 ForEach(1...total, id: \.self) { index in
                     Circle()
                         .fill(index < current || (index == current && state.phase.isBreak)
                               ? PomodoroStyle.focus : .white.opacity(0.14))
                         .overlay {
                             if index == current, state.phase == .focus {
-                                Circle().strokeBorder(PomodoroStyle.focus, lineWidth: 1.5)
+                                Circle().strokeBorder(PomodoroStyle.focus, lineWidth: 2)
                             }
                         }
-                        .frame(width: 7, height: 7)
+                        .frame(width: 11, height: 11)
                 }
             }
             Text("\(current) of \(total)")
-                .font(PomodoroStyle.rounded(10, .medium))
+                .font(PomodoroStyle.rounded(12, .medium))
                 .foregroundStyle(.white.opacity(0.5))
         }
         .accessibilityElement(children: .ignore)
