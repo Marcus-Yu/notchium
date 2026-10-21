@@ -7,6 +7,7 @@ struct PomodoroControlsView: View {
     let model: PomodoroModel
     var identifierPrefix = "notchium.pomodoro"
     var centersPrimary = false
+    var compact = false
     @NotchReducedMotion private var reduceMotion
 
     var body: some View {
@@ -43,10 +44,12 @@ struct PomodoroControlsView: View {
         let accent = PomodoroStyle.accent(model.state.phase)
         return Button { model.perform(control) } label: {
             Text(control.title)
-                .font(.system(size: 11, weight: primary ? .bold : .semibold, design: .rounded))
+                .font(.system(size: compact ? 11 : (primary ? 13 : 12),
+                              weight: primary ? .bold : .semibold, design: .rounded))
                 .foregroundStyle(primary ? .black.opacity(0.85) : .white.opacity(0.85))
-                .padding(.horizontal, 10)
-                .frame(height: 28)
+                .padding(.horizontal, compact ? 10 : 12)
+                .frame(minWidth: compact ? nil : (primary ? 88 : 72))
+                .frame(height: compact ? 28 : 36)
                 .background(primary ? accent : .white.opacity(0.10), in: .capsule)
                 .contentShape(.capsule)
         }
