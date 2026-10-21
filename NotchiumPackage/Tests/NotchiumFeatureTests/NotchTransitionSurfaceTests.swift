@@ -5,6 +5,22 @@ import XCTest
 
 @MainActor
 final class NotchTransitionSurfaceTests: XCTestCase {
+    func testSystemSettleInvalidatesOpeningAndClosingCompletions() {
+        var state = NotchVisualTransition(expanded: false)
+        let opening = state.begin(expanded: true)
+        let closing = state.begin(expanded: false)
+        state.settle(expanded: false)
+        for generation in [opening, closing] {
+            state.complete(generation: generation)
+            XCTAssertEqual(state.phase, .collapsed)
+        }
+        let reopening = state.begin(expanded: true)
+        state.complete(generation: closing)
+        XCTAssertEqual(state.phase, .openingBlack)
+        state.complete(generation: reopening)
+        XCTAssertEqual(state.phase, .expanded)
+    }
+
     func testContentStaysBlackUntilCurrentAnimationCompletes() {
         var state = NotchVisualTransition(expanded: false)
         XCTAssertEqual(state.phase, .collapsed)
