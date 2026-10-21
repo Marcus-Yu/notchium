@@ -43,9 +43,9 @@ import XCTest
         defer { model.stop() }
         for reduced in [false, true] {
             let image = try render(PomodoroControlsView(model: model, centersPrimary: true)
-                .environment(\.notchReduceMotionOverride, reduced), size: CGSize(width: 290, height: 28))
+                .environment(\.notchReduceMotionOverride, reduced), size: CGSize(width: 290, height: 36))
             // Above the labels, each visible capsule is one continuous run of pixels.
-            let runs = try filledRuns(image, y: 4)
+            let runs = try filledRuns(image, y: 6)
             XCTAssertEqual(runs.count, 3)
             guard runs.count == 3 else { continue }
             XCTAssertEqual(Double(runs[1].lowerBound + runs[1].upperBound - 1) / 2, 144.5, accuracy: 1,
@@ -72,7 +72,8 @@ import XCTest
     }
 
     func testPaletteAndPhaseFixtures() throws {
-        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        // Running countdowns render against wall time, including when their page is hidden.
+        let now = Date()
         let clock = TestAppClock(now: now, automaticallyAdvances: false)
         let presentation = DynamicIslandPresentationModel(clock: clock)
         let suite = "Pomodoro.Palette.\(UUID())"
@@ -87,13 +88,19 @@ import XCTest
             var state = PomodoroState()
             state.phase = phase
             state.phaseDuration = 1800
-            state.run = .paused(remaining: 1200)
-            let model = PomodoroModel(store: InMemoryPomodoroStore(.init(state: state)),
-                notifications: presentation.notificationCoordinator, clock: clock, preferences: preferences, now: { now })
-            defer { model.stop() }
-            let image = try render(PomodoroPageView(model: model)
-                .environment(\.notchReduceMotionOverride, true), size: CGSize(width: 524, height: 196))
-            try save(image, name: "paused-\(phase.rawValue)")
+            let runs: [(String, PomodoroState.Run)] = [
+                ("ready", .ready), ("running", .running(endsAt: now.addingTimeInterval(1200))),
+                ("paused", .paused(remaining: 1200))
+            ]
+            for (name, run) in runs {
+                state.run = run
+                let model = PomodoroModel(store: InMemoryPomodoroStore(.init(state: state)),
+                    notifications: presentation.notificationCoordinator, clock: clock, preferences: preferences, now: { now })
+                defer { model.stop() }
+                let image = try render(PomodoroPageView(model: model)
+                    .environment(\.notchReduceMotionOverride, true), size: CGSize(width: 524, height: 196))
+                try save(image, name: "\(name)-\(phase.rawValue)")
+            }
         }
     }
 
