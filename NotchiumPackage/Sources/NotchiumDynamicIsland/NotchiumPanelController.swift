@@ -29,7 +29,7 @@ private final class NotchHostingView: NSHostingView<NotchiumShellView> {
 }
 
 @MainActor
-final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDelegate, NotchFileDropHandling {
+final class NotchiumPanelController: NSObject, NotchPanelControlling, NotchFileDropHandling {
     private let panel: NotchPanel
     private let model: DynamicIslandPresentationModel
     private let allowsPointerDrivenHover: Bool
@@ -96,7 +96,6 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
         self.panel = panel
         super.init()
 
-        panel.delegate = self
         panel.fileDropHandler = self
         panel.ignoresMouseEvents = true
         panel.acceptsMouseMovedEvents = true
@@ -246,12 +245,6 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NSWindowDe
             panel.resignKey()
         }
         panel.orderOut(nil)
-    }
-
-    func windowDidResignKey(_ notification: Notification) {
-        guard model.visualState == .expanded,
-              !model.isAuxiliaryInteractionPresented else { return }
-        model.collapse()
     }
 
     func handleEscapeCommand() {
