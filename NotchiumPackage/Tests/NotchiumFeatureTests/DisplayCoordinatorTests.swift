@@ -123,7 +123,7 @@ final class DisplayCoordinatorTests: XCTestCase {
         XCTAssertEqual(panel.layout, compact, "Removing the last shortcut preserves the shell and pointer region")
         XCTAssertEqual(model.pageModel.selectedPage, .home)
     }
-    func testSpaceChangeCollapsesHoverButPreservesPinnedSessionBeforeReassertingPanel() async {
+    func testSpaceChangePreservesPointerOwnedAndPinnedSessionsBeforeReassertingPanel() async {
         for state in [NotchStableState.hovered, .expanded] {
             let panel = MockPanelController()
             let clock = ControlledAppClock()
@@ -137,25 +137,20 @@ final class DisplayCoordinatorTests: XCTestCase {
             let frame = panel.layout?.panelFrame
             let hides = panel.hideCount
             NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
-            if state == .hovered {
-                XCTAssertEqual(model.phase, .transitioning(from: .hovered, to: .collapsed))
-            } else {
-                XCTAssertEqual(model.phase, .expanded)
-            }
+            XCTAssertEqual(model.visualState, state)
             for _ in 0..<1000 where panel.orderFrontRegardlessCount == 0 {
                 await clock.releaseAll()
                 await Task.yield()
             }
-            await waitUntil { state == .expanded || model.phase == .collapsed }
             XCTAssertEqual(panel.orderFrontRegardlessCount, 1)
-            XCTAssertEqual(model.visualState, state == .expanded ? .expanded : .collapsed)
+            XCTAssertEqual(model.visualState, state)
             XCTAssertEqual(model.pageModel.selectedPage, .shelf)
             XCTAssertEqual(panel.layout?.panelFrame, frame)
             XCTAssertEqual(panel.hideCount, hides)
             model.setHovered(true)
             await clock.releaseAll()
             await drainMainActorTasks()
-            XCTAssertEqual(model.visualState, state == .expanded ? .expanded : .collapsed)
+            XCTAssertEqual(model.visualState, state)
             coordinator.stop()
         }
     }
