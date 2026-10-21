@@ -298,18 +298,22 @@ final class DynamicIslandPresentationTests: XCTestCase {
         XCTAssertEqual(model.visualState, .collapsed)
     }
 
-    func testPanelResignKeyCannotCollapseDuringAuxiliaryInteraction() {
+    func testPanelResignKeyPreservesPinnedSessionWithAndWithoutAuxiliaryInteraction() throws {
         let model = DynamicIslandPresentationModel(phase: .expanded)
         let controller = NotchiumPanelController(model: model)
         defer { controller.hide() }
-
-        model.setAuxiliaryInteractionPresented(true)
-        controller.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification))
-        XCTAssertEqual(model.visualState, .expanded)
-
-        model.setAuxiliaryInteractionPresented(false)
-        controller.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification))
-        XCTAssertEqual(model.visualState, .collapsed)
+        let panel = try XCTUnwrap(NSApp.windows.compactMap { $0 as? NotchPanel }.first {
+            $0.fileDropHandler === controller
+        })
+        panel.allowsKeyboardFocus = true
+        model.pageModel.selectedPage = .shelf
+        for auxiliaryPresented in [true, false] {
+            model.setAuxiliaryInteractionPresented(auxiliaryPresented)
+            panel.becomeKey()
+            panel.resignKey()
+            XCTAssertEqual(model.visualState, .expanded)
+            XCTAssertEqual(model.pageModel.selectedPage, .shelf)
+        }
     }
 
     func testAuxiliaryActionClickIsConsumedAcrossEitherAppKitCallbackOrder() {
