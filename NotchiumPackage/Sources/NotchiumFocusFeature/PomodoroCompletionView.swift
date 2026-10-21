@@ -39,7 +39,8 @@ struct PomodoroCompletionView: View {
                 .accessibilityLabel("Dismiss timer completion")
                 .accessibilityIdentifier("notchium.pomodoro.completion.dismiss")
             }
-            PomodoroControlsView(model: model, identifierPrefix: "notchium.pomodoro.completion", centersPrimary: true)
+            PomodoroControlsView(model: model, identifierPrefix: "notchium.pomodoro.completion",
+                                 centersPrimary: true, compact: true)
                 .frame(maxWidth: .infinity, alignment: .center)
         }
         .padding(.horizontal, NotchNotificationGeometry.contentHorizontalInset)
