@@ -23,6 +23,11 @@ struct NotchVisualTransition: Equatable {
         }
     }
 
+    mutating func settle(expanded: Bool) {
+        generation &+= 1
+        phase = expanded ? .expanded : .collapsed
+    }
+
     var isBlack: Bool { phase == .openingBlack || phase == .closingBlack }
 }
 
@@ -32,6 +37,7 @@ struct NotchTransitionSurface<Content: View>: View {
     let expanded: Bool
     let shape: NotchShellSurface
     let reduceMotion: Bool
+    let systemTransitionRevision: Int
     let notificationVisible: Bool
     var retainsMedia = false
     var compactVisible = false
@@ -47,14 +53,17 @@ struct NotchTransitionSurface<Content: View>: View {
     @ViewBuilder var content: @MainActor (NotchVisualTransition.Phase) -> Content
     @State private var renderedShape: NotchShellSurface
     @State private var transition: NotchVisualTransition
+    @State private var appliedSystemTransitionRevision: Int
 
-    init(expanded: Bool, shape: NotchShellSurface, reduceMotion: Bool, notificationVisible: Bool = false,
+    init(expanded: Bool, shape: NotchShellSurface, reduceMotion: Bool, systemTransitionRevision: Int = 0,
+         notificationVisible: Bool = false,
          retainsMedia: Bool = false, compactVisible: Bool = false,
          compactSpan: NotchCompactSpan = .init(base: 0, full: 0),
          @ViewBuilder content: @escaping @MainActor (NotchVisualTransition.Phase) -> Content) {
         self.expanded = expanded
         self.shape = shape
         self.reduceMotion = reduceMotion
+        self.systemTransitionRevision = systemTransitionRevision
         self.notificationVisible = notificationVisible
         self.retainsMedia = retainsMedia
         self.compactVisible = compactVisible
@@ -65,9 +74,11 @@ struct NotchTransitionSurface<Content: View>: View {
         self.content = content
         _renderedShape = State(initialValue: shape)
         _transition = State(initialValue: NotchVisualTransition(expanded: expanded))
+        _appliedSystemTransitionRevision = State(initialValue: systemTransitionRevision)
     }
 
     var body: some View {
+        let settlesImmediately = systemTransitionRevision != appliedSystemTransitionRevision
         // Hide in the very first target-state update, before onChange retargets the
         // geometry. This also prevents a stale completion flashing on reversal.
         let targetChanged = renderedShape.animatableData != shape.animatableData
@@ -75,11 +86,12 @@ struct NotchTransitionSurface<Content: View>: View {
         let compactExitPending = targetChanged && wasCompactVisible && !compactVisible && !expanded && !wasExpanded
         let compactRetracting = compactExiting || compactExitPending
         NotchSurfaceFrame(
-            shape: renderedShape,
-            phase: transition.phase,
+            shape: settlesImmediately ? shape : renderedShape,
+            phase: settlesImmediately ? (expanded || notificationVisible ? .expanded : .collapsed) : transition.phase,
             expandedHeight: shape.height,
+            systemTransitionRevision: CGFloat(systemTransitionRevision),
             targetExtensionHeight: shape.extensionHeight,
-            hidesPendingTarget: targetChanged && !Self.preservesExpandedPage(expanded: expanded, wasExpanded: wasExpanded)
+            hidesPendingTarget: !settlesImmediately && targetChanged && !Self.preservesExpandedPage(expanded: expanded, wasExpanded: wasExpanded)
                 && !(notificationVisible && wasNotificationVisible && !expanded && !wasExpanded),
             notificationVisible: notificationVisible,
             keepsNotificationContent: preservesNotificationContent,
@@ -89,12 +101,18 @@ struct NotchTransitionSurface<Content: View>: View {
             // resting width. The resting width can differ from entry (Music appeared or was
             // promoted meanwhile); measuring against it guarantees the reveal reaches exactly 0.
             compactSpan: compactVisible ? compactSpan
-                : (compactRetracting ? NotchCompactSpan(base: compactSpan.base,
+                : (compactRetracting && !settlesImmediately ? NotchCompactSpan(base: compactSpan.base,
                                                         full: enteredCompactSpan?.full ?? compactSpan.full) : nil),
-            compactRetracting: compactRetracting,
+            compactRetracting: compactRetracting && !settlesImmediately,
             content: content
         )
-        .onChange(of: shape.animatableData) { _, _ in retarget() }
+        .transaction { transaction in
+            if settlesImmediately {
+                transaction.animation = nil
+                transaction.disablesAnimations = true
+            }
+        }
+        .onChange(of: AnimatablePair(shape.animatableData, CGFloat(systemTransitionRevision))) { _, _ in retarget() }
     }
 
     /// Collapsing from the open notch is always the main close (black gate), even when a
@@ -107,6 +125,23 @@ struct NotchTransitionSurface<Content: View>: View {
     static func preservesExpandedPage(expanded: Bool, wasExpanded: Bool) -> Bool { expanded && wasExpanded }
 
     private func retarget() {
+        if systemTransitionRevision != appliedSystemTransitionRevision {
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                appliedSystemTransitionRevision = systemTransitionRevision
+                renderedShape = shape
+                transition.settle(expanded: expanded || notificationVisible)
+                wasExpanded = expanded
+                wasNotificationVisible = notificationVisible
+                wasCompactVisible = compactVisible
+                preservesNotificationContent = notificationVisible && !expanded
+                isNotificationTransition = false
+                compactExiting = false
+                enteredCompactSpan = compactVisible ? compactSpan : nil
+            }
+            return
+        }
         preservesNotificationContent = notificationVisible && wasNotificationVisible && !expanded && !wasExpanded
         let notificationMotion = !expanded && !wasExpanded && (notificationVisible || wasNotificationVisible)
         let compactMotion = notificationMotion && (compactVisible || wasCompactVisible)
@@ -146,6 +181,9 @@ nonisolated struct NotchSurfaceFrame<Content: View>: View, Animatable {
     var shape: NotchShellSurface
     let phase: NotchVisualTransition.Phase
     let expandedHeight: CGFloat
+    /// Changing this component forces an update even when a closing spring already has
+    /// the same collapsed target. Its value never affects the drawn geometry.
+    var systemTransitionRevision: CGFloat = 0
     var targetExtensionHeight: CGFloat = 0
     var hidesPendingTarget = false
     var notificationVisible = false
@@ -155,9 +193,12 @@ nonisolated struct NotchSurfaceFrame<Content: View>: View, Animatable {
     var compactRetracting = false
     @ViewBuilder var content: @MainActor (NotchVisualTransition.Phase) -> Content
 
-    var animatableData: NotchShellSurface.AnimatableData {
-        get { shape.animatableData }
-        set { shape.animatableData = newValue }
+    var animatableData: AnimatablePair<NotchShellSurface.AnimatableData, CGFloat> {
+        get { AnimatablePair(shape.animatableData, systemTransitionRevision) }
+        set {
+            shape.animatableData = newValue.first
+            systemTransitionRevision = newValue.second
+        }
     }
 
     var contentPhase: NotchVisualTransition.Phase {
