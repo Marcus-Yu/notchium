@@ -64,36 +64,4 @@ struct WaveformColor: Equatable, Sendable {
         }
         return lifted(by: lower)
     }
-
-    /// Find the largest colour cluster rather than averaging unrelated artwork colours.
-    /// Sampling is bounded to 1,024 pixels and happens once per cached thumbnail.
-    static func primaryColor(in image: CGImage) -> WaveformColor? {
-        let size = 32
-        var pixels = [UInt8](repeating: 0, count: size * size * 4)
-        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
-              let context = CGContext(data: &pixels, width: size, height: size,
-                                      bitsPerComponent: 8, bytesPerRow: size * 4, space: space,
-                                      bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue)
-        else { return nil }
-        context.interpolationQuality = .low
-        context.draw(image, in: CGRect(x: 0, y: 0, width: size, height: size))
-        struct Cluster { var count = 0; var red = 0; var green = 0; var blue = 0 }
-        var clusters: [Int: Cluster] = [:]
-        for offset in stride(from: 0, to: pixels.count, by: 4) {
-            let alpha = Int(pixels[offset + 3])
-            guard alpha >= 128 else { continue }
-            let red = min(255, Int(pixels[offset]) * 255 / alpha)
-            let green = min(255, Int(pixels[offset + 1]) * 255 / alpha)
-            let blue = min(255, Int(pixels[offset + 2]) * 255 / alpha)
-            let key = (red >> 4) << 8 | (green >> 4) << 4 | (blue >> 4)
-            var cluster = clusters[key, default: Cluster()]
-            cluster.count += 1; cluster.red += red; cluster.green += green; cluster.blue += blue
-            clusters[key] = cluster
-        }
-        guard let primary = clusters.max(by: {
-            $0.value.count == $1.value.count ? $0.key > $1.key : $0.value.count < $1.value.count
-        })?.value else { return nil }
-        return .init(red: UInt8(primary.red / primary.count),
-                     green: UInt8(primary.green / primary.count), blue: UInt8(primary.blue / primary.count))
-    }
 }
