@@ -49,7 +49,7 @@ public final class DynamicIslandPresentationModel {
     public private(set) var phase: NotchPresentationPhase
     public private(set) var reduceMotion = false
     public private(set) var isAuxiliaryInteractionPresented = false
-    /// Settles the existing visual surface when a Space change ends an unowned hover.
+    /// Settles the existing visual surface after a Space change or sleep/wake interruption.
     private(set) var systemTransitionRevision = 0
     private var auxiliarySources: Set<String> = []
 
@@ -283,6 +283,17 @@ public final class DynamicIslandPresentationModel {
               !isHeldAfterSystemPresentation,
               !(visualState == .hovered && pointerIsInside) else { return }
         present(.collapsed, animated: false)
+        systemTransitionRevision &+= 1
+    }
+
+    func prepareForSystemSleep() {
+        reset(clearingActivities: false)
+        systemTransitionRevision &+= 1
+    }
+
+    /// The hosting view survives sleep; its native spring may have been suspended
+    /// before the hidden target update rendered. Reapply current geometry before showing it.
+    func prepareForSystemWake() {
         systemTransitionRevision &+= 1
     }
 
