@@ -112,6 +112,7 @@ public final class NotchiumDisplayCoordinator: NSObject {
         lifecycleGeneration &+= 1
         displayState.preferences = settings.preferences
         displayState.setSleeping(false, evidence: evidence)
+        activitySource.setSystemSleeping(false)
         activitySource.onSubmission = { [weak self] in self?.refreshPresentationEvidence() }
         let generation = lifecycleGeneration
         environmentSource.start { [weak self] in
@@ -319,12 +320,14 @@ public final class NotchiumDisplayCoordinator: NSObject {
         reconciliationTask?.cancel(); reconciliationTask = nil
         needsTopologyRebuild = false
         needsSpaceReassertion = false
+        activitySource.setSystemSleeping(true)
         displayState.setSleeping(true, evidence: evidence)
         sessions.forEach { $0.sleep() }
     }
 
     @objc private func workspaceScreensDidWake() {
         guard isStarted else { return }
+        activitySource.setSystemSleeping(false)
         displayState.setSleeping(false, evidence: evidence)
         refreshDisplayConfiguration()
         scheduleReconciliation(topology: true)
