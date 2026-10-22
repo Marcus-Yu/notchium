@@ -37,6 +37,27 @@ when an app becomes audible. The page also requires a foreground-capable owning
 application and a verified route to the current output. Spotify playback on
 another device does not create a local process row.
 
+Recently audible local apps remain in the mixer for three minutes after their output
+becomes inactive, including when pausing releases their HAL audio client. Their volume,
+mute and reset controls remain available during that grace period. Changes persist by
+the owning app's bundle identifier and apply when local playback resumes. Resuming audio
+cancels the old expiry; another pause starts a fresh three-minute grace. Repeated inactive
+snapshots do not extend it. Closing the owning app removes its rows immediately, including
+rows attributed to its audio helper processes. Feature shutdown cancels all expiry work.
+
+The HAL reports active output rather than media Pause/Stop commands, so a generic explicit
+Stop and a pause use the same inactivity grace while the app stays open. Retained rows use
+their last verified output route; switching to an unverified output hides them until local
+playback revalidates that route. The activity dot is gray while output is inactive. Retained
+rows are excluded from the live tap graph, so pausing does not keep an audio capture graph
+running solely to preserve a slider.
+
+October 22, 2026 validation: all 58 targeted mixer, retention, audio, lifecycle and
+architecture tests pass with normal macOS host access, including a simulated 90-second
+pause with saved volume changes, exact 180-second expiry and immediate owning-app removal.
+The unsigned Debug workspace app build and whitespace checks pass. Live Spotify playback
+and pause/resume were not manually exercised.
+
 Per-app gain uses public Core Audio process taps and installs no system audio
 driver. Apps at 100% and unmuted continue directly to the selected output. For each
 audible app that needs attenuation or mute, the mixer creates one stereo tap scoped
@@ -98,6 +119,12 @@ transition tracker suppresses the second announcement within the existing 2.5-se
 connection activity lifetime. Removal clears that suppression so rapid reconnection still
 announces. Available output endpoints and the selected route are separate facts; neither
 claims universal physical Bluetooth connection truth. Existing device animations remain.
+
+Momentary device/system HUD feedback is discarded on screen or system sleep, and arrivals
+while asleep are ignored at the activity source. Wake explicitly settles the retained shell
+geometry before the panel returns, so an interrupted AirPods disconnect retraction cannot
+keep its expired glyph/status visible. Persistent media/provider state is preserved. See
+[shell sleep/wake validation](NOTCH_SHELL.md) for the regression evidence and hardware limit.
 
 ## Qualification
 
