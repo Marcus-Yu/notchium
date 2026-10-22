@@ -56,7 +56,7 @@ public struct WaveformAppearanceSettings: View {
                 Text(invalidHex ? "Enter a valid hex colour, such as #007AFF or #0AF." : "Use a 3- or 6-digit hex code, with or without #.")
                     .font(.caption).foregroundStyle(invalidHex ? .red : .secondary)
             } else {
-                Text("Matches the primary colour of the current album artwork. Uses white when artwork is unavailable.")
+                Text("Follows the album artwork, favouring prominent colourful hues while respecting mostly neutral covers. Uses white when artwork is unavailable.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Text("Dark colours are brightened so the waveform stays visible against the black notch.")
