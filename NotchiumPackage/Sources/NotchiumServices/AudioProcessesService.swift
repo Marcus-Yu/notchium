@@ -7,13 +7,16 @@ public struct AudioProducingProcess: Identifiable, Equatable, Sendable {
     public let controllableOutputDeviceIDs: [String]
     /// Tapping failed only because System Audio Recording access is missing.
     public let requiresAudioPermission: Bool
+    /// False for a recently audible app retained in the mixer while its output is inactive.
+    public let isRunningOutput: Bool
 
     public init(id: Int32, bundleID: String?, controllableOutputDeviceIDs: [String] = [],
-                requiresAudioPermission: Bool = false) {
+                requiresAudioPermission: Bool = false, isRunningOutput: Bool = true) {
         self.id = id
         self.bundleID = bundleID
         self.controllableOutputDeviceIDs = controllableOutputDeviceIDs
         self.requiresAudioPermission = requiresAudioPermission
+        self.isRunningOutput = isRunningOutput
     }
 
     public func isControllable(on outputDeviceID: String?) -> Bool {
