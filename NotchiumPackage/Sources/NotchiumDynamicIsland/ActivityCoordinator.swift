@@ -97,6 +97,7 @@ public final class ActivityCoordinator: ObservableObject {
     private let clock: any AppClock
     private var lifetimeTask: Task<Void, Never>?
     private var lifetimeGeneration = 0
+    private var isSystemSleeping = false
 
     public init(clock: any AppClock) {
         self.clock = clock
@@ -120,6 +121,20 @@ public final class ActivityCoordinator: ObservableObject {
     }
 
     deinit { lifetimeTask?.cancel() }
+
+    /// Momentary audio feedback is stale after a system interruption. Clear it at
+    /// the source, including feedback delivered while the panels are hidden, rather
+    /// than waiting for a suspended expiry task to run after wake.
+    func setSystemSleeping(_ sleeping: Bool) {
+        if let source { source.setSystemSleeping(sleeping); return }
+        guard isSystemSleeping != sleeping else { return }
+        isSystemSleeping = sleeping
+        if sleeping { remove { Self.isMomentaryAudioFeedback($0.activity) } }
+    }
+
+    private static func isMomentaryAudioFeedback(_ activity: NotchActivity) -> Bool {
+        !activity.lifetime.isBaseline && (activity.kind == .audioDevice || activity.kind == .systemHUD)
+    }
 
     // MARK: Submission
 
@@ -156,6 +171,7 @@ public final class ActivityCoordinator: ObservableObject {
     }
 
     private func upsert(_ activity: NotchActivity, notification: NotchNotification?, duration: Duration?) {
+        guard !isSystemSleeping || !Self.isMomentaryAudioFeedback(activity) else { return }
         let key = activity.key
         let isTransient = !activity.lifetime.isBaseline
         if var entry = entries[key] {
