@@ -34,7 +34,9 @@ final class NotchDisplaySession {
         }
         self.placement = placement
         self.configuration = configuration
+        let resuming = model.activityCoordinator.presentationContext == .sleeping && context != .sleeping
         model.activityCoordinator.setPresentationContext(context)
+        if resuming { model.prepareForSystemWake() }
         panel.setPresentationContext(context)
         reconcile(animated: animated)
     }
@@ -56,7 +58,7 @@ final class NotchDisplaySession {
     }
 
     func sleep() {
-        model.present(.collapsed, animated: false)
+        model.prepareForSystemSleep()
         model.activityCoordinator.setPresentationContext(.sleeping)
         panel.setPresentationContext(.sleeping)
         hide()
