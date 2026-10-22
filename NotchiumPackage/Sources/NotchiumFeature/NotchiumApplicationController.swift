@@ -93,7 +93,8 @@ public final class NotchiumApplicationController {
             clock: environment.clock)
         audioModel = AudioFeatureModel(devices: environment.services.audioDevices,
                                        processes: environment.services.audioProcesses,
-                                       mixer: environment.services.appAudioMixer)
+                                       mixer: environment.services.appAudioMixer,
+                                       clock: environment.clock)
         systemFeedback = SystemFeedbackCoordinator(control: environment.distributionProfile == .appStoreSandboxed
             ? nil : environment.services.audioDevices as? any SystemFeedbackControlling)
         let store = actionStore ?? QuickActionStore(preferences: .standard)
