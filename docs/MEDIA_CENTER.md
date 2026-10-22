@@ -45,6 +45,22 @@ existing bounded artwork requests/cache; decoded thumbnails are at most 320px to
 larger artwork sharp on Retina displays, with eight memory-cache entries and a 4MB cost limit.
 The original audio meter and audio capture implementation are unchanged.
 
+Adaptive selection samples at most 1,024 pixels and groups nearby hues across dark and
+bright shades, including neighbours across the red hue boundary. Nearby neutral shades
+are grouped separately by lightness; black, middle gray and white are not pooled into a
+single competing colour. Colourful families receive a 1.5× coverage weight, so 30% black
+versus 24% blue selects blue, while 45% or 50% black versus 25% blue stays neutral.
+Saturated navy and deep red qualify; near-black channel noise and low-saturation colours
+receive no bonus. Equal scores prefer greater actual coverage, then a stable RGB ordering.
+The selected family's mean RGB still passes through the existing contrast floor, so a
+black winner displays as readable gray rather than disappearing against the notch.
+
+October 21, 2026 validation: all 27 palette and waveform-appearance tests pass, including
+the agreed coverage examples, shade grouping, hue wrap, dark hues, neutral noise,
+transparency, rendered bars and both settings appearances. The unsigned Debug workspace
+app build and whitespace checks pass. Adaptive settings were also visually inspected;
+live Spotify album covers were not manually evaluated.
+
 Spotify's bundled source logo remains unmodified. Artwork comes only from the URL returned by
 the local dictionary and accepted by the existing `i.scdn.co` HTTPS loader. Missing, rejected or
 failed artwork falls back to the native music-note placeholder.
