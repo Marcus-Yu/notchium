@@ -20,6 +20,15 @@ The measured hardware footprint, screen coordinate calculations, fixed transpare
 
 `NSWorkspace.activeSpaceDidChangeNotification` reports a Space change; Apple does not guarantee notification delivery at the beginning of the three-finger gesture. Unowned hover geometry settles on notification delivery; active open sessions stay open. First-frame swipe timing requires hardware verification.
 
+Screen or system sleep clears momentary device/system HUD feedback at the authoritative
+activity source and rejects that feedback while asleep. Media, persistent conditions and
+other notification kinds keep their existing ownership and deadlines. Every display resets
+pointer/auxiliary interaction and advances the visual-settle revision on sleep, then advances
+it again after resolving the awake context and before showing its native panel. The hosting
+view and pages remain mounted. This explicitly cancels an interrupted compact retraction:
+its retained AirPods glyph/status cannot depend on an old spring completion or a suspended
+expiry timer to disappear after wake.
+
 ## One continuous surface
 
 One persistent `NotchShape` interpolates width, height, shoulders, and bottom radius with SwiftUI's native animation system. Its top never moves. There is no shell scale transform, view replacement, crossfade, popup, or AppKit frame animation.
@@ -70,6 +79,15 @@ October 14, 2026: 88 focused tests pass for Home opening during playback, naviga
 October 18, 2026: active local playback again selects Music on fresh expansion. The 600 ms exit grace is retained. All 69 focused navigation, media-default, timer, activity, Home, and presentation tests pass, along with the unsigned Debug app build for the same workspace, scheme, and macOS destination. Live pointer feel was not manually verified.
 
 October 21, 2026: all 114 focused Space, shell, navigation, sharing, display and presentation tests pass with normal host access, and the unsigned Debug workspace app build passes. A persistent offscreen native hosting test observes a closing spring, changes only the system-transition revision, verifies collapsed geometry on the next sampled frame and after the old completion, and confirms mounted content is retained. The sandbox-only run could not obtain the native AirDrop service for one existing sharing test; its host-access rerun passes. Actual three-finger Space gestures and first-frame WindowServer timing remain manual verification.
+
+October 22, 2026: all 89 focused AirPods, sleep/wake, activity/notification, display and
+transition regressions pass, along with the unsigned Debug workspace build and whitespace
+check. Tests cover both screen/system sleep orders, an eight-hour wall-time jump before
+timer delivery, feedback arriving while asleep, preserved baselines, fresh post-wake expiry,
+and pointer/auxiliary reset. A persistent native host observes actual AirPods retraction,
+hides during the spring, then verifies resting geometry and no stale exterior content on
+the next sampled wake frame and after old completion, with its media page still mounted.
+The full overnight lock/lid/AirPods hardware sequence was not reproduced.
 
 These tests do not certify visual acceptance. The release gate is a real 60 fps recording on a built-in notched MacBook of passive → hover → expanded → collapse, plus click opening/closing, mid-animation reversal, fullscreen hover, and three-finger Space swipes. Inspect every frame for a separate software notch and horizontal drift. Do not mark PASS from geometry tests, mocked displays, still screenshots, or a synthetic animation recording.
 
