@@ -1,5 +1,6 @@
 import AppKit
 import Darwin
+import NotchiumCore
 import NotchiumDynamicIsland
 import NotchiumServices
 import Observation
@@ -26,6 +27,8 @@ public final class AudioFeatureModel: NotchAudioRendering {
     @ObservationIgnored private let mixerService: any AppAudioMixerService
     @ObservationIgnored private let preferences: UserDefaults
     @ObservationIgnored private let now: @Sendable () -> Date
+    @ObservationIgnored private let processRetention: AudioMixerProcessRetention
+    @ObservationIgnored private var applicationTerminationObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var deviceTask: Task<Void, Never>?
     @ObservationIgnored private var volumeCommandTask: Task<Void, Never>?
     @ObservationIgnored private var processTask: Task<Void, Never>?
@@ -42,19 +45,31 @@ public final class AudioFeatureModel: NotchAudioRendering {
 
     public init(devices: any AudioDevicesService, processes: any AudioProcessesService,
                 mixer: any AppAudioMixerService, preferences: UserDefaults = .standard,
+                clock: any AppClock = ContinuousAppClock(),
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.now = now
         deviceService = devices
         processService = processes
         mixerService = mixer
+        processRetention = AudioMixerProcessRetention(clock: clock)
         self.preferences = preferences
         pinnedBundles = Set(preferences.stringArray(forKey: "audio.pinnedBundles") ?? [])
         appVolumes = preferences.dictionary(forKey: "audio.appVolumes") as? [String: Double] ?? [:]
         mutedBundles = Set(preferences.stringArray(forKey: "audio.mutedBundles") ?? [])
+        processRetention.onChange = { [weak self] processes in
+            guard let self else { return }
+            self.processes = processes
+            let ids = Set(processes.map(\.id))
+            self.applicationCache = self.applicationCache.filter { ids.contains($0.key) }
+            self.reconcileMixer()
+        }
     }
+
+    isolated deinit { removeApplicationTerminationObserver() }
 
     public func start() {
         guard deviceTask == nil else { return }
+        observeApplicationTermination()
         mixerTask?.cancel(); mixerTask = nil
         deviceTask = Task { [weak self, deviceService] in
             let updates = await deviceService.updates()
@@ -82,6 +97,8 @@ public final class AudioFeatureModel: NotchAudioRendering {
     }
 
     public func stop() {
+        removeApplicationTerminationObserver()
+        processRetention.reset()
         deviceTask?.cancel(); deviceTask = nil
         volumeCommandTask?.cancel(); volumeCommandTask = nil
         processTask?.cancel(); processTask = nil
@@ -259,11 +276,40 @@ public final class AudioFeatureModel: NotchAudioRendering {
     }
 
     func receiveProcesses(_ processes: [AudioProducingProcess]) {
-        self.processes = processes
-        applicationCache = Dictionary(uniqueKeysWithValues: processes.compactMap { process in
-            owningApplication(for: process).map { (process.id, $0) }
+        for process in processes {
+            applicationCache[process.id] = owningApplication(for: process)
+        }
+        processRetention.receive(processes) { process in
+            guard let application = self.applicationCache[process.id] else { return false }
+            return !application.isTerminated
+        }
+    }
+
+    private func observeApplicationTermination() {
+        guard applicationTerminationObserver == nil else { return }
+        applicationTerminationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] notification in
+            guard let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+            let processID = application.processIdentifier
+            MainActor.assumeIsolated {
+                self?.applicationDidTerminate(processID: processID)
+            }
+        }
+    }
+
+    private func removeApplicationTerminationObserver() {
+        if let applicationTerminationObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(applicationTerminationObserver)
+            self.applicationTerminationObserver = nil
+        }
+    }
+
+    func applicationDidTerminate(processID: Int32) {
+        let ids = Set(applicationCache.compactMap { id, application in
+            application.processIdentifier == processID ? id : nil
         })
-        reconcileMixer()
+        processRetention.remove(processIDs: ids)
     }
 
     public func openAudioPrivacySettings() {
@@ -276,13 +322,14 @@ public final class AudioFeatureModel: NotchAudioRendering {
         previous?.cancel()
         mixerGeneration &+= 1
         let generation = mixerGeneration
-        let targets = processes.filter(hasControllableRoute).compactMap { process -> AppAudioMixTarget? in
-            guard let settingsID = settingsBundleID(for: process) else { return nil }
-            return AppAudioMixTarget(processID: process.id,
-                                     bundleID: process.bundleID ?? settingsID,
-                                     volume: appVolumes[settingsID, default: 1],
-                                     isMuted: mutedBundles.contains(settingsID))
-        }
+        let targets = processes.filter { $0.isRunningOutput && hasControllableRoute($0) }
+            .compactMap { process -> AppAudioMixTarget? in
+                guard let settingsID = settingsBundleID(for: process) else { return nil }
+                return AppAudioMixTarget(processID: process.id,
+                                         bundleID: process.bundleID ?? settingsID,
+                                         volume: appVolumes[settingsID, default: 1],
+                                         isMuted: mutedBundles.contains(settingsID))
+            }
         let outputID = devices.currentOutput?.id
         mixerTask = Task { [weak self, mixerService] in
             // The mixer runs off the main actor: applies must still land in submission order.
@@ -299,7 +346,7 @@ public final class AudioFeatureModel: NotchAudioRendering {
 
     public var visibleProcesses: [AudioProducingProcess] {
         var bundles = Set<String>()
-        return processes.filter {
+        return processes.sorted { $0.isRunningOutput && !$1.isRunningOutput }.filter {
             guard isControllable($0),
                   let bundleID = settingsBundleID(for: $0) else { return false }
             return bundles.insert(bundleID).inserted
@@ -325,6 +372,7 @@ public final class AudioFeatureModel: NotchAudioRendering {
     private func isControllable(_ process: AudioProducingProcess) -> Bool {
         guard hasControllableRoute(process),
               let application = applicationCache[process.id],
+              !application.isTerminated,
               let bundleID = application.bundleIdentifier else { return false }
         return bundleID != Bundle.main.bundleIdentifier
     }
@@ -339,6 +387,7 @@ public final class AudioFeatureModel: NotchAudioRendering {
         var visited = Set<pid_t>()
         for _ in 0..<10 where pid > 1 && visited.insert(pid).inserted {
             if let application = NSRunningApplication(processIdentifier: pid),
+               !application.isTerminated,
                application.activationPolicy == .regular,
                application.bundleIdentifier != nil {
                 return application
