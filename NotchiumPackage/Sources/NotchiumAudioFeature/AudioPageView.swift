@@ -202,8 +202,9 @@ struct AudioPageView: View {
                 } else {
                     Image(systemName: "app.fill").frame(width: 17, height: 17)
                 }
-                Circle().fill(.green.opacity(0.9)).frame(width: 4, height: 4)
-                    .accessibilityLabel("Audio active")
+                Circle().fill(process.isRunningOutput ? .green.opacity(0.9) : .white.opacity(0.38))
+                    .frame(width: 4, height: 4)
+                    .accessibilityLabel(process.isRunningOutput ? "Audio active" : "Audio inactive")
                 Text(model.appName(process))
                     .font(.system(size: 10.5, weight: .medium))
                     .lineLimit(1)
