@@ -47,7 +47,7 @@ placement are unchanged; the idle physical-notch endpoint remains empty.
 `DynamicIslandPresentationModel` owns collapsed, temporarily hovered, and pinned-expanded states. Pointer-region edges drive timers; movement inside a region does not continually restart them.
 
 - Hover entry: 120 ms.
-- Hover leave grace: 600 ms. Content stays open during the grace; pointer re-entry cancels collapse, and another exit starts a fresh grace period.
+- Hover leave grace: 500 ms. Content stays open during the grace; pointer re-entry cancels collapse, and another exit starts a fresh grace period.
 - Click: pin immediately; second click collapses.
 - Pinned ignores pointer exit; outside click and Esc collapse.
 - Both hover and click use one symmetric `interactiveSpring(response: 0.40, dampingFraction: 0.80, blendDuration: 0)` on shell geometry only. Pinning an already hovered shell does not start another morph.
