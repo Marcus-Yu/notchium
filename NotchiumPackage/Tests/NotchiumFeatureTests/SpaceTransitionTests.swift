@@ -43,7 +43,7 @@ final class SpaceTransitionTests: XCTestCase {
         XCTAssertEqual(model.pageModel.selectedPage, .calendar)
         model.setHovered(false)
         await clock.waitForPendingSleeps()
-        await clock.advance(by: .milliseconds(599))
+        await clock.advance(by: .milliseconds(499))
         await drainMainActorTasks()
         XCTAssertEqual(model.phase, .hovered, "A real exit after the swipe retains its normal grace")
         await clock.advance(by: .milliseconds(1))
