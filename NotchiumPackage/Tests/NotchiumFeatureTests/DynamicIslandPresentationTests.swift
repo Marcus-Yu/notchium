@@ -59,7 +59,7 @@ final class DynamicIslandPresentationTests: XCTestCase {
 
         let history = await clock.sleepHistory()
         XCTAssertTrue(history.contains(.milliseconds(120)))
-        XCTAssertTrue(history.contains(.milliseconds(600)))
+        XCTAssertTrue(history.contains(.milliseconds(500)))
     }
 
     func testHoverExitKeepsThePageOpenForTheFullGracePeriod() async {
@@ -78,7 +78,7 @@ final class DynamicIslandPresentationTests: XCTestCase {
         await drainMainActorTasks()
         // Further movement outside must not restart the grace period.
         for _ in 0..<20 { model.setHovered(false) }
-        await clock.advance(by: .milliseconds(299))
+        await clock.advance(by: .milliseconds(199))
         await drainMainActorTasks()
         XCTAssertEqual(model.phase, .hovered)
         XCTAssertEqual(model.pageModel.selectedPage, .music)
@@ -171,14 +171,14 @@ final class DynamicIslandPresentationTests: XCTestCase {
         model.setHovered(true)
         await drainMainActorTasks()
         await clock.waitForPendingSleeps()
-        await clock.advance(by: .milliseconds(600))
+        await clock.advance(by: .milliseconds(500))
         await drainMainActorTasks()
         XCTAssertEqual(model.visualState, .hovered)
         XCTAssertEqual(model.pageModel.selectedPage, .calendar)
 
         model.setHovered(false)
         await clock.waitForPendingSleeps()
-        await clock.advance(by: .milliseconds(599))
+        await clock.advance(by: .milliseconds(499))
         await drainMainActorTasks()
         XCTAssertEqual(model.phase, .hovered, "A new exit gets a full grace period")
         await clock.advance(by: .milliseconds(1))
