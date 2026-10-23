@@ -131,7 +131,7 @@ final class Stage10CoordinationTests: XCTestCase {
         model.setAuxiliaryInteractionPresented(false, source: "picker")
         await drain()
         await clock.waitForPendingSleeps()
-        await clock.advance(by: .milliseconds(600))
+        await clock.advance(by: .milliseconds(500))
         await drain()
         XCTAssertEqual(model.visualState, .collapsed)
         model.reset()
