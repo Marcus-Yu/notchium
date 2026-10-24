@@ -169,10 +169,11 @@ Record candidate SHA-256, macOS version, CPU, account freshness, and outcomes:
 2. Double-click Notchium. Record the exact first-launch warning.
 3. Follow **System Settings → Privacy & Security → Security → Open Anyway**;
    confirm Open. Record whether macOS offered and accepted the exception.
-4. Verify the mandatory fifteen-item setup appears before normal feature startup.
-   Complete available authorizations, folder selection, the explicit Clipboard
-   choice, and truthful non-pregrantable/unavailable exceptions. Verify the
-   menu-bar/notch UI, then quit and launch again repeatedly without setup returning.
+4. Verify the fifteen-item setup appears before normal feature startup. Test both
+   granting access and skipping every permission, folder selection, Clipboard choice,
+   and acknowledgment. Finish Setup must reach Ready in either case, preserving
+   actual permission statuses and leaving skipped Clipboard monitoring off. Verify
+   the menu-bar/notch UI, then quit and relaunch without setup returning.
 5. Exercise Calendar allow/deny, Quick Reminder, Mirror allow/deny and close,
    system audio capture allow/deny, and screenshot-folder access. Existing TCC
    approvals on the development Mac do not establish fresh-user correctness.
