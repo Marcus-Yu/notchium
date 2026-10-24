@@ -9,8 +9,8 @@
 /// 5. The stable key breaks any remaining tie, so ordering is always deterministic.
 ///
 /// Secondary: the highest-ranked persistent activity (with a visible minimal form) that is not
-/// already primary — so an active transfer outranks Music. Beside a persistent primary, or beside a
-/// Calendar alert (where Music is never the chip: it already lives in the banner's top row).
+/// already primary — so an active transfer outranks Music. Calendar keeps the same baseline row
+/// and its companion above the banner instead of replacing that row with minimal glyphs.
 /// Short system transients own the whole compact presentation; nothing sits beside them.
 public enum ActivityPriorityPolicy {
     /// How long a paused timer stays in the collapsed notch. Music owns a separate audio inactivity
@@ -93,6 +93,11 @@ public enum ActivityPriorityPolicy {
         guard primary.activity.presentationStyle == .downwardBanner, primary.activity.family == .calendar else {
             return nil
         }
-        return persistent.first { $0.activity.presentationStyle != .mediaSides }
+        guard let baseline = ranked.first(where: { $0.activity.lifetime.isBaseline }) else { return nil }
+        // Generic activities without compact content can still expose their minimal form.
+        if baseline.notification == nil, baseline.activity.presentationStyle != .mediaSides {
+            return persistent.first { $0.activity.presentationStyle != .mediaSides }
+        }
+        return secondary(beside: baseline, among: ranked)
     }
 }
