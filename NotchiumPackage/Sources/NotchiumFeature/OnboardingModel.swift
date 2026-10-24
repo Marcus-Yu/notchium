@@ -42,7 +42,7 @@ import NotchiumServices
     public var requiresOnboarding: Bool { state.requiresOnboarding }
     public var current: SetupPermission { state.currentPermission }
     public var canFinish: Bool {
-        canWrite && !isBusy && SetupPermission.allCases.allSatisfy(isSatisfied)
+        canWrite && !isBusy && requiresOnboarding
     }
     public func isSatisfied(_ permission: SetupPermission) -> Bool {
         guard let status = statuses[permission] else { return false }
@@ -111,7 +111,7 @@ import NotchiumServices
         }
     }
     public func next() {
-        // An unresolved row may be revisited from review, but never bypasses completion.
+        // All integrations are optional and can be revisited from review or Settings.
         guard let index = SetupPermission.allCases.firstIndex(of: current) else { return }
         if index + 1 < SetupPermission.allCases.count { select(SetupPermission.allCases[index + 1]) }
         else { go(to: .review) }
@@ -141,22 +141,10 @@ import NotchiumServices
         }
     }
 
-    /// Re-read OS truth immediately before the one authoritative completion write.
+    /// Completion records the user's choice to enter the app, independently of OS access.
     public func finish() {
-        guard !isBusy, operation == nil, requiresOnboarding else { return }
-        isBusy = true
-        operation = Task { [weak self] in
-            guard let self else { return }
-            await self.readStatuses()
-            guard !Task.isCancelled else { return }
-            self.isBusy = false
-            self.operation = nil
-            guard !Task.isCancelled, self.canFinish else {
-                self.error = "Some requirements still need attention. Grant available permissions or explicitly review the listed exceptions before finishing."
-                return
-            }
-            self.commit { $0.completion = .userCompleted; $0.step = .ready }
-        }
+        guard canFinish, operation == nil else { return }
+        commit { $0.completion = .userCompleted; $0.step = .ready }
     }
 
     public func openSettings(for permission: SetupPermission) { permissions.openSettings(for: permission) }
