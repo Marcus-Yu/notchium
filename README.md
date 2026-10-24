@@ -59,8 +59,9 @@ developer or substitute for Apple verification. Download both from the official 
 
 ## Permissions
 
-New profiles complete a one-time setup before normal use. Setup introduces every
-implemented requirement and requests supported authorizations one at a time.
+New profiles see a one-time setup before normal use. Setup introduces each
+integration and offers supported authorizations one at a time. All permissions and
+review acknowledgments are optional; Finish Setup works even when none are granted.
 Completed setup persists across relaunches and updates. Returning installations keep
 their existing configuration; access can be reviewed in Settings → Permissions.
 
@@ -68,22 +69,20 @@ Notchium uses these permissions for the corresponding features:
 
 | Permission | Purpose |
 |---|---|
-| Calendars | Show selected calendar events and meeting links. Full access is requested during setup. |
+| Calendars | Show selected calendar events and meeting links. Setup offers a full-access request. |
 | Reminders | Add a reminder when you use Quick Reminder. |
 | Camera | Show the live Mirror preview when you open it. |
 | Automation (Spotify) | Show the current song and control Spotify on this Mac. Setup verifies the running Spotify target before requesting consent. |
 | System Audio Recording | Capture app audio in memory for volume control and the Spotify waveform. Core Audio asks when capture first starts; setup explains this exception without recording. No microphone or Screen Recording request is used. |
 | Accessibility | Optional volume-HUD replacement uses Accessibility trust and event-post access. Granting access does not enable replacement. |
-| Selected files and folders | Setup selects a screenshot folder. Shelf and Quick Actions use native selections and bookmarks for specific items; there is no universal file grant. |
+| Selected files and folders | Setup offers a screenshot-folder selection. Shelf and Quick Actions use native selections and bookmarks for specific items; there is no universal file grant. |
 
-Clipboard History defaults off. Setup requires an explicit Enable or Keep Off choice;
+Clipboard History defaults off. Setup offers an explicit Enable or Keep Off choice;
 monitoring starts only after setup and only with opt-in. macOS pasteboard privacy remains
 separate and may require a system decision on future reads. Setup never reads the Clipboard.
-Spotify offers an explicit **Continue Without Spotify** exception when access cannot be completed;
-local controls remain unavailable without real authorization, and access can be retried in Settings.
-Other available required permissions must be granted to finish setup; denied choices have a
-System Settings recovery path and a safe quit/resume path. Genuine unavailable and
-non-pregrantable requirements need explicit review. No Full Disk Access or administrator
+Skipping Clipboard leaves monitoring off. Missing or denied permissions remain visible
+and affect only the corresponding features. Access can be enabled or retried in Settings →
+Permissions after setup. No Full Disk Access or administrator
 approval is requested in the free build. See [the permission contract](docs/PERMISSIONS.md).
 
 ## Privacy
