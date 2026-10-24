@@ -1,5 +1,12 @@
 # Stage 27B — First-launch permissions and durable setup
 
+> Policy update — 2026-10-23: The mandatory completion policy recorded below is
+> historical. All permissions, selections, Clipboard choices, and acknowledgments
+> are now optional. Finish Setup saves completion without rechecking or requesting
+> access; permission status remains truthful, and skipped Clipboard monitoring stays
+> off. The five screens and atomic persistence remain. See [the current contract](PERMISSIONS.md).
+> Validation counts below describe the original Stage 27B candidate.
+
 Date: 19 October 2026. Version 1.0.0, build 2. Starting HEAD:
 `d2b8ce9096fae05fa1eb23637a1b3cb981997dca`. The starting working tree was clean.
 Implementation is uncommitted. No reset, clean, history rewrite, push, tag, publication,
