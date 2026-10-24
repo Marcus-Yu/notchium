@@ -137,13 +137,13 @@ import NotchiumPersistence
         XCTAssertEqual(status.authorization, .requiresApplication)
     }
 
-    func testExplicitExceptionEnablesFinishPreservesDenialAndReturningUserThenSettingsRepair() async {
+    func testOptionalSpotifyReviewPreservesDenialAndReturningUserThenSettingsRepair() async {
         let permissions = HotfixSetupPermissions()
         let store = InMemoryOnboardingStore()
         let model = OnboardingModel(store: store, permissions: permissions)
         await model.refresh()
         model.chooseClipboard(false)
-        XCTAssertFalse(model.canFinish)
+        XCTAssertTrue(model.canFinish)
         model.continueWithoutSpotify()
         XCTAssertTrue(model.canFinish)
         XCTAssertEqual(model.statuses[.spotify]?.authorization, .denied)
@@ -161,16 +161,17 @@ import NotchiumPersistence
         XCTAssertEqual(permissions.clipboardWrites, [false])
     }
 
-    func testSpotifyExceptionLeavesAllOtherRequirementsUnchanged() async {
+    func testSpotifyReviewDoesNotChangeOtherPermissionStatusesOrBlockCompletion() async {
         let permissions = HotfixSetupPermissions()
         permissions.calendarDenied = true
         let model = OnboardingModel(store: InMemoryOnboardingStore(), permissions: permissions)
         await model.refresh()
         model.chooseClipboard(false)
         model.continueWithoutSpotify()
-        XCTAssertFalse(model.canFinish)
+        XCTAssertTrue(model.canFinish)
         XCTAssertFalse(model.canAcknowledge(.calendar))
         XCTAssertEqual(model.statuses[.spotify]?.authorization, .denied)
+        XCTAssertEqual(model.statuses[.calendar]?.authorization, .denied)
     }
 
     func testStoppedModelIgnoresStaleRequestCompletion() async {
