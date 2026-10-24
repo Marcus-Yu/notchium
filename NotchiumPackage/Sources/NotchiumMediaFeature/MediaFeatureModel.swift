@@ -19,11 +19,12 @@ public final class MediaSessionController {
 
     public let audioMeter: SystemAudioMeter
     public let waveformAppearance: WaveformAppearanceModel
-    public private(set) var collapsedMediaVisible = false
+    public var collapsedMediaVisible: Bool { collapsedVisibility.isVisible }
     public private(set) var isShowingCachedTrack = false
     /// Connection truth stays separate from the cached paused presentation.
     public var homeMediaConnected: Bool { authoritativeState.connectionState == .authenticated }
     @ObservationIgnored private let visibilityClock: any AppClock
+    @ObservationIgnored private let collapsedVisibility: CollapsedMediaVisibility
     @ObservationIgnored private let controlClock: any AppClock
     @ObservationIgnored private let snapshotStore: any MediaSnapshotStoring
     public private(set) var state = MediaState(availability: .unavailable(.permissionNotDetermined),
@@ -82,8 +83,10 @@ public final class MediaSessionController {
         self.provider = provider
         self.coordinator = coordinator
         self.visibilityClock = visibilityClock
+        collapsedVisibility = CollapsedMediaVisibility(clock: visibilityClock)
         self.controlClock = controlClock
         self.snapshotStore = snapshotStore
+        collapsedVisibility.didChange = { [weak self] in self?.publishActivity() }
         audioMeter.setPlaybackActivityHandler { [weak self] in self?.spotifyAudioBecameActive() }
         audioMeter.setLocalAudioActivityHandler { [weak self] _ in
             guard let self else { return }
@@ -114,9 +117,9 @@ public final class MediaSessionController {
         }
     }
     public func stop() {
+        collapsedVisibility.reset()
         audioMeter.stop()
         waveformAppearance.setArtwork(nil)
-        collapsedMediaVisible = false
         generation &+= 1; observation?.cancel(); observation = nil
         commandTasks.values.forEach { $0.cancel() }; commandTasks.removeAll(); pendingControls.removeAll()
         queueTask?.cancel(); queueTask = nil
@@ -147,8 +150,15 @@ public final class MediaSessionController {
             }
         }
         if queuedSeek != nil, value.isSameTrack(as: state) {
-            // A queued release owns progress until it is sent; no sample can describe it yet.
+            // A queued release owns only progress. Transport/device changes still apply
+            // immediately, including an external pause while the earlier seek is in flight.
             authoritativeState = value
+            var reconciled = applyingControlFeedback(to: value)
+            reconciled.elapsed = state.elapsed
+            reconciled.timestamp = state.timestamp
+            reconciled.sampledUptime = state.sampledUptime
+            let (next, showingCachedTrack) = presentationState(for: reconciled)
+            applyPresentation(next, showingCachedTrack: showingCachedTrack)
             return
         }
         lastSeekTarget = nil
@@ -248,6 +258,7 @@ public final class MediaSessionController {
 
     private func applyPresentation(_ next: MediaState, showingCachedTrack: Bool? = nil) {
         if state.activeDeviceID != next.activeDeviceID {
+            collapsedVisibility.reset()
             audioMeter.resetLocalAudioActivity()
         }
         if state != next { state = next }
@@ -285,12 +296,14 @@ public final class MediaSessionController {
             || isLocalDevice(name: state.activeDeviceName, type: state.activeDeviceType)
     }
     private func updateCollapsedVisibility(_ value: MediaState) {
-        // Track metadata stays available in Music, but only active playback owns
-        // collapsed artwork and flanks. A paused local session must leave the hardware bare.
-        let isVisible = value.hasMedia && value.isPlaying && audioMeter.isAudioActive
-        guard collapsedMediaVisible != isVisible else { return }
-        withAnimation(.easeInOut(duration: 0.12)) { collapsedMediaVisible = isVisible }
-        publishActivity()
+        let remoteDevice = (value.activeDeviceID != nil || value.activeDeviceType != nil)
+            && value.activeDeviceID != LocalSpotifyController.deviceID
+            && !isLocalDevice(name: value.activeDeviceName, type: value.activeDeviceType)
+        let canPresent = value.hasMedia && value.isPlaying && value.source == .spotify
+            && authoritativeState.connectionState == .authenticated
+            && authoritativeState.availability.isUsable && !remoteDevice
+        collapsedVisibility.update(canPresent: canPresent, hasAudio: audioMeter.isAudioActive,
+                                   canBridgeSilence: audioMeter.status == .capturing)
     }
     public func displayedPosition(at now: Date, uptime: TimeInterval? = nil) -> Double {
         estimatedPlaybackPosition(at: now, state: state, uptime: uptime)
