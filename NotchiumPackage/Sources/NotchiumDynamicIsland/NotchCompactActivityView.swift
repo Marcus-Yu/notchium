@@ -14,26 +14,23 @@ struct NotchCompactActivitySlot: View {
     @State private var introduced: [UUID] = []
 
     private var current: NotchNotification? {
-        guard let notification = model.presentedNotification,
-              notification.presentationStyle == .compact else { return nil }
-        return notification
+        model.collapsedRowNotification
     }
 
     var body: some View {
         // Retained content exists only while geometry is still retracting it. Once the shell is
         // back at rest (reveal 0) it is gone, whether or not the spring's removal callback has
         // arrived yet, so nothing stale can linger beside the restored activity.
-        // A banner replacing the compact activity (Calendar over a transfer) takes the row at once:
-        // retained content only accompanies a retraction back to rest.
+        // Calendar keeps the live baseline in this same slot; other banners replace it.
         let shown = current ?? (retracting && Self.retainsContent(reveal: reveal, restoresMedia: model.showsCollapsedMedia)
                                 && model.presentedNotification == nil ? retained : nil)
         ZStack {
             if let shown, let activity = shown.content.compactActivity {
                 NotchCompactActivityView(activity: activity,
                                          geometry: NotchCompactGeometry(layout: layout, activity: activity),
-                                         reveal: reveal,
+                                         reveal: model.retainsCalendarRow ? 1 : reveal,
                                          entryID: shown.id, reduceMotion: model.reduceMotion,
-                                         action: model.activateCurrentActivity,
+                                         action: model.activateCollapsedRow,
                                          blendsMedia: activity.blendsWithMedia && model.mediaVisiblyPlaying,
                                          entersFresh: !introduced.contains(shown.id))
                     // A coalesced update keeps its ID: the same view updates in place.
