@@ -20,6 +20,12 @@ See [Unified notifications](STAGE9_NOTIFICATIONS.md) for geometry, motion, timin
 priority, accessibility, and validation. The older variable-height banner and its
 centered action row are superseded.
 
+The full collapsed baseline row now remains above Calendar reminders, including Music
+artwork/waveform and the focus countdown or timer ring according to the timer preference.
+The same activity identities, live progress, companion positions and timer deadlines are
+projected through the alert; they remain visible as the banner opens and closes. Top-row
+controls open their own feature, while Calendar's actions and absolute expiry stay intact.
+
 Join appears only for HTTPS meeting URLs on recognized Zoom, Google Meet, or Microsoft Teams hosts with meeting-shaped paths. Detection checks `EKEvent.url`, then location, then notes. Join delegates to `NSWorkspace`.
 
 Validation includes threshold/wake scheduling, media restoration, priority suppression,
