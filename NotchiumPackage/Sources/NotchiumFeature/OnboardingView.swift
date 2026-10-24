@@ -69,20 +69,20 @@ public struct OnboardingView: View {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Welcome to Notchium").font(.largeTitle.weight(.semibold))
                 Text("Your music, calendar, and everyday tools. A little closer.").font(.title3)
-                Text("Let’s configure the macOS integrations together. You’ll see every permission, what it enables, and how your data is handled before normal use begins.")
+                Text("Choose which macOS integrations to enable. Every permission is optional, and you can finish setup without granting access.")
                 Text("Setup is saved as you go. You can quit safely and resume here. After completion, review or repair access in Settings → Permissions.")
                     .foregroundStyle(.secondary)
             }.padding(.vertical, 24)
         case .overview:
             Text("Your integrations, in one place").font(.title.weight(.semibold))
-            Text("macOS permissions, app choices, and selected-file access are separate. Each step shows its actual status. No capture starts during setup.")
+            Text("macOS permissions, app choices, and selected-file access are separate. Each step shows its actual status. You can skip any step and enable it later in Settings → Permissions. No capture starts during setup.")
                 .foregroundStyle(.secondary)
             PermissionChecklist(model: model, allowsReview: true)
         case .permissions:
             permissionDetail
         case .review:
             Text("Review your setup").font(.title.weight(.semibold))
-            Text("Granted permissions are verified with macOS. Reviewed exceptions remain exceptions; acknowledgments do not grant OS access. Spotify may be explicitly reviewed with Continue Without Spotify. Other available required permissions still denied or missing block completion.")
+            Text("You can finish setup with any or all permissions skipped. Features that need access will be available after you enable them in Settings → Permissions. Finishing setup does not grant macOS access or enable Clipboard History.")
                 .foregroundStyle(.secondary)
             PermissionChecklist(model: model, allowsReview: true)
         case .ready:
@@ -90,7 +90,7 @@ public struct OnboardingView: View {
                 Image(systemName: "checkmark.circle").font(.system(size: 42)).foregroundStyle(.tint)
                 Text("You’re ready").font(.largeTitle.weight(.semibold))
                 Text("Your setup is saved. Notchium will open normally next time.")
-                Text("The exceptions you reviewed still apply. Permissions can change in macOS; Settings → Permissions is always available to check and repair access.")
+                Text("You can enable integrations or check access at any time in Settings → Permissions.")
                     .foregroundStyle(.secondary)
             }.padding(.vertical, 24)
         }
