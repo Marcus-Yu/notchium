@@ -70,9 +70,8 @@ public final class DynamicIslandPresentationModel {
            notification.content.compactActivity == nil { return nil }
         return activity
     }
-    /// The coordinator pairs only baseline activities (a transient primary never has one), so the
-    /// chip sits beside a baseline compact activity (a transfer) or Music's live flanks. Never
-    /// beside a banner, and never while expanded.
+    /// The companion sits beside the baseline row, including above Calendar's banner.
+    /// Other transients take the compact row alone; expanded pages never show a chip.
     public var presentedSecondary: NotchActivity? {
         _ = activityRevision
         guard surfaceState == .collapsed, fileDrag == .idle,
@@ -83,17 +82,38 @@ public final class DynamicIslandPresentationModel {
         return showsCollapsedMedia ? secondary : nil
     }
 
-    /// Presentation only: Calendar borrows the two flanks from the existing live baselines.
-    /// Coordinator ranking and the transfer's identity remain untouched.
+    /// Calendar projects the ordinary collapsed row above its banner.
+    var collapsedRowNotification: NotchNotification? {
+        _ = activityRevision
+        let notification = presentedNotification?.presentationStyle == .calendar
+            ? activityCoordinator.persistentNotification : presentedNotification
+        return notification?.presentationStyle == .compact ? notification : nil
+    }
+
+    var retainsCalendarRow: Bool { presentedNotification?.presentationStyle == .calendar }
+
     var presentedIndicators: [NotchActivity] {
         guard let secondary = presentedSecondary else { return [] }
-        if presentedNotification?.presentationStyle == .calendar, secondary.kind == .download,
-           let music = activityCoordinator.liveActivities.first(where: {
-               $0.kind == .media && $0.lifetime.isBaseline && $0.minimal != nil
-           }) {
-            return [secondary, music]
-        }
         return [secondary]
+    }
+
+    func collapsedRowWidth(in layout: NotchPanelLayout) -> CGFloat {
+        NotchSecondaryGeometry.shellWidth(layout: layout, notification: collapsedRowNotification,
+                                           hasIndicators: !presentedIndicators.isEmpty)
+    }
+
+    func collapsedRowFrame(in layout: NotchPanelLayout) -> CGRect {
+        let width = collapsedRowWidth(in: layout)
+        return CGRect(x: layout.collapsedVisibleFrame.midX - width / 2,
+                      y: layout.collapsedVisibleFrame.minY, width: width,
+                      height: layout.collapsedVisibleFrame.height)
+    }
+
+    func activateCollapsedRow() {
+        guard retainsCalendarRow else { activateCurrentActivity(); return }
+        guard let destination = activityCoordinator.persistentActivity?.destination else { return }
+        setExpanded(true)
+        selectPage(destination)
     }
 
     /// System file drags near the collapsed notch (set by the panel controller).
@@ -336,17 +356,17 @@ public final class DynamicIslandPresentationModel {
         } else {
             transitionTask?.cancel()
             transitionGeneration &+= 1
+            if state != .collapsed { pageModel.beginExpansion(default: automaticOpenPage) }
+            phase = Self.phase(for: state)
             if state == .collapsed {
                 isHeldAfterSystemPresentation = false
-                cameraController?.setPreviewVisible(false, source: cameraPresentationSource)
                 pageModel.endExpansion()
-            } else { pageModel.beginExpansion(default: automaticOpenPage) }
-            phase = Self.phase(for: state)
+                cameraController?.setPreviewVisible(false, source: cameraPresentationSource)
+            }
         }
     }
 
     public func reset(clearingActivities: Bool = true) {
-        cameraController?.setPreviewVisible(false, source: cameraPresentationSource)
         if clearingActivities { activityCoordinator.clearAll() }
         fileDrag = .idle
         pendingHoverTask?.cancel()
@@ -363,6 +383,7 @@ public final class DynamicIslandPresentationModel {
         isHeldAfterSystemPresentation = false
         pageModel.endExpansion()
         phase = .collapsed
+        cameraController?.setPreviewVisible(false, source: cameraPresentationSource)
     }
 
     /// Renderers reference the existing feature models; navigation and interaction stay local.
@@ -514,16 +535,18 @@ public final class DynamicIslandPresentationModel {
     private func transition(to target: NotchStableState) {
         let source = visualState
         guard source != target || phase != Self.phase(for: target) else { return }
-        // The camera preview never outlives the open notch: capture stops as closing begins.
-        if target == .collapsed {
-            isHeldAfterSystemPresentation = false
-            cameraController?.setPreviewVisible(false, source: cameraPresentationSource)
-        }
-
         transitionTask?.cancel()
         transitionGeneration &+= 1
         let generation = transitionGeneration
         phase = .transitioning(from: source, to: target)
+
+        // Commit the shell target before native teardown can invalidate the view tree or
+        // deliver another interaction. A newer opening must survive the older close.
+        if target == .collapsed {
+            isHeldAfterSystemPresentation = false
+            cameraController?.setPreviewVisible(false, source: cameraPresentationSource)
+        }
+        guard generation == transitionGeneration else { return }
 
         let duration = transitionDuration(from: source, to: target)
         transitionTask = Task { [weak self, clock] in
