@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Observation
 import CoreGraphics
 import NotchiumCore
@@ -12,7 +13,7 @@ public final class SystemAudioMeter {
     private static let activityThreshold = AudioSpectrumAnalyzer.minimum + 0.02
     // Keep artwork and waveform visible through short silent gaps between Spotify tracks.
     // Explicit pause, device changes, and capture failures still clear activity immediately.
-    private static let activityTimeout: Duration = .milliseconds(1_500)
+    static let activityTimeout: Duration = .milliseconds(1_500)
     public private(set) var waveformLevels = staticLevels
     public private(set) var status: Status = .idle
     public private(set) var isAudioActive = false
@@ -20,6 +21,7 @@ public final class SystemAudioMeter {
     private let captureEnabled: Bool
     private let permissionGranted: @MainActor () -> Bool
     private let activityClock: any AppClock
+    @ObservationIgnored private var activationObservers: [(NotificationCenter, any NSObjectProtocol)] = []
     @ObservationIgnored private var wantsCapture = false
     @ObservationIgnored private var monitorsPlaybackActivity = false
     @ObservationIgnored private var isPlaying = false
@@ -27,6 +29,7 @@ public final class SystemAudioMeter {
     @ObservationIgnored private var captureStarted = false
     @ObservationIgnored private var captureFailed = false
     @ObservationIgnored private var lifecycleTask: Task<Void, Never>?
+    @ObservationIgnored private var activationRecoveryTask: Task<Void, Never>?
     @ObservationIgnored private var inactivityTask: Task<Void, Never>?
     @ObservationIgnored private var playbackActivityHandler: (@MainActor @Sendable () -> Void)?
     @ObservationIgnored private var localAudioActivityHandler: (@MainActor @Sendable (Bool) -> Void)?
@@ -39,14 +42,35 @@ public final class SystemAudioMeter {
         activityClock: any AppClock = ContinuousAppClock()
     ) {
         self.init(capture: SpotifyAudioTap(), captureEnabled: captureEnabled,
-                  permissionGranted: { true }, activityClock: activityClock)
+                  permissionGranted: { true }, activityClock: activityClock,
+                  notificationCenter: .default,
+                  workspaceNotificationCenter: NSWorkspace.shared.notificationCenter)
     }
     init(capture: any SystemAudioCapturing, captureEnabled: Bool = true,
          permissionGranted: @escaping @MainActor () -> Bool,
-         activityClock: any AppClock = ContinuousAppClock()) {
+         activityClock: any AppClock = ContinuousAppClock(),
+         notificationCenter: NotificationCenter? = nil,
+         workspaceNotificationCenter: NotificationCenter? = nil) {
         self.capture = capture; self.captureEnabled = captureEnabled
         self.permissionGranted = permissionGranted
         self.activityClock = activityClock
+        if captureEnabled {
+            // A menu-bar app may stay inactive when the user returns from Settings to Spotify.
+            for (center, name) in [(notificationCenter, NSApplication.didBecomeActiveNotification),
+                                   (workspaceNotificationCenter, NSWorkspace.didActivateApplicationNotification)] {
+                guard let center else { continue }
+                let token = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    // The observer's explicit main queue matches this meter's isolation.
+                    MainActor.assumeIsolated { self?.recoverAfterActivation() }
+                }
+                activationObservers.append((center, token))
+            }
+        }
+    }
+
+    isolated deinit {
+        for (center, token) in activationObservers { center.removeObserver(token) }
+        activationRecoveryTask?.cancel()
     }
 
     public func setPlaying(_ playing: Bool) {
@@ -86,6 +110,8 @@ public final class SystemAudioMeter {
     }
 
     public func stop() {
+        activationRecoveryTask?.cancel()
+        activationRecoveryTask = nil
         monitorsPlaybackActivity = false
         wantsCapture = false; isPlaying = false
         waveformLevels = Self.staticLevels
@@ -103,6 +129,22 @@ public final class SystemAudioMeter {
             reconcile()
         } else {
             status = .idle
+        }
+    }
+
+    /// macOS may grant access while playback remains unchanged. Returning from its
+    /// dialog or Settings is a recovery event; ordinary metadata polling is not.
+    private func recoverAfterActivation() {
+        guard isPlaying || monitorsPlaybackActivity, activationRecoveryTask == nil else { return }
+        let pendingLifecycle = lifecycleTask
+        activationRecoveryTask = Task { [weak self] in
+            // Activation can arrive before the original consent attempt finishes.
+            await pendingLifecycle?.value
+            guard !Task.isCancelled, let self else { return }
+            defer { self.activationRecoveryTask = nil }
+            guard self.isPlaying || self.monitorsPlaybackActivity,
+                  self.status == .permissionRequired || self.status == .unavailable else { return }
+            self.requestPermission()
         }
     }
 
@@ -163,7 +205,7 @@ public final class SystemAudioMeter {
                             guard let self, self.generation == generation else { return }
                             self.captureFailed = true; self.wantsCapture = false
                             self.status = .unavailable; self.waveformLevels = Self.staticLevels
-                            self.setAudioActive(false)
+                            self.setAudioActive(false, notifyIfUnchanged: true)
                             self.reconcile()
                         }
                     }
@@ -177,7 +219,7 @@ public final class SystemAudioMeter {
                     self.status = error as? SystemAudioCaptureError == .permissionDenied
                         ? .permissionRequired : .unavailable
                     self.waveformLevels = Self.staticLevels
-                    self.setAudioActive(false)
+                    self.setAudioActive(false, notifyIfUnchanged: true)
                     return
                 }
             }
@@ -208,14 +250,18 @@ public final class SystemAudioMeter {
         }
     }
 
-    private func setAudioActive(_ active: Bool) {
+    private func setAudioActive(_ active: Bool, notifyIfUnchanged: Bool = false) {
         if !active {
             inactivityTask?.cancel()
             inactivityTask = nil
             activityGeneration &+= 1
             if waveformLevels != Self.staticLevels { waveformLevels = Self.staticLevels }
         }
-        guard isAudioActive != active else { return }
+        guard isAudioActive != active else {
+            // A failed tap must also cancel a session's silent presentation grace.
+            if notifyIfUnchanged { localAudioActivityHandler?(active) }
+            return
+        }
         isAudioActive = active
         localAudioActivityHandler?(active)
     }
