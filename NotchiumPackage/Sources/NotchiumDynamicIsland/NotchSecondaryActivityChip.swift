@@ -8,7 +8,6 @@ enum NotchSecondaryGeometry {
     static func primaryWidth(layout: NotchPanelLayout, notification: NotchNotification?) -> CGFloat {
         switch notification?.presentationStyle {
         case .compact?: NotchCompactGeometry(layout: layout, activity: notification?.content.compactActivity).width
-        case .calendar?: NotchNotificationGeometry.size(for: .calendar, layout: layout).width
         default: CollapsedMediaGeometry(hardwareWidth: layout.collapsedVisibleFrame.width,
                                         hardwareHeight: layout.collapsedVisibleFrame.height).shellWidth
         }
@@ -16,22 +15,14 @@ enum NotchSecondaryGeometry {
 
     static func shellWidth(layout: NotchPanelLayout, notification: NotchNotification?, hasIndicators: Bool) -> CGFloat {
         let primary = primaryWidth(layout: layout, notification: notification)
-        // Calendar's existing banner contains the flanks. Compact primaries grow the actual
-        // silhouette symmetrically so the hardware and primary content remain centered.
-        return hasIndicators && notification?.presentationStyle != .calendar ? primary + bodyWidth * 2 : primary
+        // The ordinary collapsed row is also retained above Calendar's banner.
+        return hasIndicators ? primary + bodyWidth * 2 : primary
     }
 
-    static func frame(layout: NotchPanelLayout, beside notification: NotchNotification? = nil,
-                      kind: NotchActivityKind = .download) -> CGRect {
+    static func frame(layout: NotchPanelLayout, beside notification: NotchNotification? = nil) -> CGRect {
         let height = layout.collapsedVisibleFrame.height
         let center = layout.collapsedVisibleFrame.midX
-        let hardware = layout.hardwareNotchGeometry?.frame.width ?? layout.collapsedVisibleFrame.width
-        let x: CGFloat
-        if notification?.presentationStyle == .calendar {
-            x = kind == .media ? center + hardware / 2 : center - hardware / 2 - bodyWidth
-        } else {
-            x = center + primaryWidth(layout: layout, notification: notification) / 2 - 6
-        }
+        let x = center + primaryWidth(layout: layout, notification: notification) / 2 - 6
         return CGRect(x: x, y: layout.collapsedVisibleFrame.maxY - height, width: bodyWidth, height: height)
     }
 }
@@ -44,8 +35,7 @@ struct NotchSecondaryActivityChip: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             ForEach(model.presentedIndicators) { activity in
-                let frame = NotchSecondaryGeometry.frame(layout: layout, beside: model.presentedNotification,
-                                                          kind: activity.kind)
+                let frame = NotchSecondaryGeometry.frame(layout: layout, beside: model.collapsedRowNotification)
                 Button { model.activateIndicator(activity) } label: {
                     content(for: activity)
                         .frame(width: frame.width, height: frame.height)
