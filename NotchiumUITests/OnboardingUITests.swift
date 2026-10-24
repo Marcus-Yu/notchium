@@ -18,13 +18,55 @@ import XCTest
         capture(app, "stage27b-denied")
         app.terminate()
         app.launch()
-        XCTAssertTrue(app.buttons["Open System Settings"].waitForExistence(timeout: 8)
-                      || app.buttons["notchium.setup.request.calendar"].waitForExistence(timeout: 3))
+        let resumedRequest = app.buttons["notchium.setup.request.calendar"]
+        XCTAssertTrue(resumedRequest.waitForExistence(timeout: 8))
         XCTAssertFalse(app.buttons["Get Started"].exists)
+        // Synthetic permission statuses restart; saved onboarding progress does not.
+        resumedRequest.click()
+        XCTAssertTrue(app.staticTexts["Denied"].waitForExistence(timeout: 3))
         app.buttons["Review All"].click()
         XCTAssertTrue(app.buttons["notchium.setup.finish"].exists)
-        XCTAssertFalse(app.buttons["notchium.setup.finish"].isEnabled)
-        capture(app, "stage27b-incomplete-review")
+        XCTAssertTrue(app.buttons["notchium.setup.finish"].isEnabled)
+        XCTAssertTrue(app.staticTexts["Denied"].exists)
+        capture(app, "stage27b-denied-review")
+        app.buttons["notchium.setup.finish"].click()
+        verifyReadyOpenAndRelaunch(app)
+    }
+
+    func testEveryPermissionCanBeSkippedWithoutChoosingClipboardHistory() {
+        let app = application(id: UUID())
+        defer { app.terminate() }
+        app.launch()
+        XCTAssertTrue(app.buttons["Get Started"].waitForExistence(timeout: 8))
+        app.buttons["Get Started"].click()
+        app.buttons["Set Up Permissions"].click()
+
+        let titles = ["Calendars", "Reminders", "Spotify Automation", "Camera", "System Audio Recording",
+                      "Accessibility for Volume Keys", "Screenshot Folder", "Clipboard History",
+                      "macOS Pasteboard Access", "Shelf & File Actions", "Apple Shortcuts", "System Focus Status",
+                      "In-App Notifications", "Clipboard Encryption", "Caffeine & Closed-Lid Mode"]
+        for (index, title) in titles.enumerated() {
+            XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 4), title)
+            XCTAssertTrue(app.staticTexts["\(index + 1) of \(titles.count)"].exists, title)
+            XCTAssertTrue(app.buttons["Continue"].isEnabled, title)
+            if title == "Clipboard History" {
+                XCTAssertTrue(app.buttons["notchium.setup.clipboard.enable"].exists)
+                XCTAssertTrue(app.buttons["notchium.setup.clipboard.off"].exists)
+                assertNoClipboardChoice(app)
+            }
+            app.buttons["Continue"].click()
+        }
+
+        XCTAssertTrue(app.staticTexts["Review your setup"].waitForExistence(timeout: 4))
+        XCTAssertFalse(app.staticTexts["Granted"].exists)
+        XCTAssertFalse(app.staticTexts["Folder Selected"].exists)
+        XCTAssertFalse(app.staticTexts["Exceptions reviewed"].exists)
+        assertNoClipboardChoice(app)
+        let finish = app.buttons["notchium.setup.finish"]
+        XCTAssertTrue(finish.isEnabled)
+        capture(app, "stage27b-all-permissions-skipped-review")
+        finish.click()
+        verifyReadyOpenAndRelaunch(app)
     }
 
     func testSpotifyDeniedExceptionCompletesSetupReadyAndRelaunches() {
@@ -72,7 +114,13 @@ import XCTest
         XCTAssertTrue(finish.isEnabled)
         capture(app, "stage27b-complete-review")
         finish.click()
+        verifyReadyOpenAndRelaunch(app, relaunches: 10)
+    }
+
+    private func verifyReadyOpenAndRelaunch(_ app: XCUIApplication, relaunches: Int = 1) {
         XCTAssertTrue(app.buttons["notchium.setup.open"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.staticTexts["You’re ready"].exists)
+        XCTAssertFalse(app.buttons["notchium.setup.finish"].exists)
         capture(app, "stage27b-ready")
         XCTAssertFalse(app.buttons["notchium.page.home"].exists)
         // Normal Settings must stay gated until Ready's Open action starts features.
@@ -89,10 +137,12 @@ import XCTest
         }
         XCTAssertTrue(app.buttons["notchium.page.home"].waitForExistence(timeout: 8))
         app.terminate()
-        for _ in 0..<10 {
+        for _ in 0..<relaunches {
             app.launch()
             XCTAssertTrue(app.buttons["notchium.page.home"].waitForExistence(timeout: 8))
             XCTAssertFalse(app.buttons["Get Started"].exists)
+            XCTAssertFalse(app.buttons["notchium.setup.finish"].exists)
+            XCTAssertFalse(app.buttons["notchium.setup.open"].exists)
             app.terminate()
         }
     }
@@ -107,18 +157,25 @@ import XCTest
         app.typeKey(.return, modifierFlags: [])
         XCTAssertTrue(app.buttons["notchium.setup.request.calendar"].waitForExistence(timeout: 3))
         app.buttons["Review All"].click()
-        XCTAssertFalse(app.buttons["notchium.setup.finish"].isEnabled)
+        XCTAssertTrue(app.buttons["notchium.setup.finish"].isEnabled)
         app.typeKey("q", modifierFlags: .command)
         XCTAssertTrue(app.wait(for: .notRunning, timeout: 5))
         app.launch()
         XCTAssertTrue(app.buttons["notchium.setup.finish"].waitForExistence(timeout: 8))
-        XCTAssertFalse(app.buttons["notchium.setup.finish"].isEnabled)
+        XCTAssertTrue(app.buttons["notchium.setup.finish"].isEnabled)
         XCTAssertFalse(app.buttons["Get Started"].exists)
         app.windows["notchium.onboarding"].buttons[XCUIIdentifierCloseWindow].click()
         XCTAssertTrue(app.wait(for: .notRunning, timeout: 5))
         app.launch()
         XCTAssertTrue(app.buttons["notchium.setup.finish"].waitForExistence(timeout: 8))
-        XCTAssertFalse(app.buttons["notchium.setup.finish"].isEnabled)
+        XCTAssertTrue(app.buttons["notchium.setup.finish"].isEnabled)
+        app.typeKey(.return, modifierFlags: [])
+        verifyReadyOpenAndRelaunch(app)
+    }
+
+    private func assertNoClipboardChoice(_ app: XCUIApplication) {
+        XCTAssertFalse(app.staticTexts["Your choice: monitoring enabled after setup."].exists)
+        XCTAssertFalse(app.staticTexts["Your choice: monitoring stays off."].exists)
     }
 
     private func application(id: UUID, denied: Bool = false) -> XCUIApplication {
