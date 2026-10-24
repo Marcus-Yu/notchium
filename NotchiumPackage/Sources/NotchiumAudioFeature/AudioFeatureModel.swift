@@ -37,6 +37,8 @@ public final class AudioFeatureModel: NotchAudioRendering {
     @ObservationIgnored private var hasReceivedDevices = false
     @ObservationIgnored private var deviceTransitions = OutputDeviceTransitionTracker()
     @ObservationIgnored private var isEditingVolume = false
+    @ObservationIgnored private var pendingInlineVolumes: [Double] = []
+    @ObservationIgnored private var pendingInlineMute: Bool?
     @ObservationIgnored private var mixerGeneration = 0
     @ObservationIgnored private var applicationCache: [pid_t: NSRunningApplication] = [:]
     private var pinnedBundles: Set<String>
@@ -110,6 +112,8 @@ public final class AudioFeatureModel: NotchAudioRendering {
         hasReceivedDevices = false
         deviceTransitions = OutputDeviceTransitionTracker()
         isEditingVolume = false
+        pendingInlineVolumes = []
+        pendingInlineMute = nil
         displayVolume = nil
         mixerGeneration &+= 1
         mixerStatus = .inactive
@@ -127,6 +131,10 @@ public final class AudioFeatureModel: NotchAudioRendering {
     func receive(_ next: AudioDevicesSnapshot) {
         let old = devices.currentOutput
         let oldStates = outputStates
+        // HAL echoes the page's own commands through the same stream as hardware keys.
+        // Keep their feedback inline, including confirmation arriving after mouse-up.
+        let suppressVolumeHUD = consumeInlineVolumeConfirmation(old: old, new: next.currentOutput)
+        let suppressMuteHUD = pendingInlineMute.map { $0 == next.currentOutput?.isMuted } ?? false
         devices = next
         let states = next.outputs.map { OutputDeviceState($0, now: now()) }
         if states != outputStates { outputStates = states }
@@ -134,6 +142,8 @@ public final class AudioFeatureModel: NotchAudioRendering {
             volumeTask?.cancel()
             volumeTask = nil
             isEditingVolume = false
+            pendingInlineVolumes = []
+            pendingInlineMute = nil
             displayVolume = nil
         } else if !isEditingVolume, let shown = displayVolume, let confirmed = next.currentOutput?.volume,
                   abs(shown - confirmed) < 0.02 || old?.volume != confirmed {
@@ -141,6 +151,7 @@ public final class AudioFeatureModel: NotchAudioRendering {
             // land within tolerance, and hardware keys must not be masked by a stale local value.
             displayVolume = nil
         }
+        if old?.isMuted != next.currentOutput?.isMuted { pendingInlineMute = nil }
         if old?.id != next.currentOutput?.id { reconcileMixer() }
         // Devices already connected at launch are known state, not events.
         guard hasReceivedDevices else { hasReceivedDevices = true; return }
@@ -149,7 +160,8 @@ public final class AudioFeatureModel: NotchAudioRendering {
             return
         }
         guard let current = next.currentOutput, old?.id == current.id else { return }
-        if old?.volume != current.volume || old?.isMuted != current.isMuted {
+        if (old?.volume != current.volume && !suppressVolumeHUD)
+            || (old?.isMuted != current.isMuted && !suppressMuteHUD) {
             onHUD?(NotchAudioHUD(kind: .volume, deviceName: current.name,
                                  volume: current.volume, isMuted: current.isMuted ?? false))
         }
@@ -164,12 +176,18 @@ public final class AudioFeatureModel: NotchAudioRendering {
         }
     }
 
-    /// Replaced commands and passive boundary intent reuse the existing HUD. Both carry HAL
-    /// truth; this path never writes audio or manufactures a changed snapshot.
+    /// Hardware intent always wins over inline feedback suppression. In the normal passive
+    /// path, interior changes still use HAL updates; boundaries have no changed snapshot.
     func receiveVolumeCommand(_ event: AudioVolumeCommandEvent) {
         let output = event.output
-        guard hasReceivedDevices, devices.currentOutput?.id == output.id,
-              event.wasReplaced || (output.canSetVolume && event.command.isUnchangedBoundary(volume: output.volume)) else { return }
+        guard hasReceivedDevices, devices.currentOutput?.id == output.id else { return }
+        let overridesInlineFeedback = (!pendingInlineVolumes.isEmpty || pendingInlineMute != nil)
+            && (event.command == .mute ? output.canSetMute && output.isMuted != nil
+                : output.canSetVolume && output.volume != nil)
+        pendingInlineVolumes = []
+        pendingInlineMute = nil
+        guard event.wasReplaced || overridesInlineFeedback
+            || (output.canSetVolume && event.command.isUnchangedBoundary(volume: output.volume)) else { return }
         onHUD?(NotchAudioHUD(kind: .volume, deviceName: output.name,
                              volume: output.volume, isMuted: output.isMuted ?? false))
     }
@@ -184,6 +202,16 @@ public final class AudioFeatureModel: NotchAudioRendering {
                 do { try await Task.sleep(for: .milliseconds(25)) } catch { return }
             }
             guard !Task.isCancelled else { return }
+            // Register writes only after debounce: cancelled slider values cannot produce
+            // HAL echoes. A same-value write with no outstanding change needs no suppression.
+            guard self?.devices.currentOutput?.id == current.id else { return }
+            if let self {
+                let unchanged = self.devices.currentOutput?.volume.map { Float32($0) == Float32(value) } ?? false
+                let repeatsPending = self.pendingInlineVolumes.last.map { Float32($0) == Float32(value) } ?? false
+                if (!unchanged || !self.pendingInlineVolumes.isEmpty), !repeatsPending {
+                    self.pendingInlineVolumes.append(value)
+                }
+            }
             do {
                 try await deviceService.setVolume(value, deviceID: current.id)
                 guard !Task.isCancelled, let self, self.devices.currentOutput?.id == current.id else { return }
@@ -192,6 +220,7 @@ public final class AudioFeatureModel: NotchAudioRendering {
             } catch {
                 guard !Task.isCancelled, let self, self.devices.currentOutput?.id == current.id else { return }
                 self.displayVolume = nil
+                self.pendingInlineVolumes = []
                 self.errorMessage = "This output does not expose volume control."
             }
         }
@@ -209,13 +238,48 @@ public final class AudioFeatureModel: NotchAudioRendering {
         displayVolume = nil
     }
 
+    private func consumeInlineVolumeConfirmation(old: AudioDevice?, new: AudioDevice?) -> Bool {
+        guard old?.id == new?.id, old?.volume != new?.volume, let confirmed = new?.volume else { return false }
+        let confirmedScalar = Float32(confirmed)
+        // Fine slider steps can be closer than a device's confirmation tolerance. Prefer
+        // the first exact HAL scalar so an early echo cannot acknowledge a later close value.
+        let exactIndex = pendingInlineVolumes.firstIndex { Float32($0) == confirmedScalar }
+        var nearest: (index: Int, distance: Double)?
+        if exactIndex == nil {
+            for (index, value) in pendingInlineVolumes.enumerated() {
+                let distance = abs(Double(Float32(value)) - Double(confirmedScalar))
+                guard distance < 0.02 else { continue }
+                // Quantized readback uses the nearest request. Equal-distance targets
+                // retain submission order instead of consuming a later unconfirmed write.
+                if distance + Double(confirmedScalar.ulp) < (nearest?.distance ?? .infinity) {
+                    nearest = (index, distance)
+                }
+            }
+        }
+        guard let index = exactIndex ?? nearest?.index else {
+            // A different HAL value is independent feedback, including hardware keys when
+            // passive key observation is unavailable. It ends any obsolete local intent.
+            pendingInlineVolumes = []
+            return false
+        }
+        // A bounded stream may coalesce intermediate writes; their latest confirmation
+        // acknowledges all earlier submitted values as well.
+        pendingInlineVolumes.removeFirst(index + 1)
+        return true
+    }
+
     public func toggleMute() {
         guard let current = devices.currentOutput, let muted = current.isMuted else { return }
+        let requestedMute = !muted
+        pendingInlineMute = requestedMute
         Task { [weak self, deviceService] in
             do {
-                try await deviceService.setMuted(!muted, deviceID: current.id)
+                try await deviceService.setMuted(requestedMute, deviceID: current.id)
                 self?.errorMessage = nil
-            } catch { self?.errorMessage = "This output does not expose mute control." }
+            } catch {
+                if self?.pendingInlineMute == requestedMute { self?.pendingInlineMute = nil }
+                self?.errorMessage = "This output does not expose mute control."
+            }
         }
     }
 
