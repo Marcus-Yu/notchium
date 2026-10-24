@@ -344,6 +344,51 @@ private actor HeldControlProvider: MediaProviding {
         XCTAssertEqual(commands, [.seek(100)], "Coordinates chosen on the old track must not seek the new one")
         model.stop()
     }
+
+    func testExternalPauseDuringQueuedSeekHidesMediaWithoutLosingSelectedPosition() async {
+        let provider = HeldControlProvider()
+        let clock = TestAppClock(now: .now, automaticallyAdvances: false)
+        let capture = TestAudioCapture()
+        let meter = SystemAudioMeter(capture: capture, permissionGranted: { true }, activityClock: clock)
+        let model = MediaFeatureModel(provider: provider, coordinator: ActivityCoordinator(clock: clock),
+                                      visibilityClock: clock, audioMeter: meter)
+        model.receive(.init(playbackState: .playing, title: "Track", elapsed: 30, duration: 240,
+                            trackID: "track", activeDeviceID: LocalSpotifyController.deviceID, source: .spotify,
+                            capabilities: .init(canPlayPause: true, canSeek: true)))
+        for _ in 0..<30 { await Task.yield() }
+        capture.levels?(Array(repeating: 0.8, count: 7))
+        for _ in 0..<30 { await Task.yield() }
+        XCTAssertTrue(model.collapsedMediaVisible)
+
+        model.send(.seek(100))
+        await provider.waitFor(1)
+        model.send(.seek(150))
+        var externalPause = model.state
+        externalPause.playbackState = .paused
+        externalPause.playbackRate = 0
+        externalPause.elapsed = 100
+        externalPause.observationStartedUptime = ProcessInfo.processInfo.systemUptime
+        model.receive(externalPause)
+
+        XCTAssertFalse(model.state.isPlaying, "The queued release owns progress, not playback truth")
+        XCTAssertEqual(model.state.elapsed, 150)
+        XCTAssertEqual(model.lastSeekTarget, 150)
+        XCTAssertFalse(model.collapsedMediaVisible, "An external pause hides immediately during a queued seek")
+        capture.levels?(Array(repeating: 0.8, count: 7))
+        for _ in 0..<30 { await Task.yield() }
+        XCTAssertFalse(model.collapsedMediaVisible, "Late samples cannot reveal the externally paused track")
+
+        await provider.finish(.seek(100))
+        await provider.waitFor(2)
+        let commands = await provider.commands
+        XCTAssertEqual(commands, [.seek(100), .seek(150)])
+        XCTAssertFalse(model.state.isPlaying)
+        XCTAssertEqual(model.state.elapsed, 150)
+        await provider.finish(.seek(150))
+        while model.isBusy { await Task.yield() }
+        XCTAssertFalse(model.collapsedMediaVisible)
+        model.stop()
+    }
     func testRestartSupersedesUnconfirmedPreviousTrackAndAcceptsExternalUpdates() async {
         let now = Date()
         let provider = HeldControlProvider()
