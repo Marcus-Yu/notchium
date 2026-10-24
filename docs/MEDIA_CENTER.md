@@ -27,8 +27,21 @@ a download fallback.
 three seconds, serialized seeks/volume requests, Home, and the stable Media activity. Authoritative
 playback and reconciliation stay in `RealMediaProvider`. Pausing hides collapsed artwork and
 media flanks immediately, leaving only the physical notch once the shell settles. Paused track
-metadata remains available in Home and Music. Collapsed media requires playing state and real
-local audio; the waveform additionally requires visibility and normal motion.
+metadata remains available in Home and Music. Real local audio is required to reveal collapsed
+media. An already-visible playing session bridges roughly five seconds of silence between
+tracks: the meter's existing 1.5-second activity window plus the remaining session-owned
+grace. Artwork stays mounted and the waveform uses the meter's static silent bars. Repeated
+metadata cannot extend the deadline; fresh audio cancels it. Explicit pause/stop, Spotify
+quit, remote playback, unavailable capture or permission loss clear the presentation immediately.
+The waveform additionally requires visibility and normal motion.
+If the initial Core Audio start is denied or capture fails, returning from the
+permission dialog or System Settings retries the failed capture while the live
+Spotify session still needs it. Workspace activation also covers returning directly
+to Spotify while Notchium remains a menu-bar app. Recovery waits for an in-flight
+start/cleanup, coalesces activation events, and is canceled when the meter stops.
+Routine metadata polling never retries a failed tap, and healthy capture is not restarted.
+The silence window remains approximate because the existing meter watchdog checks activity
+periodically; explicit pause and invalidation do not wait for that watchdog or the grace.
 Spotify quit or denied Automation clears collapsed media rather
 than letting a cached track fabricate an active session. The expanded cache cannot restore
 stale queue rows or hide a local permission/unavailable state.
