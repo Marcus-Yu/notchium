@@ -133,9 +133,11 @@ private struct NotchShellOuterSurface: View {
         // The shell's width without any notification: the span a compact activity grows from.
         let baseWidth = expanded ? layout.expandedSize.width
             : (showMedia ? mediaGeometry.shellWidth : layout.collapsedVisibleFrame.width)
-        let integratedWidth = NotchSecondaryGeometry.shellWidth(layout: layout, notification: notification,
-                                                                hasIndicators: !model.presentedIndicators.isEmpty)
-        let collapsedWidth = model.presentedIndicators.isEmpty
+        let integratedWidth = model.collapsedRowWidth(in: layout)
+        let rowWidthWithBannerShoulders = integratedWidth
+            + (NotchNotificationGeometry.shoulderRadius - NotchCompactGeometry.shoulderRadius) * 2
+        let collapsedWidth = model.retainsCalendarRow ? max(notificationWidth, rowWidthWithBannerShoulders)
+            : model.presentedIndicators.isEmpty
             ? (compact ? compactGeometry.width : (surfaced ? notificationWidth : baseWidth)) : integratedWidth
         let shape = NotchShellSurface(
             width: expanded ? layout.expandedSize.width + ExpandedShellSilhouette.shoulderRadius * 2 : collapsedWidth,
@@ -162,6 +164,7 @@ private struct NotchShellOuterSurface: View {
             // Music is carried through notification transitions only while it is the context the
             // notch shows (media sides / combined); a higher persistent activity (a transfer) wins.
             retainsMedia: model.activityCoordinator.retainsMediaPresentation && collapsedMediaEligible,
+            retainsCollapsedRow: model.retainsCalendarRow || model.collapsedRowNotification?.lifetime.isBaseline == true,
             compactVisible: compact,
             compactSpan: NotchCompactSpan(base: baseWidth, full: collapsedWidth)
         ) { phase in
@@ -176,9 +179,10 @@ private struct NotchShellOuterSurface: View {
                             renderer.collapsedMedia(hardwareWidth: mediaGeometry.hardwareWidth, hardwareHeight: mediaGeometry.height)
                                 .frame(width: mediaGeometry.width, height: mediaGeometry.height)
                                 .modifier(CollapsedMediaPresentation(visible: phase == .collapsed && collapsedMediaEligible))
-                                .modifier(CompactActivityYield())
-                                .allowsHitTesting(showMedia && !compact)
-                                .accessibilityHidden(!showMedia || compact)
+                                .modifier(CompactActivityYield(covered: model.retainsCalendarRow
+                                    ? model.collapsedRowNotification != nil : nil))
+                                .allowsHitTesting(showMedia && model.collapsedRowNotification == nil)
+                                .accessibilityHidden(!showMedia || model.collapsedRowNotification != nil)
                         }
                         NotchCompactActivitySlot(model: model, layout: layout)
                     }
@@ -204,7 +208,7 @@ private struct NotchShellOuterSurface: View {
                 .zIndex(3)
 
                 NotchSecondaryActivityChip(model: model, layout: layout)
-                    .modifier(NotchPresentationClip(visible: phase == .collapsed))
+                    .modifier(CollapsedMediaPresentation(visible: phase == .collapsed))
                     .zIndex(4)
 
                 shellContent
@@ -297,11 +301,12 @@ enum ExpandedShellSilhouette {
 
 /// Collapsed media gives way to a compact activity in step with the shell's reveal.
 private struct CompactActivityYield: ViewModifier {
+    var covered: Bool?
     @Environment(\.notchCompactReveal) private var reveal
 
     func body(content: Content) -> some View {
         // Gone by a third of the reveal, so the incoming glyph never slides over the artwork.
-        content.opacity(Double(max(0, 1 - reveal * 3)))
+        content.opacity(covered.map { $0 ? 0 : 1 } ?? Double(max(0, 1 - reveal * 3)))
     }
 }
 
