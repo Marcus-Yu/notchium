@@ -121,33 +121,34 @@ final class TargetedPolishTests: XCTestCase {
         download.receive(.init(id: "download", displayName: "File", operation: .downloading, phase: .active,
                                fraction: 0.4, startedAt: Date(), updatedAt: Date()))
         let identity = model.activityCoordinator.primary?.id
+        let companionFrame = NotchSecondaryGeometry.frame(
+            layout: NotchGeometryResolver.layout(for: .init(display: NotchShellDebugModel.builtInFixture,
+                                                            mode: .physicalNotch), state: .collapsed),
+            beside: model.collapsedRowNotification)
         let calendar = NotchNotification(kind: .reminder5, coalescingKey: "calendar.test", action: .calendar,
                                          presentationStyle: .calendar, content: .calendar(title: "Meeting", status: "Now"))
         model.notificationCoordinator.present(calendar)
-        XCTAssertEqual(model.presentedIndicators.map(\.kind), [.download, .media])
-        XCTAssertEqual(model.presentedIndicators.first?.id, identity)
+        XCTAssertEqual(model.presentedIndicators.map(\.kind), [.media])
+        XCTAssertEqual(model.collapsedRowNotification?.id, identity)
         let layout = NotchGeometryResolver.layout(for: .init(display: NotchShellDebugModel.builtInFixture,
                                                              mode: .physicalNotch), state: .collapsed)
-        let left = NotchSecondaryGeometry.frame(layout: layout, beside: calendar, kind: .download)
-        let right = NotchSecondaryGeometry.frame(layout: layout, beside: calendar, kind: .media)
-        XCTAssertEqual(left.maxX, layout.hardwareNotchGeometry?.frame.minX)
-        XCTAssertEqual(right.minX, layout.hardwareNotchGeometry?.frame.maxX)
-        XCTAssertEqual(left.height, right.height)
+        let right = NotchSecondaryGeometry.frame(layout: layout, beside: model.collapsedRowNotification)
+        XCTAssertEqual(right, companionFrame, "Calendar preserves the same companion position")
         model.activityCoordinator.dismiss(kind: .calendar)
         XCTAssertEqual(model.activityCoordinator.primary?.id, identity)
         XCTAssertEqual(model.presentedIndicators.map(\.id), [music.id])
         let notification = model.presentedNotification
         let shellWidth = NotchSecondaryGeometry.shellWidth(layout: layout, notification: notification, hasIndicators: true)
-        let art = NotchSecondaryGeometry.frame(layout: layout, beside: notification, kind: .media)
+        let art = NotchSecondaryGeometry.frame(layout: layout, beside: notification)
         let shellRight = layout.collapsedVisibleFrame.midX + shellWidth / 2
         XCTAssertLessThan(art.maxX, shellRight)
-        let passive = NotchShape(width: layout.collapsedVisibleFrame.width, height: left.height,
+        let passive = NotchShape(width: layout.collapsedVisibleFrame.width, height: right.height,
                                  centerX: layout.panelFrame.width / 2, topCornerRadius: 0, bottomCornerRadius: 8)
-        let shell = NotchShellSurface(width: shellWidth, height: left.height, centerX: passive.centerX,
+        let shell = NotchShellSurface(width: shellWidth, height: right.height, centerX: passive.centerX,
                                       bottomRadius: 13, passiveShape: passive, shoulderRadius: 6)
         let path = shell.path(in: CGRect(origin: .zero, size: layout.panelFrame.size))
         for x in stride(from: passive.centerX, through: art.midX - layout.panelFrame.minX, by: 1) {
-            XCTAssertTrue(path.contains(CGPoint(x: x, y: left.height / 2)), "No gap between hardware and artwork")
+            XCTAssertTrue(path.contains(CGPoint(x: x, y: right.height / 2)), "No gap between hardware and artwork")
         }
     }
 
