@@ -39,6 +39,7 @@ final class SpotifyAudioTap: SystemAudioCapturing {
             try await session.replace(processIdentifier: processIdentifier, generation: generation, levels: levels)
         } catch {
             guard self.generation == generation else { return }
+            log(error, operation: "Start")
             await stopResources()
             throw error
         }
