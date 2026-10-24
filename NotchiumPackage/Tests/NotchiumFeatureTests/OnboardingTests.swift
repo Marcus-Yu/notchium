@@ -15,7 +15,7 @@ import NotchiumServices
         XCTAssertEqual(model.state.step, .welcome)
         XCTAssertNotNil(store.state)
         XCTAssertTrue(permissions.requests.isEmpty)
-        XCTAssertFalse(model.canFinish)
+        XCTAssertTrue(model.canFinish)
     }
 
     func testLegacyMigrationIsSeparateFromVerifiedSetupAndPreservesConfiguration() {
@@ -41,7 +41,7 @@ import NotchiumServices
         XCTAssertEqual(resumed.state.clipboardChoice, false)
     }
 
-    func testAvailableRequiredDenialCannotBeAcknowledgedOrCompleted() async {
+    func testDeniedPermissionRemainsDeniedButDoesNotBlockCompletion() async {
         let permissions = SetupTestPermissions()
         permissions.values[.calendar] = .init(.denied)
         let model = OnboardingModel(store: InMemoryOnboardingStore(), permissions: permissions)
@@ -50,33 +50,45 @@ import NotchiumServices
         model.select(.calendar)
         model.acknowledgeCurrent()
         XCTAssertFalse(model.state.reviewed.contains(.calendar))
-        XCTAssertFalse(model.canFinish)
+        XCTAssertTrue(model.canFinish)
         model.finish()
         await waitUntilIdle(model)
-        XCTAssertTrue(model.requiresOnboarding)
-        XCTAssertNotNil(model.error)
+        XCTAssertFalse(model.requiresOnboarding)
+        XCTAssertEqual(model.state.step, .ready)
+        XCTAssertEqual(model.statuses[.calendar]?.authorization, .denied)
+        XCTAssertNil(model.error)
     }
 
-    func testEveryMissingGrantBlocksCompletion() async {
+    func testEveryMissingGrantAllowsCompletionWithoutRequestsOrReviews() async {
         for state in [SetupAuthorization.notDetermined, .denied, .needsSystemSettings,
                       .needsFullAccess, .requiresUserSelection, .requiresApplication] {
             let permissions = SetupTestPermissions()
-            permissions.values[.spotify] = .init(state)
-            let model = OnboardingModel(store: InMemoryOnboardingStore(), permissions: permissions)
+            for permission in SetupPermission.allCases { permissions.values[permission] = .init(state) }
+            let store = InMemoryOnboardingStore()
+            let model = OnboardingModel(store: store, permissions: permissions)
             await model.refresh()
-            model.chooseClipboard(false)
-            XCTAssertFalse(model.canFinish, "\(state)")
+            XCTAssertTrue(model.canFinish, "\(state)")
+            model.finish()
+            XCTAssertEqual(store.state?.completion, .userCompleted, "\(state)")
+            XCTAssertEqual(model.state.step, .ready)
+            XCTAssertTrue(model.state.reviewed.isEmpty)
+            XCTAssertNil(model.state.clipboardChoice)
+            XCTAssertTrue(permissions.requests.isEmpty)
+            XCTAssertTrue(permissions.consent.isEmpty)
+            XCTAssertEqual(model.statuses, permissions.values)
+            XCTAssertFalse(model.canFinish, "Completed setup cannot be completed again")
         }
     }
 
-    func testUnavailableRestrictedAndNonPregrantableNeedDeliberateReview() async {
+    func testUnavailableRestrictedAndNonPregrantableReviewsAreOptionalAndTruthful() async {
         for state in [SetupAuthorization.unavailable, .restricted, .notPregrantable, .noPermissionRequired] {
             let permissions = SetupTestPermissions()
             permissions.values[.camera] = .init(state)
             let model = OnboardingModel(store: InMemoryOnboardingStore(), permissions: permissions)
             await model.refresh()
             model.chooseClipboard(false)
-            XCTAssertFalse(model.canFinish)
+            XCTAssertTrue(model.canFinish)
+            XCTAssertFalse(model.isSatisfied(.camera))
             model.select(.camera)
             model.acknowledgeCurrent()
             XCTAssertTrue(model.canFinish)
@@ -84,15 +96,26 @@ import NotchiumServices
         }
     }
 
-    func testClipboardRequiresExplicitChoiceAndNeverInfersOptInFromCompletion() async {
+    func testSkippingClipboardNeverInfersOptInFromCompletion() {
+        let permissions = SetupTestPermissions()
+        let model = OnboardingModel(store: InMemoryOnboardingStore(), permissions: permissions)
+        model.go(to: .review)
+        model.finish()
+        XCTAssertEqual(model.state.completion, .userCompleted)
+        XCTAssertNil(model.state.clipboardChoice)
+        XCTAssertTrue(permissions.consent.isEmpty)
+        XCTAssertEqual(permissions.statusReads, 0, "Completion must not wait on optional permission checks")
+    }
+
+    func testExplicitClipboardChoiceIsPreservedOnCompletion() async {
         let permissions = SetupTestPermissions()
         let model = OnboardingModel(store: InMemoryOnboardingStore(), permissions: permissions)
         await model.refresh()
-        XCTAssertFalse(model.canFinish)
+        XCTAssertTrue(model.canFinish)
         XCTAssertTrue(permissions.consent.isEmpty)
         model.select(.clipboard)
         model.acknowledgeCurrent()
-        XCTAssertFalse(model.canFinish)
+        XCTAssertNil(model.state.clipboardChoice)
         model.chooseClipboard(false)
         XCTAssertEqual(permissions.consent, [false])
         XCTAssertTrue(model.canFinish)
@@ -102,16 +125,17 @@ import NotchiumServices
         XCTAssertEqual(permissions.consent, [false])
     }
 
-    func testFinishRechecksRevocationInsteadOfTrustingPreviousStatus() async {
+    func testRevocationBeforeCompletionDoesNotBlockSetupOrClaimAccess() async {
         let permissions = SetupTestPermissions()
         let model = OnboardingModel(store: InMemoryOnboardingStore(), permissions: permissions)
         await model.refresh()
         model.chooseClipboard(true)
         XCTAssertTrue(model.canFinish)
         permissions.values[.calendar] = .init(.denied)
+        await model.refresh()
         model.finish()
         await waitUntilIdle(model)
-        XCTAssertTrue(model.requiresOnboarding)
+        XCTAssertFalse(model.requiresOnboarding)
         XCTAssertEqual(model.statuses[.calendar]?.authorization, .denied)
     }
 
@@ -134,6 +158,9 @@ import NotchiumServices
         permissions.hold = true
         let model = OnboardingModel(store: store, permissions: permissions)
         model.request(.camera)
+        XCTAssertFalse(model.canFinish)
+        model.finish()
+        XCTAssertTrue(model.requiresOnboarding, "Wait for the in-flight native request before finishing")
         model.request(.reminders)
         model.next()
         XCTAssertEqual(store.state?.currentPermission, .camera)
@@ -154,6 +181,10 @@ import NotchiumServices
         XCTAssertEqual(model.statuses[.camera]?.authorization, .notDetermined)
         XCTAssertNotNil(model.error)
         XCTAssertTrue(model.requiresOnboarding)
+        XCTAssertTrue(model.canFinish)
+        model.finish()
+        XCTAssertEqual(model.state.step, .ready)
+        XCTAssertNil(model.error)
     }
 
     func testActivationRefreshCoalescesAndBlocksConcurrentPermissionRequests() async {
@@ -337,7 +368,7 @@ import NotchiumServices
         }
     }
 
-    func testPasteboardDenialBlocksOptInButCanBeExplicitlyReviewedWhenMonitoringIsOff() async {
+    func testPasteboardDenialStaysTruthfulWithEitherClipboardChoiceWithoutBlockingSetup() async {
         let permissions = SetupTestPermissions()
         permissions.values[.clipboardAccess] = .init(.denied)
         let model = OnboardingModel(store: InMemoryOnboardingStore(), permissions: permissions)
@@ -346,14 +377,63 @@ import NotchiumServices
         model.select(.clipboardAccess)
         model.acknowledgeCurrent()
         XCTAssertFalse(model.isSatisfied(.clipboardAccess))
-        XCTAssertFalse(model.canFinish)
+        XCTAssertTrue(model.canFinish)
         model.chooseClipboard(false)
-        XCTAssertFalse(model.canFinish, "The OS denial must be reviewed explicitly even when opting out")
+        XCTAssertFalse(model.isSatisfied(.clipboardAccess), "Review stays separate from completion")
+        XCTAssertTrue(model.canFinish)
         model.acknowledgeCurrent()
         XCTAssertTrue(model.canFinish)
         XCTAssertEqual(model.statuses[.clipboardAccess]?.authorization, .denied)
         model.chooseClipboard(true)
-        XCTAssertFalse(model.canFinish, "An old Off exception cannot bypass current denial after opt-in")
+        XCTAssertFalse(model.isSatisfied(.clipboardAccess), "An old Off exception cannot claim OS access after opt-in")
+        XCTAssertTrue(model.canFinish)
+    }
+
+    func testEveryStageAndPermissionResumesAndAdvancesWithoutAccess() async {
+        let permissions = SetupTestPermissions()
+        for permission in SetupPermission.allCases { permissions.values[permission] = .init(.denied) }
+        let store = InMemoryOnboardingStore()
+        var model = OnboardingModel(store: store, permissions: permissions)
+        model.go(to: .overview)
+        model = OnboardingModel(store: store, permissions: permissions)
+        XCTAssertEqual(model.state.step, .overview)
+        model.go(to: .permissions)
+        await model.refresh()
+        for permission in SetupPermission.allCases {
+            XCTAssertEqual(model.current, permission)
+            XCTAssertEqual(model.state.step, .permissions)
+            model = OnboardingModel(store: store, permissions: permissions)
+            XCTAssertEqual(model.current, permission)
+            XCTAssertEqual(model.state.step, .permissions)
+            model.next()
+        }
+        XCTAssertEqual(model.state.step, .review)
+        model = OnboardingModel(store: store, permissions: permissions)
+        XCTAssertEqual(model.state.step, .review)
+        model.select(.camera)
+        XCTAssertEqual(model.current, .camera)
+        XCTAssertEqual(model.state.step, .permissions)
+        model.go(to: .review)
+        model.finish()
+        XCTAssertEqual(store.state?.step, .ready)
+        model = OnboardingModel(store: store, permissions: permissions)
+        XCTAssertFalse(model.requiresOnboarding)
+        XCTAssertEqual(model.state.step, .ready)
+        XCTAssertTrue(permissions.requests.isEmpty)
+        XCTAssertTrue(permissions.consent.isEmpty)
+    }
+
+    func testFutureIncompleteSchemaCannotBeFinishedOrOverwritten() {
+        var state = OnboardingState()
+        state.schemaVersion = 99
+        state.step = .review
+        let store = InMemoryOnboardingStore(state: state)
+        let model = OnboardingModel(store: store, permissions: SetupTestPermissions())
+        XCTAssertFalse(model.canFinish)
+        model.finish()
+        XCTAssertTrue(model.requiresOnboarding)
+        XCTAssertEqual(store.state, state)
+        XCTAssertNotNil(model.error)
     }
 
     func testUnresolvableScreenshotSelectionFailsClosedInsteadOfWatchingDefaultFolder() async {
