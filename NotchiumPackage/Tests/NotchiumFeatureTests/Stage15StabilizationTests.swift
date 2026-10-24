@@ -92,14 +92,15 @@ final class Stage15StabilizationTests: XCTestCase {
         XCTAssertEqual(presentation.presentedSecondary?.id, musicID)
         XCTAssertEqual(activities.presentationMode, .combined, "Music stays mounted under the compact transfer")
 
-        // Calendar arrives: Calendar primary, Download (not Music) the visible secondary.
+        // Calendar arrives: the full Download row and its Music companion remain above it.
         activities.notifications.present(reminder)
         XCTAssertEqual(activities.activeTransient?.kind, .calendar)
-        XCTAssertEqual(presentation.presentedSecondary?.key, transferKey)
-        XCTAssertEqual(activities.presentationMode, .downwardBanner, "Music is not shown in the banner row")
+        XCTAssertEqual(presentation.collapsedRowNotification?.id, transferID)
+        XCTAssertEqual(presentation.presentedSecondary?.id, musicID)
+        XCTAssertEqual(activities.presentationMode, .combined, "The ordinary collapsed row stays mounted")
         XCTAssertTrue(activities.contains(id: musicID))
         files.transfers.receive(download(0.5))
-        XCTAssertEqual(presentation.presentedSecondary?.minimal, .progress(0.5), "The chip stays live")
+        XCTAssertEqual(presentation.collapsedRowNotification?.minimal, .progress(0.5), "The row stays live")
 
         // Calendar expires: Download primary again (same identity), Music secondary.
         await settle(clock)
@@ -136,11 +137,8 @@ final class Stage15StabilizationTests: XCTestCase {
         let media = NotchSecondaryGeometry.frame(layout: layout)
         let transfer = NotchSecondaryGeometry.frame(layout: layout, beside: TransferActivityModel.activeNotification(
             primary: download(0.4), others: 0))
-        let calendar = NotchSecondaryGeometry.frame(layout: layout, beside: reminder)
         XCTAssertGreaterThan(transfer.minX, media.minX, "Beside the wider compact transfer, not the Music flanks")
-        XCTAssertEqual(calendar.maxX, layout.hardwareNotchGeometry?.frame.minX, "Progress sits left of hardware")
-        let artwork = NotchSecondaryGeometry.frame(layout: layout, beside: reminder, kind: .media)
-        XCTAssertEqual(artwork.minX, layout.hardwareNotchGeometry?.frame.maxX, "Artwork sits right of hardware")
+        XCTAssertEqual(transfer.height, layout.collapsedVisibleFrame.height)
     }
 
     // MARK: Fresh expansion follows active local playback; remote playback keeps Home
