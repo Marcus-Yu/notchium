@@ -6,9 +6,9 @@
 
 **Canonical distribution:** Stage 24 zero-cost GitHub Release; local ad-hoc signature, no Apple-trusted identity. See [RELEASING.md](RELEASING.md).
 
-**Last reviewed:** 2026-10-19 (Stage 27B)
+**Last reviewed:** 2026-10-23 (optional onboarding)
 
-**Current-source contract (Stage 27B):** A genuinely new profile must complete the dedicated first-launch permission wizard before the shell and feature observation start. Calendar no longer requests authorization from its startup model. All implemented requirements are introduced together; available Calendar, Reminders, Spotify Automation, Camera, Accessibility/event-post access, and entitled Focus requests are handled in setup. Screenshot-folder access uses a native folder chooser. Clipboard monitoring requires an explicit Enable or Keep Off choice and stays stopped during setup. Core Audio process-tap authorization, future file selections, shortcut-specific permissions, and per-item Keychain access cannot be granted universally in advance; the user must explicitly review those exceptions. Denied available permissions block completion. OS-managed restrictions and genuinely missing hardware/application are separately explained and explicitly acknowledged. No acknowledgment is an OS grant.
+**Current-source contract:** A genuinely new profile sees the dedicated first-launch wizard before the shell and feature observation start. Every permission, folder selection, app choice, and review acknowledgment is optional. Finish Setup atomically saves completion even when no access is granted or reviewed. Missing and denied access retain their actual status and can be enabled later in Settings → Permissions. Clipboard monitoring stays stopped during setup and defaults off unless explicitly enabled. Calendar no longer requests authorization from its startup model. Supported requests follow individual user actions; screenshot-folder access uses a native folder chooser. Core Audio process-tap authorization, future file selections, shortcut-specific permissions, and per-item Keychain access cannot be granted universally in advance. No acknowledgment or completion action is an OS grant.
 
 `OnboardingModel` owns the setup state; `OnboardingStore` atomically persists `Notchium/Onboarding.json` in Application Support. Existing configuration is recognized separately as `legacyRecognized`, preserving all preferences and data and providing Settings → Permissions instead of forcing a welcome loop. Completed setup is never invalidated by build changes or permission revocation. `NativeOnboardingPermissions` refreshes real statuses; it never queries personal events, creates reminders, starts camera/audio capture, reads the pasteboard, or opens Keychain items. The older ledger includes future/removed features and is historical where it conflicts with this contract. See [Stage 27B onboarding and persistence](STAGE27B_ONBOARDING_PERSISTENCE.md) for the actual inventory and validation limits.
 
@@ -100,7 +100,7 @@ Every permission-dependent feature follows this sequence:
 
 ## 6. Onboarding contract
 
-Stage 27B supersedes the former point-of-use policy for technically requestable authorizations. The five screens are Welcome, Permissions Overview, sequential Permissions, Final Review, and Ready. Every supported request has its own explicit action and visible result. There is no Skip All. Review separates verified grants, completed app/file choices, explicit exceptions, and unresolved requirements. Quit & Resume Later preserves the current step without enabling normal use or marking setup complete.
+The five screens are Welcome, Permissions Overview, sequential Permissions, Final Review, and Ready. Every supported request has its own explicit action and visible result. Continue skips a permission, and Review All opens the final review at any point in the sequence. Finish Setup requires no permissions or acknowledgments; it remains unavailable while a request/refresh is in progress or the setup record cannot safely be saved. Review separates verified grants, completed app/file choices, explicit exceptions, and unresolved requirements. Quit & Resume Later preserves the current step without enabling normal use or marking setup complete.
 
 macOS remains the authorization authority. Setup cannot pregrant Core Audio process-tap recording (the prompt belongs to first capture), arbitrary future file selections, per-shortcut actions, or a specific Keychain item's future authorization. Those exceptions are reviewed without doing protected work to force a dialog. The release build has no Focus entitlement or closed-lid helper. Notifications are in-app; no UserNotifications prompt is invented. Existing-user migration does not claim any OS authorization. Settings → Permissions repairs current access without reopening welcome.
 
@@ -198,10 +198,10 @@ The implemented screenshot adapter observes the configured screenshot folder (De
 
 ## Spotify onboarding hotfix (1.0.1 / build 3)
 
-Spotify is the sole additional optional-integration exception. **Continue Without
-Spotify** is a deliberate choice recorded in the existing `reviewed` set; it never
-changes the OS authorization snapshot or Clipboard preferences. Final Review accepts
-that choice while all fourteen other requirements retain their existing policy.
+All integrations are now optional during setup. **Continue Without Spotify** remains
+a deliberate review choice recorded in the existing `reviewed` set; it never
+changes the OS authorization snapshot or Clipboard preferences. Final Review can
+also finish without that choice or any other permission review.
 Settings → Permissions can retry Automation or refresh a later grant without
 resetting completed onboarding. Normal media controls still require genuine access.
 
