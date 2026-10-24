@@ -17,6 +17,8 @@ public final class ActivityCoordinator: ObservableObject {
     @Published public private(set) var liveActivities: [NotchActivity] = []
     /// The best baseline (persistent/condition) activity; transients interrupt it without replacing it.
     @Published public private(set) var persistentActivity: NotchActivity?
+    /// The same baseline's compact content, kept live beneath a Calendar banner.
+    @Published private(set) var persistentNotification: NotchNotification?
     /// The primary activity when it is transient.
     @Published public private(set) var activeTransient: NotchActivity?
     /// Live transients waiting underneath the primary.
@@ -288,11 +290,12 @@ public final class ActivityCoordinator: ObservableObject {
         let live = allRanked.filter { entries[$0.activity.key] != nil }.map(\.activity)
         let waiting = ranked.count { !$0.activity.lifetime.isBaseline && $0.activity.key != primaryKey }
         let media = ranked.first { $0.activity.lifetime.isBaseline && $0.activity.presentationStyle == .mediaSides }
-        let mode = Self.presentationMode(persistent: media?.activity, best: baseline?.activity,
+        let mode = Self.presentationMode(persistent: media?.activity,
                                          transient: presented?.activity)
         let changed = notifications.active != presented?.notification || liveActivities != live
             || primary != primaryEntry?.activity || activeTransient != transient?.activity
-            || persistentActivity != baseline?.activity || secondary != secondaryEntry?.activity
+            || persistentActivity != baseline?.activity || persistentNotification != baseline?.notification
+            || secondary != secondaryEntry?.activity
             || queueCount != waiting || presentationMode != mode
 
         // The notification slot is synchronised first so the shell never observes a
@@ -304,6 +307,7 @@ public final class ActivityCoordinator: ObservableObject {
         if primary != primaryEntry?.activity { primary = primaryEntry?.activity }
         if activeTransient != transient?.activity { activeTransient = transient?.activity }
         if persistentActivity != baseline?.activity { persistentActivity = baseline?.activity }
+        if persistentNotification != baseline?.notification { persistentNotification = baseline?.notification }
         if secondary != secondaryEntry?.activity { secondary = secondaryEntry?.activity }
         if queueCount != waiting { queueCount = waiting }
         if presentationMode != mode { presentationMode = mode }
@@ -311,11 +315,9 @@ public final class ActivityCoordinator: ObservableObject {
         entriesDidResolve.send()
     }
 
-    /// `persistent`: live Music (kept under compact content); `best`: the highest baseline, which
-    /// decides whether a Calendar banner shows Music in its top row or leaves room for a chip.
+    /// `persistent`: live Music, including underneath a compact baseline's content.
     private static func presentationMode(
         persistent: NotchActivity?,
-        best: NotchActivity?,
         transient: NotchActivity?
     ) -> NotchPresentationMode {
         guard let transient else {
@@ -325,7 +327,7 @@ public final class ActivityCoordinator: ObservableObject {
         case .none: return persistent?.presentationStyle == .mediaSides ? .mediaSides : .none
         case .mediaSides: return .mediaSides
         case .downwardBanner:
-            return transient.family == .calendar && best?.presentationStyle == .mediaSides
+            return transient.family == .calendar && persistent?.presentationStyle == .mediaSides
                 ? .combined
                 : .downwardBanner
         case .compactHUD: return persistent?.presentationStyle == .mediaSides ? .combined : .compactHUD
