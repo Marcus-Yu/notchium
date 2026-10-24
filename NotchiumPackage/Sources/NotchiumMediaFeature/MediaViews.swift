@@ -8,16 +8,20 @@ public struct MediaWaveform: View {
     public let isPlaying: Bool
     public let color: Color
     public let isPresented: Bool
+    private let keepsSilentWaveformVisible: Bool
     private let meter: SystemAudioMeter
     @NotchReducedMotion private var reduceMotion
-    public init(isPlaying: Bool, meter: SystemAudioMeter, color: Color = .white, isPresented: Bool = true) {
+    public init(isPlaying: Bool, meter: SystemAudioMeter, color: Color = .white, isPresented: Bool = true,
+                keepsSilentWaveformVisible: Bool = false) {
         self.isPlaying = isPlaying; self.meter = meter; self.color = color
         self.isPresented = isPresented
+        self.keepsSilentWaveformVisible = keepsSilentWaveformVisible
     }
     @ViewBuilder
     public var body: some View {
         // Hidden surfaces and Reduce Motion must not subscribe to audio samples.
-        let isVisible = isPresented && isPlaying && !reduceMotion && meter.isAudioActive
+        let isVisible = isPresented && isPlaying && !reduceMotion
+            && (meter.isAudioActive || keepsSilentWaveformVisible)
         Group {
             if isVisible {
                 HStack(spacing: 1.5) {
@@ -41,7 +45,8 @@ struct CollapsedMediaWaveform: View {
 
     var body: some View {
         MediaWaveform(isPlaying: model.state.isPlaying, meter: model.audioMeter,
-                      color: model.waveformAppearance.color, isPresented: !isExpanded)
+                      color: model.waveformAppearance.color, isPresented: !isExpanded,
+                      keepsSilentWaveformVisible: model.collapsedMediaVisible)
     }
 }
 
