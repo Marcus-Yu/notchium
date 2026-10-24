@@ -51,6 +51,7 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NotchFileD
         self.model = model
 #if DEBUG
         allowsPointerDrivenHover = !ProcessInfo.processInfo.arguments.contains("--ui-testing")
+            || ProcessInfo.processInfo.arguments.contains("--notchium-pointer-hover-fixture")
 #else
         allowsPointerDrivenHover = true
 #endif
@@ -432,13 +433,15 @@ final class NotchiumPanelController: NSObject, NotchPanelControlling, NotchFileD
     private func notificationFrame(for layout: NotchPanelLayout) -> CGRect? {
         if model.expandedMinorActivity != nil { return NotchExpandedMinorGeometry.frame(layout: layout) }
         guard let notification = model.presentedNotification else { return nil }
-        return NotchNotificationGeometry.interactionFrame(for: notification.presentationStyle, layout: layout,
-                                                          expanded: model.surfaceState != .collapsed)
+        let frame = NotchNotificationGeometry.interactionFrame(for: notification.presentationStyle, layout: layout,
+                                                               expanded: model.surfaceState != .collapsed)
+        return model.retainsCalendarRow && model.surfaceState == .collapsed
+            ? frame.union(model.collapsedRowFrame(in: layout)) : frame
     }
 
     private func indicatorFrames(for layout: NotchPanelLayout) -> [CGRect] {
-        model.presentedIndicators.map {
-            NotchSecondaryGeometry.frame(layout: layout, beside: model.presentedNotification, kind: $0.kind)
+        model.presentedIndicators.map { _ in
+            NotchSecondaryGeometry.frame(layout: layout, beside: model.collapsedRowNotification)
         }
     }
 
