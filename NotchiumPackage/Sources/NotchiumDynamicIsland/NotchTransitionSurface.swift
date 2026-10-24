@@ -40,6 +40,7 @@ struct NotchTransitionSurface<Content: View>: View {
     let systemTransitionRevision: Int
     let notificationVisible: Bool
     var retainsMedia = false
+    var retainsCollapsedRow = false
     var compactVisible = false
     var compactSpan = NotchCompactSpan(base: 0, full: 0)
     @State private var wasCompactVisible: Bool
@@ -57,7 +58,7 @@ struct NotchTransitionSurface<Content: View>: View {
 
     init(expanded: Bool, shape: NotchShellSurface, reduceMotion: Bool, systemTransitionRevision: Int = 0,
          notificationVisible: Bool = false,
-         retainsMedia: Bool = false, compactVisible: Bool = false,
+         retainsMedia: Bool = false, retainsCollapsedRow: Bool = false, compactVisible: Bool = false,
          compactSpan: NotchCompactSpan = .init(base: 0, full: 0),
          @ViewBuilder content: @escaping @MainActor (NotchVisualTransition.Phase) -> Content) {
         self.expanded = expanded
@@ -66,6 +67,7 @@ struct NotchTransitionSurface<Content: View>: View {
         self.systemTransitionRevision = systemTransitionRevision
         self.notificationVisible = notificationVisible
         self.retainsMedia = retainsMedia
+        self.retainsCollapsedRow = retainsCollapsedRow
         self.compactVisible = compactVisible
         self.compactSpan = compactSpan
         _wasCompactVisible = State(initialValue: compactVisible)
@@ -95,7 +97,7 @@ struct NotchTransitionSurface<Content: View>: View {
                 && !(notificationVisible && wasNotificationVisible && !expanded && !wasExpanded),
             notificationVisible: notificationVisible,
             keepsNotificationContent: preservesNotificationContent,
-            preservesCollapsedMedia: retainsMedia && !expanded
+            preservesCollapsedMedia: (retainsMedia || retainsCollapsedRow) && !expanded
                 && (targetChanged ? !wasExpanded : (isNotificationTransition || !transition.isBlack)),
             // Retraction runs from the width the activity entered at down to the shell's CURRENT
             // resting width. The resting width can differ from entry (Music appeared or was
