@@ -42,9 +42,23 @@ shoulders that meet the screen edge. Music's shoulders flare outside its existin
 waveform width, including when secondary indicators extend the shell. Height and content
 placement are unchanged; the idle physical-notch endpoint remains empty.
 
+Calendar reminders grow below the ordinary collapsed row. The current baseline's full
+compact content and its usual companion stay visible during banner entry, display and
+dismissal: Timer preference retains Music artwork, the countdown and waveform; Music
+preference retains the Music flanks and timer ring. Transfers keep their full live progress
+row and companion too. The banner keeps its fixed centered content width while the shared
+silhouette and pointer region accommodate the row above it. Calendar remains the transient
+owner with its original expiry; row buttons open their own feature without dismissing it.
+
 ## Interaction and motion
 
 `DynamicIslandPresentationModel` owns collapsed, temporarily hovered, and pinned-expanded states. Pointer-region edges drive timers; movement inside a region does not continually restart them.
+
+Camera dismissal commits the shell's closing target before releasing the preview.
+Native teardown therefore sees the closing state; a newer opening delivered during
+teardown keeps its own transition generation instead of being overwritten by the
+older exit. Immediate dismissal and reset use the same ordering. Capture still stops
+as closing begins, and ordinary pointer, pinning and exit-grace rules are unchanged.
 
 - Hover entry: 120 ms.
 - Hover leave grace: 500 ms. Content stays open during the grace; pointer re-entry cancels collapse, and another exit starts a fresh grace period.
@@ -73,6 +87,13 @@ asymmetric display snapshots. The passive hardware endpoint remains empty.
 ## Validation and acceptance
 
 Regression tests cover timing, pin persistence, timer cancellation, repeated pointer movement, click toggling/outside dismissal, Escape, Reduce Motion, empty passive shape, continuously top-anchored shape geometry, fixed dimensions, display selection, and Space notification behavior.
+
+October 23, 2026: 235 focused Calendar, playback, activity, timer, display and transition
+tests pass across the combined regression and targeted reruns, including two native Calendar
+row rendering tests with no skips. Offscreen hosting verifies both timer preferences,
+timer-only presentation, Reduce Motion, actual intermediate banner growth and dismissal
+continuity. The unsigned Debug workspace build and whitespace check pass. Live Spotify
+track changes and EventKit delivery were not manually exercised.
 
 October 14, 2026: 88 focused tests pass for Home opening during playback, navigation ownership, the 600 ms exit grace, re-entry cancellation, pinning, auxiliary interactions, and activity/timer policies. The Debug app build passes for `Notchium.xcworkspace`, scheme `Notchium`, macOS destination, with signing disabled. Live pointer feel was not manually verified.
 
