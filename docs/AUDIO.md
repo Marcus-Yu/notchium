@@ -107,6 +107,11 @@ retain identity, update content immediately, and extend expiry without restartin
 Explicit HUD events refresh expiry even at an unchanged value; repeated state snapshots
 still do not. The same activity projects into the expanded minor-system shell extension,
 leaving the selected page mounted and selected.
+The Audio page's own output slider and mute control keep their HAL confirmation feedback
+inside that page, including a delayed confirmation after the slider is released. Hardware
+volume and mute commands override this inline suppression, so the transient slider still
+appears for keyboard buttons while Audio is open. This is tied to command intent rather
+than global page visibility, preserving feedback when another display shows a different page.
 Lower-priority feedback is discarded while Calendar is visible. The 56 pt Audio content
 area uses the same black shell and rounded shoulders as Calendar. Stage 10 keeps the
 Music flanks visible throughout Audio entry and exit. Absolute expiry continues while
