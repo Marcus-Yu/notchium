@@ -4,7 +4,7 @@ import Foundation
 import NotchiumCore
 
 public enum CalendarPermission: Sendable, Equatable {
-    case notRequested, granted, denied, restricted
+    case notRequested, needsFullAccess, granted, denied, restricted
 }
 
 public struct MonitoredCalendar: Identifiable, Equatable, Sendable {
@@ -93,7 +93,8 @@ public protocol CalendarService: Sendable {
 
 @MainActor
 public final class RealCalendarService: CalendarService {
-    private let store = EKEventStore()
+    private let store: any CalendarEventStoreAccessing
+    private let preferences: UserDefaults
     private let selectionKey = "notchium.calendar.selectedIdentifiers"
     private var continuations: [UUID: AsyncStream<CalendarSnapshot>.Continuation] = [:]
     private var latest = CalendarSnapshot(availability: .unavailable(.permissionNotDetermined),
@@ -104,15 +105,23 @@ public final class RealCalendarService: CalendarService {
     private var observers: [(NotificationCenter, NSObjectProtocol)] = []
     private var started = false
     private var generation = 0
+    private var isRequestingAccess = false
 
-    public init() {}
+    public convenience init() {
+        self.init(store: EventKitCalendarStore(), preferences: .standard)
+    }
+
+    init(store: any CalendarEventStoreAccessing, preferences: UserDefaults) {
+        self.store = store
+        self.preferences = preferences
+    }
     isolated deinit { stopObservation() }
 
     public func availability() async -> FeatureAvailability {
         return switch permission {
         case .granted: .available
         case .notRequested: .unavailable(.permissionNotDetermined)
-        case .denied: .unavailable(.permissionDenied)
+        case .denied, .needsFullAccess: .unavailable(.permissionDenied)
         case .restricted: .unavailable(.permissionRestricted)
         }
     }
@@ -136,20 +145,23 @@ public final class RealCalendarService: CalendarService {
     public func refresh() async throws { refreshNow() }
 
     public func requestAccess() async {
-        guard permission == .notRequested else { refreshNow(); return }
+        guard !isRequestingAccess else { return }
+        guard permission == .notRequested || permission == .needsFullAccess else { refreshNow(); return }
+        isRequestingAccess = true
+        defer { isRequestingAccess = false }
         let generation = generation
-        _ = try? await store.requestFullAccessToEvents()
+        _ = try? await store.requestFullAccess()
         guard self.generation == generation, !Task.isCancelled else { return }
         refreshNow()
     }
 
     public func setCalendarSelected(_ id: String, selected: Bool) async {
         guard permission == .granted else { return }
-        let valid = Set(store.calendars(for: .event).map(\.calendarIdentifier))
+        let valid = Set(store.calendars().map(\.calendarIdentifier))
         guard valid.contains(id) else { return }
         var ids = selectedIDs(valid: valid)
         if selected { ids.insert(id) } else { ids.remove(id) }
-        UserDefaults.standard.set(Array(ids).sorted(), forKey: selectionKey)
+        preferences.set(Array(ids).sorted(), forKey: selectionKey)
         refreshNow()
     }
 
@@ -170,10 +182,11 @@ public final class RealCalendarService: CalendarService {
     }
 
     private var permission: CalendarPermission {
-        switch EKEventStore.authorizationStatus(for: .event) {
+        switch store.authorizationStatus {
         case .notDetermined: .notRequested
         case .fullAccess, .authorized: .granted
-        case .denied, .writeOnly: .denied
+        case .writeOnly: .needsFullAccess
+        case .denied: .denied
         case .restricted: .restricted
         @unknown default: .restricted
         }
@@ -210,11 +223,12 @@ public final class RealCalendarService: CalendarService {
     }
 
     private func selectedIDs(valid: Set<String>) -> Set<String> {
-        if let saved = UserDefaults.standard.stringArray(forKey: selectionKey) {
+        if let saved = preferences.stringArray(forKey: selectionKey) {
             return Set(saved).intersection(valid)
         }
-        // Initial grant monitors the calendars configured in Calendar.app.
-        UserDefaults.standard.set(Array(valid).sorted(), forKey: selectionKey)
+        // EventKit can temporarily return no calendars just after a grant. Do not turn
+        // that loading state into a persisted choice to monitor nothing.
+        if !valid.isEmpty { preferences.set(Array(valid).sorted(), forKey: selectionKey) }
         return valid
     }
 
@@ -223,12 +237,15 @@ public final class RealCalendarService: CalendarService {
         let state = permission
         guard state == .granted else {
             let reason: AvailabilityReason = state == .notRequested ? .permissionNotDetermined
-                : state == .denied ? .permissionDenied : .permissionRestricted
+                : state == .denied || state == .needsFullAccess ? .permissionDenied : .permissionRestricted
             publish(.init(availability: .unavailable(reason), permission: state))
             return
         }
 
-        let all = store.calendars(for: .event)
+        // Setup owns a different EKEventStore and Settings can change authorization
+        // externally. Reconnect this read-only store before its first newly granted read.
+        if latest.permission != .granted { store.reset() }
+        let all = store.calendars()
         let ids = selectedIDs(valid: Set(all.map(\.calendarIdentifier)))
         let calendars = all.map { calendar in
             MonitoredCalendar(id: calendar.calendarIdentifier, name: calendar.title,
@@ -239,9 +256,8 @@ public final class RealCalendarService: CalendarService {
         var events: [CalendarEventSummary] = []
         var currentIDs: [String: UUID] = [:]
         if !selected.isEmpty {
-            let predicate = store.predicateForEvents(withStart: now.addingTimeInterval(-86_400),
-                end: now.addingTimeInterval(14 * 86_400), calendars: selected)
-            for event in store.events(matching: predicate)
+            for event in store.events(from: now.addingTimeInterval(-86_400),
+                                      to: now.addingTimeInterval(14 * 86_400), calendars: selected)
                 where event.endDate > now && event.status != .canceled {
                 let key = "\(event.calendar.calendarIdentifier):\(event.eventIdentifier ?? ""):\(event.startDate.timeIntervalSince1970)"
                 let id = eventIDs[key] ?? UUID()
