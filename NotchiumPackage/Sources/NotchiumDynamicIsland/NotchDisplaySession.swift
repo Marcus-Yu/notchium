@@ -21,7 +21,8 @@ final class NotchDisplaySession {
     }
 
     func update(placement: NotchShellPlacement?, context: NotchPresentationContext,
-                configuration: NotchShellRenderConfiguration, animated: Bool) {
+                configuration: NotchShellRenderConfiguration, animated: Bool,
+                revalidatePanel: Bool = false) {
         if !observing {
             observing = true
             observePresentation()
@@ -38,17 +39,17 @@ final class NotchDisplaySession {
         model.activityCoordinator.setPresentationContext(context)
         if resuming { model.prepareForSystemWake() }
         panel.setPresentationContext(context)
-        reconcile(animated: animated)
+        reconcile(animated: animated, force: revalidatePanel)
     }
 
-    func reconcile(animated: Bool) {
+    func reconcile(animated: Bool, force: Bool = false) {
         guard observing else { return }
         guard let placement, model.activityCoordinator.presentationContext != .sleeping else {
             hide()
             return
         }
         let layout = NotchGeometryResolver.layout(for: placement, state: model.surfaceState)
-        guard layout != lastLayout || placement != lastPlacement || configuration != lastConfiguration else { return }
+        guard force || layout != lastLayout || placement != lastPlacement || configuration != lastConfiguration else { return }
         lastLayout = layout
         lastPlacement = placement
         lastConfiguration = configuration
