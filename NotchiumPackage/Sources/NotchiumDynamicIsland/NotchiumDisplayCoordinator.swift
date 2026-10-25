@@ -22,6 +22,7 @@ public final class NotchiumDisplayCoordinator: NSObject {
     @ObservationIgnored private var lastInteractedDisplayID: NotchiumDisplayID?
     @ObservationIgnored private var evidence = DisplayInteractionEvidence()
     @ObservationIgnored private var reconciliationTask: Task<Void, Never>?
+    @ObservationIgnored private var wakeRecoveryTask: Task<Void, Never>?
     @ObservationIgnored private var needsTopologyRebuild = false
     @ObservationIgnored private var needsSpaceReassertion = false
     @ObservationIgnored private var isStarted = false
@@ -149,6 +150,7 @@ public final class NotchiumDisplayCoordinator: NSObject {
 #endif
         environmentSource.stop()
         reconciliationTask?.cancel(); reconciliationTask = nil
+        wakeRecoveryTask?.cancel(); wakeRecoveryTask = nil
         needsTopologyRebuild = false
         needsSpaceReassertion = false
         activitySource.onSubmission = nil
@@ -165,6 +167,7 @@ public final class NotchiumDisplayCoordinator: NSObject {
 
     isolated deinit {
         reconciliationTask?.cancel()
+        wakeRecoveryTask?.cancel()
         environmentSource.stop()
         primarySession.stop()
         additionalSessions.values.forEach { $0.stop() }
@@ -172,7 +175,7 @@ public final class NotchiumDisplayCoordinator: NSObject {
         NSWorkspace.shared.notificationCenter.removeObserver(self)
     }
 
-    func refreshDisplayConfiguration() {
+    func refreshDisplayConfiguration(revalidatePanels: Bool = false) {
         guard isStarted, !isSleeping else { return }
         let liveSnapshots = displaySource.snapshots()
 #if DEBUG
@@ -183,7 +186,7 @@ public final class NotchiumDisplayCoordinator: NSObject {
         evidence = environmentSource.evidence(displays: snapshots)
         displayState.preferences = settings.preferences
         displayState.rebuild(snapshots, evidence: evidence)
-        applyDisplayState()
+        applyDisplayState(revalidatePanels: revalidatePanels)
     }
 
     /// Interaction chooses the keyboard destination without moving or expanding another panel.
@@ -241,7 +244,7 @@ public final class NotchiumDisplayCoordinator: NSObject {
         }
     }
 
-    private func applyDisplayState() {
+    private func applyDisplayState(revalidatePanels: Bool = false) {
         var placements = displayState.shellPlacements
 #if DEBUG
         placements = placements.compactMap { debugModel.override(placement: $0) }
@@ -255,7 +258,8 @@ public final class NotchiumDisplayCoordinator: NSObject {
             additionalSessions.removeValue(forKey: id)?.stop()
         }
         primarySession.update(placement: placements.first,
-            context: displayState.presentationContext, configuration: configuration, animated: false)
+            context: displayState.presentationContext, configuration: configuration, animated: false,
+            revalidatePanel: revalidatePanels)
         for placement in placements.dropFirst() {
             let session: NotchDisplaySession
             if let existing = additionalSessions[placement.display.id] {
@@ -270,7 +274,7 @@ public final class NotchiumDisplayCoordinator: NSObject {
             }
             session.update(placement: placement,
                 context: displayState.context(for: placement.display.id, evidence: evidence),
-                configuration: configuration, animated: false)
+                configuration: configuration, animated: false, revalidatePanel: revalidatePanels)
         }
 #if DEBUG
         if let placement = placements.first {
@@ -297,7 +301,7 @@ public final class NotchiumDisplayCoordinator: NSObject {
             let reassert = self.needsSpaceReassertion
             self.needsTopologyRebuild = false
             self.needsSpaceReassertion = false
-            if rebuild { self.refreshDisplayConfiguration() }
+            if rebuild { self.refreshDisplayConfiguration(revalidatePanels: self.wakeRecoveryTask != nil) }
             else {
                 self.evidence = self.environmentSource.evidence(displays: self.displayState.availableDisplays)
                 self.displayState.resolve(self.evidence)
@@ -318,6 +322,7 @@ public final class NotchiumDisplayCoordinator: NSObject {
         guard isStarted else { return }
         screenCorrectionGeneration &+= 1
         reconciliationTask?.cancel(); reconciliationTask = nil
+        wakeRecoveryTask?.cancel(); wakeRecoveryTask = nil
         needsTopologyRebuild = false
         needsSpaceReassertion = false
         activitySource.setSystemSleeping(true)
@@ -329,8 +334,27 @@ public final class NotchiumDisplayCoordinator: NSObject {
         guard isStarted else { return }
         activitySource.setSystemSleeping(false)
         displayState.setSleeping(false, evidence: evidence)
-        refreshDisplayConfiguration()
+        refreshDisplayConfiguration(revalidatePanels: true)
         scheduleReconciliation(topology: true)
+        scheduleWakeRecovery()
+    }
+
+    private func scheduleWakeRecovery() {
+        wakeRecoveryTask?.cancel()
+        let generation = lifecycleGeneration
+        // Screen discovery and WindowServer ordering may settle after the 80 ms coalescer.
+        // Recheck at 0.25, 1, 3 and 8 seconds, then return to native event-driven observation.
+        wakeRecoveryTask = Task { [weak self, clock] in
+            for delay in [Duration.milliseconds(250), .milliseconds(750), .seconds(2), .seconds(5)] {
+                do { try await clock.sleep(for: delay) } catch { return }
+                guard !Task.isCancelled, let self, self.isStarted, !self.isSleeping,
+                      generation == self.lifecycleGeneration else { return }
+                // A previous native placement can fail or be hidden despite identical geometry.
+                self.refreshDisplayConfiguration(revalidatePanels: true)
+                self.reassertPanels()
+            }
+            self?.wakeRecoveryTask = nil
+        }
     }
 
     @objc private func activeSpaceDidChange(_ notification: Notification) {
