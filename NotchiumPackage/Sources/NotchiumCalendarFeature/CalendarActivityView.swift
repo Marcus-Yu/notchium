@@ -17,12 +17,26 @@ public struct CalendarActivityView: View {
                 permissionView("See what’s next", detail: "Allow Notchium to read your macOS calendars.") {
                     Button("Allow Calendar Access") { model.requestAccess() }
                         .buttonStyle(.glass)
+                        .accessibilityIdentifier("notchium.calendar.requestAccess")
+                }
+            case .needsFullAccess:
+                permissionView("Full calendar access is needed", detail: "Notchium needs Full Access to read your upcoming events. Add Events Only access can’t show them.") {
+                    Button("Request Full Access") { model.requestAccess() }
+                        .buttonStyle(.glass)
+                        .accessibilityIdentifier("notchium.calendar.requestFullAccess")
                 }
             case .denied, .restricted:
                 permissionView("Calendar access is off", detail: "Enable Notchium in System Settings → Privacy & Security → Calendars.") {
-                    Button("Open System Settings") {
-                        NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/System Settings.app"))
-                    }.buttonStyle(.glass)
+                    HStack {
+                        Button("Open System Settings") {
+                            NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/System Settings.app"))
+                        }
+                        .buttonStyle(.glass)
+                        .accessibilityIdentifier("notchium.calendar.openSettings")
+                        Button("Check Again") { model.refresh() }
+                            .buttonStyle(.glass)
+                            .accessibilityIdentifier("notchium.calendar.checkAccess")
+                    }
                 }
             case .granted:
                 if case .unavailable = model.snapshot.availability {
@@ -44,6 +58,10 @@ public struct CalendarActivityView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .foregroundStyle(.white)
         .accessibilityIdentifier("notchium.calendar.page")
+        .task(id: isPageVisible) {
+            guard isPageVisible else { return }
+            model.refresh()
+        }
     }
 
     private func eventContent(_ event: CalendarEventSummary) -> some View {
