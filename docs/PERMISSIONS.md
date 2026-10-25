@@ -80,6 +80,8 @@ Every permission-dependent feature follows this sequence:
 
 “Try Again” rechecks status. It does not call a one-shot TCC request repeatedly after denial. Settings links use documented APIs/URLs only; otherwise the app gives a textual path.
 
+Calendar treats Add Events Only access separately from denial and offers an explicit full-access upgrade before reading events. Opening its nonactivating notch page, or returning to Calendar Settings, rechecks OS authorization without prompting. A newly granted service resets its read-only EventKit store before fetching calendars; setup completion never substitutes for a real grant.
+
 ## 5. Permission-denial behavior by feature group
 
 | Feature | Denied or unavailable behavior |
