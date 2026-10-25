@@ -12,13 +12,21 @@ public struct CalendarSettingsSection: View {
                 Text("Show upcoming events from calendars in Apple Calendar.")
                     .foregroundStyle(.secondary)
                 Button("Allow Calendar Access") { model.requestAccess() }
+                    .accessibilityIdentifier("notchium.calendar.settings.requestAccess")
+            case .needsFullAccess:
+                Text("Notchium needs Full Access to read upcoming events. Add Events Only access can’t show your calendars.")
+                    .foregroundStyle(.secondary)
+                Button("Request Full Access") { model.requestAccess() }
+                    .accessibilityIdentifier("notchium.calendar.settings.requestFullAccess")
             case .denied, .restricted:
                 Text("Allow Notchium in System Settings → Privacy & Security → Calendars.")
                     .foregroundStyle(.secondary)
                 Button("Open System Settings") {
                     NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/System Settings.app"))
                 }
+                .accessibilityIdentifier("notchium.calendar.settings.openSettings")
                 Button("Check Again") { model.refresh() }
+                    .accessibilityIdentifier("notchium.calendar.settings.checkAccess")
             case .granted:
                 if case .unavailable = model.snapshot.availability {
                     Text("Calendar is unavailable right now. Try again to reload your calendars.")
@@ -46,6 +54,10 @@ public struct CalendarSettingsSection: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
+        }
+        .task { model.refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+            model.refresh()
         }
     }
 }
