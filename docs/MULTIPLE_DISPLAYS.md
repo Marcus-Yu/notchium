@@ -13,6 +13,8 @@ Settings → General → Displays contains:
 
 A disconnected saved monitor temporarily falls back to the built-in display, then the primary/first available display. Reconnection restores the saved monitor. Closing the lid uses the available external display; reopening restores the built-in default. No screens means no shell panel. Sleep closes all interaction sessions, hides the panels and retains activity data until its existing deadlines expire.
 
+Wake rebuilds the display topology immediately and through the existing 80 ms coalescer, then rechecks at 0.25, 1, 3 and 8 seconds to accommodate delayed display discovery and WindowServer ordering. Each recovery revalidates and orders the selected panels, even when the display geometry is unchanged. The bounded recovery is replaced by a newer wake and cancelled by sleep or shutdown; afterward, native display/Space notifications remain authoritative. No continuous polling or preference changes are introduced.
+
 ## Ownership
 
 `NotchDisplayPlacementPolicy` computes placements from immutable snapshots and persisted preferences. `NotchiumDisplayCoordinator` owns topology, native observations, reconciliation and selected sessions. Each `NotchDisplaySession` owns a separate `DynamicIslandPresentationModel`, page model and native panel. Geometry changes on the same display retain its session; assigning a different display closes the old interaction instead of copying expansion.
@@ -23,6 +25,7 @@ All pages retain the existing fixed expanded shell and native window behavior. S
 
 ## Verification
 
+- Wake recovery fix (2026-10-24): 52 focused display, Space and sleep/wake tests passed, including seven new regressions for delayed screens, failed/hidden native placement with unchanged geometry, repeated wake, bounded completion, cancellation, restart and changed online display IDs. The Release workspace build passed for My Mac with `CODE_SIGNING_ALLOWED=NO`; `git diff --check` passed. These are deterministic recovery and compilation checks; physical lid-close/reopen and native WindowServer ordering still require hardware verification. Logs: `/tmp/notch-wake-tests.log` and `/tmp/notch-wake-release-build.log`.
 - Regression coverage: default built-in anchoring with an external primary/pointer, independent hover/expansion/navigation, shared activity identity/dismissal/deadlines, one expiry timer, per-display fullscreen suppression, persisted preferences, reconnect with changed online ID, recycled IDs, disconnect teardown, keyboard targeting, sleep/wake, proportional geometry, menu ownership and multi-display media visibility.
 - The final combined display, geometry, menu, activity and media regression run passed **121 tests, 0 failures**.
 - The final full package run executed 700 XCTest tests: **695 passed, 4 skipped, 1 failed**. The unchanged `Stage15StabilizationTests.testRemoteConnectPlaybackOpensHomeAndLocalOpensMusic` expects Music for local baseline playback, while the existing `ActivityCoordinator.preferredExpandedPage` returns Home. That policy and test were not changed by this feature. The separate Swift Testing run passed 5 tests.
