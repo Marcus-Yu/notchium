@@ -12,18 +12,21 @@ public struct NotchAudioHUD: Equatable, Sendable {
     public let deviceStyle: NotchDeviceStyle
     /// Stable device identity, so a different device is never treated as a repeat.
     public let deviceID: String?
+    /// Advances only for confirmed device transitions, independently of coalesced banner identity.
+    public let transitionRevision: UInt64
     /// Only a fresh, source-reported aggregate level; nil means "do not show a battery".
     public let battery: NotchDeviceBattery?
 
     public init(kind: Kind, deviceName: String, volume: Double?, isMuted: Bool,
                 deviceStyle: NotchDeviceStyle = .speaker, deviceID: String? = nil,
-                battery: NotchDeviceBattery? = nil) {
+                battery: NotchDeviceBattery? = nil, transitionRevision: UInt64 = 0) {
         self.kind = kind
         self.deviceName = deviceName
         self.volume = volume
         self.isMuted = isMuted
         self.deviceStyle = deviceStyle
         self.deviceID = deviceID
+        self.transitionRevision = transitionRevision
         self.battery = battery
     }
 
