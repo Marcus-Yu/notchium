@@ -36,6 +36,7 @@ public final class AudioFeatureModel: NotchAudioRendering {
     @ObservationIgnored private var mixerTask: Task<Void, Never>?
     @ObservationIgnored private var hasReceivedDevices = false
     @ObservationIgnored private var deviceTransitions = OutputDeviceTransitionTracker()
+    @ObservationIgnored private var outputTransitionRevision: UInt64 = 0
     @ObservationIgnored private var isEditingVolume = false
     @ObservationIgnored private var pendingInlineVolumes: [Double] = []
     @ObservationIgnored private var pendingInlineMute: Bool?
@@ -156,7 +157,8 @@ public final class AudioFeatureModel: NotchAudioRendering {
         // Devices already connected at launch are known state, not events.
         guard hasReceivedDevices else { hasReceivedDevices = true; return }
         if let transition = deviceTransitions.receive(old: oldStates, new: states, now: now()) {
-            onHUD?(transition.hud)
+            outputTransitionRevision &+= 1
+            onHUD?(transition.hud(revision: outputTransitionRevision))
             return
         }
         guard let current = next.currentOutput, old?.id == current.id else { return }
@@ -168,6 +170,9 @@ public final class AudioFeatureModel: NotchAudioRendering {
     }
 
     public func select(_ device: AudioDevice) {
+        // Explicit route selection is distinct from HAL's automatic appearance/route pair.
+        // The animation still waits for a confirmed device snapshot, including on failure.
+        deviceTransitions.selecting(device.uid ?? device.id)
         Task { [weak self, deviceService] in
             do {
                 try await deviceService.selectOutput(id: device.id)
