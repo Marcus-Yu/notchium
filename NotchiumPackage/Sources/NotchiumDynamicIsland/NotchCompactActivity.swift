@@ -5,8 +5,8 @@ import SwiftUI
 public struct NotchCompactActivity: Equatable, Sendable {
     public enum Glyph: Equatable, Sendable {
         case symbol(String, variableValue: Double? = nil)
-        /// Output devices turn into place on entry; the same motion serves every device style.
-        /// `connected: false` (a disconnect) settles without the turn.
+        /// AirPods turn into place on connection and reverse on disconnect; generic wearables
+        /// retain their connection turn and settle without a turn on disconnect.
         case device(NotchDeviceStyle, connected: Bool = true)
         /// A downsampled file preview (a screenshot) that slides out from beneath the notch.
         case thumbnail(URL)
@@ -33,25 +33,41 @@ public struct NotchCompactActivity: Equatable, Sendable {
     /// While Music is visibly playing, the leading side shows its artwork beside the countdown and
     /// the trailing side keeps its waveform: one activity that still reads as Music.
     public let blendsWithMedia: Bool
+    public let deviceID: String?
+    public let transitionRevision: UInt64
 
     public init(glyph: Glyph, title: String, showsTitle: Bool = true, trailing: Trailing, tint: Tint = .primary,
-                blendsWithMedia: Bool = false) {
+                blendsWithMedia: Bool = false, deviceID: String? = nil, transitionRevision: UInt64 = 0) {
         self.glyph = glyph
         self.title = title
         self.showsTitle = showsTitle
         self.trailing = trailing
         self.tint = tint
         self.blendsWithMedia = blendsWithMedia
+        self.deviceID = deviceID
+        self.transitionRevision = transitionRevision
     }
 
     /// Symmetric sides sized to the content, so the notch stays centred and an untitled
     /// activity is not surrounded by empty black. Long status text ("Disconnected") gets full width.
     var sideWidth: CGFloat {
         if showsTitle { return NotchCompactGeometry.sideWidth }
+        if usesAirPodsBatteryReadout { return 72 }
         switch trailing {
         case let .text(text) where text.count > 9: return NotchCompactGeometry.sideWidth
         case .progress, .countdown: return NotchCompactGeometry.sideWidth
         default: return 86
+        }
+    }
+
+    /// Product connections use a small charge ring; Mac power alerts and other devices keep
+    /// their existing battery treatment. Unknown charge remains a status, never a placeholder.
+    var usesAirPodsBatteryReadout: Bool {
+        guard case let .device(style, connected) = glyph, connected,
+              case .battery = trailing else { return false }
+        switch style {
+        case .airPods, .airPodsPro, .airPodsMax: return true
+        default: return false
         }
     }
 
@@ -63,10 +79,11 @@ public struct NotchCompactActivity: Equatable, Sendable {
             self.init(glyph: .device(hud.deviceStyle), title: Self.shortName(hud.deviceName),
                       showsTitle: false,
                       trailing: hud.battery.map { .battery(level: $0.level, charging: $0.isCharging) }
-                        ?? .text("Connected"))
+                        ?? .text("Connected"), deviceID: hud.deviceID, transitionRevision: hud.transitionRevision)
         case .deviceDisconnected:
             self.init(glyph: .device(hud.deviceStyle, connected: false), title: Self.shortName(hud.deviceName),
-                      showsTitle: false, trailing: .text("Disconnected"), tint: .muted)
+                      showsTitle: false, trailing: .text("Disconnected"), tint: .muted,
+                      deviceID: hud.deviceID, transitionRevision: hud.transitionRevision)
         case .volume where hud.isMuted:
             // The preserved level stays visible, dimmed, so unmuting animates back from it.
             self.init(glyph: .symbol("speaker.slash.fill"), title: "Muted",
