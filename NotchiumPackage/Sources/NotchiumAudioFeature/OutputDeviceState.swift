@@ -78,15 +78,16 @@ enum OutputDeviceTransition: Equatable {
         return nil
     }
 
-    var hud: NotchAudioHUD {
+    func hud(revision: UInt64) -> NotchAudioHUD {
         switch self {
         case let .connected(device):
             NotchAudioHUD(kind: .outputChanged, deviceName: device.name, volume: nil, isMuted: false,
-                          deviceStyle: device.category, deviceID: device.id, battery: device.aggregateBattery)
+                          deviceStyle: device.category, deviceID: device.id, battery: device.aggregateBattery,
+                          transitionRevision: revision)
         case let .disconnected(device):
             // A departed device's battery is never shown: its last reading is no longer live.
             NotchAudioHUD(kind: .deviceDisconnected, deviceName: device.name, volume: nil, isMuted: false,
-                          deviceStyle: device.category, deviceID: device.id)
+                          deviceStyle: device.category, deviceID: device.id, transitionRevision: revision)
         }
     }
 }
@@ -96,6 +97,10 @@ enum OutputDeviceTransition: Equatable {
 /// route switch or a reconnection remains a new event. No timer or Bluetooth polling is needed.
 struct OutputDeviceTransitionTracker {
     private var recentAppearances: [String: Date] = [:]
+
+    mutating func selecting(_ id: String) {
+        recentAppearances.removeValue(forKey: id)
+    }
 
     mutating func receive(old: [OutputDeviceState], new: [OutputDeviceState], now: Date) -> OutputDeviceTransition? {
         let newIDs = Set(new.map(\.id))
