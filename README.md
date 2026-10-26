@@ -14,6 +14,7 @@ The first public release is being prepared; local preview artifacts are for vali
 - Download and screenshot activities, Shelf, AirDrop, and sharing.
 - Clipboard history, Pomodoro, Mirror, and Caffeine.
 - Audio controls, system HUDs, Home shortcuts, and macOS Shortcuts.
+- AirPods connection, disconnect, and output-switch feedback with dimensional product artwork and a brief rotating reveal.
 - Built-in display by default, with independent notches on all displays or a selected monitor. Configure display placement and optional notch shapes in Settings → General → Displays.
 
 ## Requirements
