@@ -1,3 +1,4 @@
+import NotchiumDesignSystem
 import SwiftUI
 
 /// Hosts the compact activity in the shell's top row. Its content keeps rendering while the
@@ -79,6 +80,7 @@ struct NotchCompactActivityView: View {
     /// False when a waiting entry is restored: its one-off entrance flourish does not replay.
     var entersFresh = true
     @Environment(\.notchMediaRenderer) private var mediaRenderer
+    @NotchIncreasedContrast private var increaseContrast
 
     private var progress: CGFloat { min(max(reveal, 0), 1) }
     /// Content slides out from beneath the physical notch just behind the growing edge, so the
@@ -147,9 +149,22 @@ struct NotchCompactActivityView: View {
             .padding(.trailing, 4)
         } else {
             glyph
-                .frame(width: 20, height: 20)
+                .frame(width: glyphEdge, height: glyphEdge)
                 .padding(.leading, 13)
         }
+    }
+
+    private var productArtwork: NotchAirPodsArtwork? {
+        guard case let .device(style, _) = activity.glyph else { return nil }
+        return NotchAirPodsArtwork(style: style)
+    }
+
+    private var glyphEdge: CGFloat { productArtwork == nil ? 20 : 28 }
+
+    private var deviceScale: CGFloat {
+        guard !reduceMotion else { return 1 }
+        let initial: CGFloat = productArtwork == nil ? 0.7 : 0.92
+        return initial + (1 - initial) * progress
     }
 
     @ViewBuilder private var glyph: some View {
@@ -171,9 +186,10 @@ struct NotchCompactActivityView: View {
                 .scaleEffect(reduceMotion ? 1 : 0.55 + 0.45 * progress, anchor: .trailing)
         case let .device(style, connected):
             NotchDeviceTurnGlyph(style: style, connected: connected, trigger: entryID, reduceMotion: reduceMotion,
-                                 turnsOnAppear: entersFresh)
+                                 turnsOnAppear: entersFresh, deviceID: activity.deviceID,
+                                 transitionRevision: activity.transitionRevision)
                 .foregroundStyle(tint)
-                .scaleEffect(reduceMotion ? 1 : 0.7 + 0.3 * progress)
+                .scaleEffect(deviceScale)
         }
     }
 
@@ -200,15 +216,21 @@ struct NotchCompactActivityView: View {
                 // Native secondary status: quiet, regular weight, never an accent colour.
                 Text(text)
                     .font(.system(size: 12))
-                    .foregroundStyle(.white.opacity(0.55))
+                    .foregroundStyle(.white.opacity(productArtwork == nil ? 0.55 : (increaseContrast ? 0.85 : 0.65)))
                     .lineLimit(1)
                     .opacity(textOpacity)
             case let .battery(level, charging):
-                HStack(spacing: 6) {
-                    Text("\(Self.percent(level))%")
-                        .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                if activity.usesAirPodsBatteryReadout {
+                    NotchAirPodsBatteryReadout(level: level, charging: charging,
+                                              reveal: progress, reduceMotion: reduceMotion)
                         .opacity(textOpacity)
-                    NotchBatteryGlyph(level: level * Double(progress), tint: tint, charging: charging)
+                } else {
+                    HStack(spacing: 6) {
+                        Text("\(Self.percent(level))%")
+                            .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                            .opacity(textOpacity)
+                        NotchBatteryGlyph(level: level * Double(progress), tint: tint, charging: charging)
+                    }
                 }
             case let .progress(fraction, label):
                 // Only the progress itself moves while active; updates glide, never re-enter.
@@ -332,20 +354,48 @@ private struct NotchBatteryGlyph: View {
     }
 }
 
-/// One controlled half turn with a soft ease-out, then still. The timeline runs only for the
-/// turn itself; no display link remains active while the activity is idle.
+/// Generic wearables retain their existing symbol treatment. AirPods use authored product
+/// artwork and a bounded native keyframe animation, rather than rotating a flat glyph.
 private struct NotchDeviceTurnGlyph: View {
     let style: NotchDeviceStyle
     let connected: Bool
     let trigger: UUID
     let reduceMotion: Bool
+    var turnsOnAppear = true
+    var deviceID: String? = nil
+    var transitionRevision: UInt64 = 0
+
+    var body: some View {
+        if let artwork = NotchAirPodsArtwork(style: style) {
+            NotchAirPodsConnectionGlyph(artwork: artwork, connected: connected, reduceMotion: reduceMotion,
+                                       turnsOnAppear: turnsOnAppear, deviceID: deviceID,
+                                       transitionRevision: transitionRevision)
+        } else {
+            NotchSymbolDeviceTurnGlyph(style: style, connected: connected, trigger: trigger,
+                                      reduceMotion: reduceMotion, turnsOnAppear: turnsOnAppear,
+                                      deviceID: deviceID, transitionRevision: transitionRevision)
+        }
+    }
+}
+
+/// One controlled half turn for generic wearable symbols, then still.
+private struct NotchSymbolDeviceTurnGlyph: View {
+    let style: NotchDeviceStyle
+    let connected: Bool
+    let trigger: UUID
+    let reduceMotion: Bool
+    let deviceID: String?
+    let transitionRevision: UInt64
     @State private var turnStart: Date?
 
-    init(style: NotchDeviceStyle, connected: Bool, trigger: UUID, reduceMotion: Bool, turnsOnAppear: Bool = true) {
+    init(style: NotchDeviceStyle, connected: Bool, trigger: UUID, reduceMotion: Bool, turnsOnAppear: Bool = true,
+         deviceID: String? = nil, transitionRevision: UInt64 = 0) {
         self.style = style
         self.connected = connected
         self.trigger = trigger
         self.reduceMotion = reduceMotion
+        self.deviceID = deviceID
+        self.transitionRevision = transitionRevision
         // Start turned away on the very first frame; the turn never pops from rest.
         // A restored entry starts at rest; a later reconnect still turns through onChange.
         _turnStart = State(initialValue: turnsOnAppear && Self.turns(style, connected, reduceMotion) ? .now : nil)
@@ -366,7 +416,7 @@ private struct NotchDeviceTurnGlyph: View {
         }
         // A coalesced update keeps this view: a reconnect or a different wearable turns again,
         // a disconnect settles immediately. One activity, never a pile-up of entries.
-        .onChange(of: TurnKey(style: style, connected: connected)) { _, _ in
+        .onChange(of: TurnKey(style: style, connected: connected, deviceID: deviceID, revision: transitionRevision)) { _, _ in
             turnStart = Self.turns(style, connected, reduceMotion) ? .now : nil
         }
         .onChange(of: reduceMotion) { _, reduced in
@@ -380,7 +430,12 @@ private struct NotchDeviceTurnGlyph: View {
         }
     }
 
-    private struct TurnKey: Equatable { let style: NotchDeviceStyle; let connected: Bool }
+    private struct TurnKey: Equatable {
+        let style: NotchDeviceStyle
+        let connected: Bool
+        let deviceID: String?
+        let revision: UInt64
+    }
     private struct TurnTask: Equatable { let trigger: UUID; let start: Date? }
 }
 
