@@ -7,6 +7,49 @@ import NotchiumDynamicIsland
 
 @MainActor
 final class AirPodsTransitionReliabilityTests: XCTestCase {
+    func testManualSelectionJustAfterAppearanceIsASeparateConfirmedTransition() throws {
+        let model = AudioFeatureModel(devices: MockAudioDevicesService(), processes: MockAudioProcessesService(),
+                                     mixer: MockAppAudioMixerService(), now: { Date(timeIntervalSince1970: 10) })
+        var feedback: [NotchAudioHUD] = []
+        model.onHUD = { feedback.append($0) }
+        model.receive(snapshot(pods: false, selected: false))
+        model.receive(snapshot(pods: true, selected: false))
+        model.select(try XCTUnwrap(model.devices.outputs.last))
+        XCTAssertEqual(feedback.count, 1, "A selection request alone must not pretend to succeed")
+        model.receive(snapshot(pods: true, selected: true))
+        model.receive(snapshot(pods: true, selected: true))
+        XCTAssertEqual(feedback.map(\.transitionRevision), [1, 2])
+        XCTAssertEqual(feedback.map(\.deviceID), ["pods-uid", "pods-uid"])
+    }
+
+    func testSystemRouteSwitchesBetweenAvailableAirPodsReachTheSameBannerWithNewMotion() throws {
+        let model = AudioFeatureModel(devices: MockAudioDevicesService(), processes: MockAudioProcessesService(),
+                                     mixer: MockAppAudioMixerService())
+        let presentation = DynamicIslandPresentationModel()
+        defer { presentation.activityCoordinator.clearAll() }
+        model.onHUD = { presentation.showAudioHUD($0) }
+        func outputs(_ active: String) -> AudioDevicesSnapshot {
+            .init(availability: .available, outputs: ["speaker", "pods-a", "pods-b"].map { id in
+                AudioDevice(id: id, uid: id, name: id == "speaker" ? "Speakers" : "AirPods Pro",
+                            isDefaultOutput: active == id, transport: id == "speaker" ? .builtIn : .bluetooth)
+            })
+        }
+        model.receive(outputs("speaker"))
+        var bannerID: UUID?
+        for (index, id) in ["pods-a", "pods-b", "speaker", "pods-a"].enumerated() {
+            model.receive(outputs(id))
+            let banner = try XCTUnwrap(presentation.presentedNotification)
+            if let bannerID { XCTAssertEqual(banner.id, bannerID, "Keep a single coalesced banner") }
+            else { bannerID = banner.id }
+            let activity = try XCTUnwrap(banner.content.compactActivity)
+            XCTAssertEqual(activity.deviceID, id)
+            XCTAssertEqual(activity.transitionRevision, UInt64(index + 1))
+            model.receive(outputs(id))
+            XCTAssertEqual(presentation.presentedNotification?.content.compactActivity?.transitionRevision,
+                           activity.transitionRevision, "Unchanged snapshots must not replay motion")
+        }
+    }
+
     func testAppearanceThenRouteSelectionAnnouncesOneLogicalConnection() {
         let model = AudioFeatureModel(devices: MockAudioDevicesService(), processes: MockAudioProcessesService(),
                                      mixer: MockAppAudioMixerService(), now: { Date(timeIntervalSince1970: 10) })
