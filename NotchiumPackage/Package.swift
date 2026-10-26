@@ -34,7 +34,8 @@ let package = Package(
         .target(name: "NotchiumDesignSystem"),
         .target(
             name: "NotchiumDynamicIsland",
-            dependencies: ["NotchiumCore", "NotchiumDesignSystem"]
+            dependencies: ["NotchiumCore", "NotchiumDesignSystem"],
+            resources: [.process("Resources")]
         ),
         .target(
             name: "NotchiumMediaFeature",
