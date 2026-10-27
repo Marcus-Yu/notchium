@@ -244,6 +244,11 @@ extension NotchMotion {
     static let compactIn = Animation.interactiveSpring(response: 0.36, dampingFraction: 0.86, blendDuration: 0)
     /// The inverse, critically damped: the sides retract into the notch without undershoot.
     static let compactOut = Animation.interactiveSpring(response: 0.30, dampingFraction: 1.0, blendDuration: 0)
+    /// Leave enough time to read the rotating product's inward glide before the mask closes.
+    static let airPodsOut = Animation.smooth(duration: 0.4)
+    /// Music reclaims the slot at one-third reveal; allow a comparable visible product flight
+    /// before that earlier handoff, rather than squeezing the fade into the first 0.1 seconds.
+    static let airPodsToMediaOut = Animation.smooth(duration: 0.6)
     /// Replacing one compact activity with another inside an unchanged shell.
     static let compactSwap = Animation.smooth(duration: 0.22)
     /// The outgoing activity of a swap leaves faster than the incoming one arrives, so two
