@@ -5,58 +5,77 @@ import XCTest
 
 @MainActor
 final class AirPodsConnectionAnimationTests: XCTestCase {
-    func testProductTurnIsMonotonicAndSettlesWithoutOvershoot() {
-        let timeline = KeyframeTimeline(initialValue: 0.0) {
-            NotchAirPodsMotion.turn(from: 0, connected: true)
-        }
-        XCTAssertEqual(timeline.duration, 1.2, accuracy: 0.001)
-        XCTAssertEqual(timeline.value(time: 0), 0, accuracy: 0.001)
-        XCTAssertEqual(timeline.value(time: timeline.duration), 1, accuracy: 0.001)
+    func testConnectionKeepsTurningBeyondTheFirstTurnAndBannerDuration() {
+        let start = ContinuousClock.now
+        let motion = NotchAirPodsMotion(connected: true, at: start)
         var previous = 0.0
-        for step in 0...240 {
-            let progress = timeline.value(time: timeline.duration * Double(step) / 240)
-            XCTAssertGreaterThanOrEqual(progress, previous - 0.000_001)
-            XCTAssertGreaterThanOrEqual(progress, 0)
-            XCTAssertLessThanOrEqual(progress, 1)
-            previous = progress
+        for step in 0...600 {
+            let sample = motion.sample(at: start + .seconds(Double(step) / 60))
+            XCTAssertGreaterThanOrEqual(sample.phase, previous)
+            XCTAssertGreaterThanOrEqual(sample.velocity, 0)
+            XCTAssertLessThanOrEqual(sample.velocity, 1 / NotchAirPodsMotion.turnDuration)
+            previous = sample.phase
         }
-        let lastStep = timeline.value(time: 1.2) - timeline.value(time: 1.18)
-        let middleStep = timeline.value(time: 0.6) - timeline.value(time: 0.58)
-        XCTAssertLessThan(lastStep, middleStep / 4, "The turn must ease into the final pose")
+        for time in [1.2, 2.5, 5.0, 8.0] {
+            let first = motion.sample(at: start + .seconds(time))
+            let next = motion.sample(at: start + .seconds(time + NotchAirPodsMotion.turnDuration))
+            XCTAssertEqual(next.phase - first.phase, 1, accuracy: 1e-9,
+                           "Renewing an active banner must never leave its artwork at rest")
+            XCTAssertEqual(first.velocity, next.velocity, accuracy: 1e-9)
+        }
     }
 
-    func testDisconnectTurnsInReverseAndSettlesAtTheFrontPose() {
-        let timeline = KeyframeTimeline(initialValue: 0.0) {
-            NotchAirPodsMotion.turn(from: 0, connected: false)
+    func testDisconnectKeepsTurningInReverseForTheEntireBanner() {
+        let start = ContinuousClock.now
+        let connection = NotchAirPodsMotion(connected: true, at: start)
+        let disconnection = NotchAirPodsMotion(connected: false, at: start)
+        for step in 0...600 {
+            let instant = start + .seconds(Double(step) / 60)
+            let forward = connection.sample(at: instant)
+            let reverse = disconnection.sample(at: instant)
+            XCTAssertEqual(reverse.phase, -forward.phase, accuracy: 1e-9)
+            XCTAssertEqual(reverse.velocity, -forward.velocity, accuracy: 1e-9)
         }
-        XCTAssertEqual(timeline.duration, 1.2, accuracy: 0.001)
-        var previous = 0.0
-        for step in 0...240 {
-            let phase = timeline.value(time: timeline.duration * Double(step) / 240)
-            XCTAssertLessThanOrEqual(phase, previous + 0.000_001)
-            XCTAssertGreaterThanOrEqual(phase, -1)
-            XCTAssertLessThanOrEqual(phase, 0)
-            previous = phase
-        }
-        XCTAssertEqual(previous, -1, accuracy: 0.001)
-        XCTAssertEqual(NotchAirPodsMotion.pose(at: previous), 0, accuracy: 0.001)
+        XCTAssertLessThan(disconnection.sample(at: start + .seconds(2.5)).phase, -1.9)
     }
 
-    func testReversingAnInterruptedTurnStartsAtItsCurrentOrientation() {
-        for phase in [-1.65, -0.4, 0.2, 0.7, 1.35] {
-            for connected in [false, true] {
-                let timeline = KeyframeTimeline(initialValue: phase) {
-                    NotchAirPodsMotion.turn(from: phase, connected: connected)
-                }
-                XCTAssertEqual(timeline.value(time: 0), phase, accuracy: 0.000_001,
-                               "A new event must not reset the artwork to the front")
-                let end = timeline.value(time: timeline.duration)
-                XCTAssertEqual(end, end.rounded(), accuracy: 0.000_001)
-                XCTAssertEqual(NotchAirPodsMotion.pose(at: end), 0, accuracy: 0.000_001)
-                XCTAssertLessThan(abs(end - phase), 1)
-                if connected { XCTAssertGreaterThan(end, phase) }
-                else { XCTAssertLessThan(end, phase) }
+    func testReversingEvenDuringAccelerationPreservesTheLivePoseAndVelocity() {
+        let start = ContinuousClock.now
+        for time in [0.05, 0.2, 0.7, 1.35, 2.4] {
+            for connected in [true, false] {
+                var motion = NotchAirPodsMotion(connected: connected, at: start)
+                let instant = start + .seconds(time)
+                let before = motion.sample(at: instant)
+                motion.setConnected(!connected, at: instant)
+                let after = motion.sample(at: instant)
+                XCTAssertEqual(after.phase, before.phase, accuracy: 1e-9)
+                XCTAssertEqual(after.velocity, before.velocity, accuracy: 1e-9)
+                let reversed = motion.sample(at: instant + .seconds(NotchAirPodsMotion.velocityTransitionDuration))
+                XCTAssertEqual(reversed.velocity, (connected ? -1 : 1) / NotchAirPodsMotion.turnDuration,
+                               accuracy: 1e-9)
             }
+        }
+    }
+
+    func testRepeatedReversalsPreserveContinuityAndSameDirectionUpdatesDoNotRestart() {
+        let start = ContinuousClock.now
+        var motion = NotchAirPodsMotion(connected: true, at: start)
+        var connected = true
+        for time in [0.05, 0.1, 0.15, 0.3, 1.3, 2.0] {
+            let instant = start + .seconds(time)
+            let before = motion.sample(at: instant)
+            connected.toggle()
+            motion.setConnected(connected, at: instant)
+            XCTAssertEqual(motion.sample(at: instant).phase, before.phase, accuracy: 1e-9)
+            XCTAssertEqual(motion.sample(at: instant).velocity, before.velocity, accuracy: 1e-9)
+        }
+
+        let uninterrupted = motion
+        for time in [2.01, 2.05, 2.1, 2.4, 4.0] {
+            let instant = start + .seconds(time)
+            motion.setConnected(connected, at: instant)
+            XCTAssertEqual(motion.sample(at: instant).phase, uninterrupted.sample(at: instant).phase, accuracy: 1e-9)
+            XCTAssertEqual(motion.sample(at: instant).velocity, uninterrupted.sample(at: instant).velocity, accuracy: 1e-9)
         }
     }
 
@@ -68,12 +87,10 @@ final class AirPodsConnectionAnimationTests: XCTestCase {
         }
     }
 
-    func testEndpointRoundingCannotSwallowTheNextConnectionOrDisconnectTurn() {
+    func testFullTurnSeamsHaveIdenticalPosesDespiteFloatingPointResidue() {
         for phase in [-2.0, -1, 0, 1, 2] {
             for residue in [-1e-12, 0, 1e-12] {
                 XCTAssertEqual(NotchAirPodsMotion.pose(at: phase + residue), 0)
-                XCTAssertEqual(NotchAirPodsMotion.destination(from: phase + residue, connected: true), phase + 1)
-                XCTAssertEqual(NotchAirPodsMotion.destination(from: phase + residue, connected: false), phase - 1)
             }
         }
     }
