@@ -42,11 +42,13 @@ struct NotchTransitionSurface<Content: View>: View {
     var retainsMedia = false
     var retainsCollapsedRow = false
     var compactVisible = false
+    var compactUsesAirPods = false
     var compactSpan = NotchCompactSpan(base: 0, full: 0)
     @State private var wasCompactVisible: Bool
     @State private var compactExiting = false
     /// The span the visible activity entered with; its exit retracts from that same width.
     @State private var enteredCompactSpan: NotchCompactSpan?
+    @State private var enteredCompactUsesAirPods: Bool
     @State private var wasNotificationVisible: Bool
     @State private var preservesNotificationContent = false
     @State private var wasExpanded: Bool
@@ -59,6 +61,7 @@ struct NotchTransitionSurface<Content: View>: View {
     init(expanded: Bool, shape: NotchShellSurface, reduceMotion: Bool, systemTransitionRevision: Int = 0,
          notificationVisible: Bool = false,
          retainsMedia: Bool = false, retainsCollapsedRow: Bool = false, compactVisible: Bool = false,
+         compactUsesAirPods: Bool = false,
          compactSpan: NotchCompactSpan = .init(base: 0, full: 0),
          @ViewBuilder content: @escaping @MainActor (NotchVisualTransition.Phase) -> Content) {
         self.expanded = expanded
@@ -69,8 +72,10 @@ struct NotchTransitionSurface<Content: View>: View {
         self.retainsMedia = retainsMedia
         self.retainsCollapsedRow = retainsCollapsedRow
         self.compactVisible = compactVisible
+        self.compactUsesAirPods = compactUsesAirPods
         self.compactSpan = compactSpan
         _wasCompactVisible = State(initialValue: compactVisible)
+        _enteredCompactUsesAirPods = State(initialValue: compactUsesAirPods)
         _wasNotificationVisible = State(initialValue: notificationVisible)
         _wasExpanded = State(initialValue: expanded)
         self.content = content
@@ -115,6 +120,11 @@ struct NotchTransitionSurface<Content: View>: View {
             }
         }
         .onChange(of: AnimatablePair(shape.animatableData, CGFloat(systemTransitionRevision))) { _, _ in retarget() }
+        .onChange(of: compactVisible ? compactUsesAirPods : nil) { _, value in
+            // Preserve the outgoing product's timing after its notification has expired.
+            // Also track replacements whose identical geometry does not retarget the shell.
+            if let value { enteredCompactUsesAirPods = value }
+        }
     }
 
     /// Collapsing from the open notch is always the main close (black gate), even when a
@@ -141,6 +151,7 @@ struct NotchTransitionSurface<Content: View>: View {
                 isNotificationTransition = false
                 compactExiting = false
                 enteredCompactSpan = compactVisible ? compactSpan : nil
+                enteredCompactUsesAirPods = compactUsesAirPods
             }
             return
         }
@@ -156,7 +167,10 @@ struct NotchTransitionSurface<Content: View>: View {
         let animation = updatesOpenPage
             ? (shape.extensionHeight > renderedShape.extensionHeight ? NotchMotion.compactIn : NotchMotion.compactOut)
             : compactMotion
-            ? (compactVisible ? NotchMotion.compactIn : NotchMotion.compactOut)
+            ? (compactVisible ? NotchMotion.compactIn
+                : (enteredCompactUsesAirPods
+                    ? (retainsMedia ? NotchMotion.airPodsToMediaOut : NotchMotion.airPodsOut)
+                    : NotchMotion.compactOut))
             : notificationMotion
             ? (notificationVisible ? NotchMotion.notificationIn : NotchMotion.notificationOut)
             : NotchMotion.shell
