@@ -10,8 +10,8 @@ struct NotchCompactActivitySlot: View {
     @Environment(\.notchCompactRetracting) private var retracting
     @State private var retained: NotchNotification?
     /// Entries this slot has already introduced. An entry restored after a higher priority
-    /// activity (a battery alert over a fresh AirPods connection) returns at rest: replaying
-    /// its entrance would announce a connection that did not happen again.
+    /// activity (a battery alert over a fresh AirPods connection) skips its entrance flourish.
+    /// Continuous AirPods rotation still runs for the lifetime of the visible banner.
     @State private var introduced: [UUID] = []
 
     private var current: NotchNotification? {
@@ -33,7 +33,9 @@ struct NotchCompactActivitySlot: View {
                                          entryID: shown.id, reduceMotion: model.reduceMotion,
                                          action: model.activateCollapsedRow,
                                          blendsMedia: activity.blendsWithMedia && model.mediaVisiblyPlaying,
-                                         entersFresh: !introduced.contains(shown.id))
+                                         entersFresh: !introduced.contains(shown.id),
+                                         restoresMedia: model.activityCoordinator.retainsMediaPresentation
+                                            && model.mediaRenderer?.collapsedMediaVisible == true)
                     // A coalesced update keeps its ID: the same view updates in place.
                     .id(shown.id)
                     // Two rows never cross-fade in one slot: their right-aligned values would
@@ -79,6 +81,7 @@ struct NotchCompactActivityView: View {
     var blendsMedia = false
     /// False when a waiting entry is restored: its one-off entrance flourish does not replay.
     var entersFresh = true
+    var restoresMedia = false
     @Environment(\.notchMediaRenderer) private var mediaRenderer
     @NotchIncreasedContrast private var increaseContrast
 
@@ -86,6 +89,10 @@ struct NotchCompactActivityView: View {
     /// Content slides out from beneath the physical notch just behind the growing edge, so the
     /// outer glyph leads and the text follows; exit slides it back under. No separate animation.
     private var inset: CGFloat { reduceMotion ? 0 : (1 - progress) * geometry.sideWidth * 0.8 }
+    private var airPodsReveal: NotchAirPodsReveal? {
+        guard productArtwork != nil, inlineWidth == nil else { return nil }
+        return .init(reveal: progress, sideWidth: geometry.sideWidth, restoresMedia: restoresMedia)
+    }
     /// Text is uncovered by the shell mask first, then settles in through movement.
     private var textOpacity: Double { Double(min(max((progress - 0.3) / 0.55, 0), 1)) }
 
@@ -112,7 +119,7 @@ struct NotchCompactActivityView: View {
     private var compactRow: some View {
         HStack(spacing: 0) {
             leading
-                .offset(x: inset)
+                .offset(x: reduceMotion ? 0 : (airPodsReveal?.leadingInset ?? inset))
                 .frame(width: geometry.sideWidth, alignment: .leading)
             Color.clear.frame(width: geometry.hardwareWidth)
             trailing
@@ -163,6 +170,7 @@ struct NotchCompactActivityView: View {
 
     private var deviceScale: CGFloat {
         guard !reduceMotion else { return 1 }
+        if let airPodsReveal { return airPodsReveal.scale }
         let initial: CGFloat = productArtwork == nil ? 0.7 : 0.92
         return initial + (1 - initial) * progress
     }
@@ -190,6 +198,7 @@ struct NotchCompactActivityView: View {
                                  transitionRevision: activity.transitionRevision)
                 .foregroundStyle(tint)
                 .scaleEffect(deviceScale)
+                .opacity(airPodsReveal?.opacity ?? 1)
         }
     }
 
@@ -355,7 +364,7 @@ private struct NotchBatteryGlyph: View {
 }
 
 /// Generic wearables retain their existing symbol treatment. AirPods use authored product
-/// artwork and a bounded native keyframe animation, rather than rotating a flat glyph.
+/// artwork that rotates for the full visible banner lifetime.
 private struct NotchDeviceTurnGlyph: View {
     let style: NotchDeviceStyle
     let connected: Bool
@@ -367,9 +376,7 @@ private struct NotchDeviceTurnGlyph: View {
 
     var body: some View {
         if let artwork = NotchAirPodsArtwork(style: style) {
-            NotchAirPodsConnectionGlyph(artwork: artwork, connected: connected, reduceMotion: reduceMotion,
-                                       turnsOnAppear: turnsOnAppear, deviceID: deviceID,
-                                       transitionRevision: transitionRevision)
+            NotchAirPodsConnectionGlyph(artwork: artwork, connected: connected, reduceMotion: reduceMotion)
         } else {
             NotchSymbolDeviceTurnGlyph(style: style, connected: connected, trigger: trigger,
                                       reduceMotion: reduceMotion, turnsOnAppear: turnsOnAppear,
