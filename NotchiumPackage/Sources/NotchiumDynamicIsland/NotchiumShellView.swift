@@ -166,6 +166,10 @@ private struct NotchShellOuterSurface: View {
             retainsMedia: model.activityCoordinator.retainsMediaPresentation && collapsedMediaEligible,
             retainsCollapsedRow: model.retainsCalendarRow || model.collapsedRowNotification?.lifetime.isBaseline == true,
             compactVisible: compact,
+            compactUsesAirPods: notification?.content.compactActivity.map {
+                if case let .device(style, _) = $0.glyph { return NotchAirPodsArtwork(style: style) != nil }
+                return false
+            } ?? false,
             compactSpan: NotchCompactSpan(base: baseWidth, full: collapsedWidth)
         ) { phase in
             ZStack(alignment: .top) {
