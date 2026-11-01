@@ -57,6 +57,7 @@ struct NotchTransitionSurface<Content: View>: View {
     @State private var renderedShape: NotchShellSurface
     @State private var transition: NotchVisualTransition
     @State private var appliedSystemTransitionRevision: Int
+    @State private var appliedReduceMotion: Bool
 
     init(expanded: Bool, shape: NotchShellSurface, reduceMotion: Bool, systemTransitionRevision: Int = 0,
          notificationVisible: Bool = false,
@@ -82,10 +83,12 @@ struct NotchTransitionSurface<Content: View>: View {
         _renderedShape = State(initialValue: shape)
         _transition = State(initialValue: NotchVisualTransition(expanded: expanded))
         _appliedSystemTransitionRevision = State(initialValue: systemTransitionRevision)
+        _appliedReduceMotion = State(initialValue: reduceMotion)
     }
 
     var body: some View {
         let settlesImmediately = systemTransitionRevision != appliedSystemTransitionRevision
+            || reduceMotion != appliedReduceMotion
         // Hide in the very first target-state update, before onChange retargets the
         // geometry. This also prevents a stale completion flashing on reversal.
         let targetChanged = renderedShape.animatableData != shape.animatableData
@@ -96,7 +99,9 @@ struct NotchTransitionSurface<Content: View>: View {
             shape: settlesImmediately ? shape : renderedShape,
             phase: settlesImmediately ? (expanded || notificationVisible ? .expanded : .collapsed) : transition.phase,
             expandedHeight: shape.height,
-            systemTransitionRevision: CGFloat(systemTransitionRevision),
+            // The accessibility bit forces a presentation update even when the stored
+            // shape already equals the spring's target, just like a system settle.
+            systemTransitionRevision: CGFloat(systemTransitionRevision) + (reduceMotion ? 0.5 : 0),
             targetExtensionHeight: shape.extensionHeight,
             hidesPendingTarget: !settlesImmediately && targetChanged && !Self.preservesExpandedPage(expanded: expanded, wasExpanded: wasExpanded)
                 && !(notificationVisible && wasNotificationVisible && !expanded && !wasExpanded),
@@ -120,6 +125,7 @@ struct NotchTransitionSurface<Content: View>: View {
             }
         }
         .onChange(of: AnimatablePair(shape.animatableData, CGFloat(systemTransitionRevision))) { _, _ in retarget() }
+        .onChange(of: reduceMotion) { _, _ in retarget() }
         .onChange(of: compactVisible ? compactUsesAirPods : nil) { _, value in
             // Preserve the outgoing product's timing after its notification has expired.
             // Also track replacements whose identical geometry does not retarget the shell.
@@ -137,11 +143,12 @@ struct NotchTransitionSurface<Content: View>: View {
     static func preservesExpandedPage(expanded: Bool, wasExpanded: Bool) -> Bool { expanded && wasExpanded }
 
     private func retarget() {
-        if systemTransitionRevision != appliedSystemTransitionRevision {
+        if systemTransitionRevision != appliedSystemTransitionRevision || reduceMotion != appliedReduceMotion {
             var transaction = Transaction(animation: nil)
             transaction.disablesAnimations = true
             withTransaction(transaction) {
                 appliedSystemTransitionRevision = systemTransitionRevision
+                appliedReduceMotion = reduceMotion
                 renderedShape = shape
                 transition.settle(expanded: expanded || notificationVisible)
                 wasExpanded = expanded
@@ -155,6 +162,9 @@ struct NotchTransitionSurface<Content: View>: View {
             }
             return
         }
+        // A geometry and accessibility update can invoke both observers in one pass.
+        // The first settles the surface; the second must not start another black gate.
+        guard renderedShape.animatableData != shape.animatableData else { return }
         preservesNotificationContent = notificationVisible && wasNotificationVisible && !expanded && !wasExpanded
         let notificationMotion = !expanded && !wasExpanded && (notificationVisible || wasNotificationVisible)
         let compactMotion = notificationMotion && (compactVisible || wasCompactVisible)
@@ -266,7 +276,10 @@ nonisolated struct NotchSurfaceFrame<Content: View>: View, Animatable {
         .transaction { transaction in
             if transitioning {
                 transaction.animation = nil
-                transaction.disablesAnimations = true
+                // Revealed content is already interactive at 75% of the opening.
+                // Its own scoped feedback must work through the spring's remaining
+                // tail, while hidden content never inherits an animation.
+                if !visible { transaction.disablesAnimations = true }
             }
         }
     }
