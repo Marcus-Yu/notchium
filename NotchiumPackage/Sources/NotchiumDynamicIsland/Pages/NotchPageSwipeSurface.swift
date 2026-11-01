@@ -5,20 +5,17 @@ import SwiftUI
 struct NotchPageSwipeSurface: NSViewRepresentable {
     let model: NotchPageModel
     let isEnabled: Bool
-    var reduceMotion = false
 
     func makeNSView(context: Context) -> SwipeView { SwipeView(model: model) }
     func updateNSView(_ view: SwipeView, context: Context) {
         view.model = model
         view.isEnabled = isEnabled
-        view.reduceMotion = reduceMotion
         if !isEnabled { view.session.cancel() }
     }
 
     final class SwipeView: NSView {
         var model: NotchPageModel
         var isEnabled = false
-        var reduceMotion = false
         var session = PageSwipeSession()
 
         init(model: NotchPageModel) {
@@ -40,9 +37,7 @@ struct NotchPageSwipeSurface: NSViewRepresentable {
             if event.phase.contains(.cancelled) { session.cancel(); return }
             if event.phase.contains(.began) { session.begin() }
             if let forward = session.update(x: event.scrollingDeltaX, y: event.scrollingDeltaY) {
-                withAnimation(reduceMotion ? NotchMotion.reduced : NotchMotion.page) {
-                    model.moveSelection(forward: forward)
-                }
+                model.moveSelection(forward: forward)
             }
             if event.phase.contains(.ended) { session.cancel() }
         }
