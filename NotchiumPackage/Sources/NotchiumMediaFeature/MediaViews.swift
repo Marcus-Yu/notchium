@@ -31,11 +31,11 @@ public struct MediaWaveform: View {
                     }
                 }
                 .frame(width: 24, height: 16)
-                .transition(.opacity.combined(with: .scale(scale: 0.86)))
+                .transition(.opacity)
                 .accessibilityHidden(true)
             }
         }
-        .animation(MediaMotion.waveform(reduceMotion: reduceMotion), value: isVisible)
+        .animation(NotchMotionStyle.contentChange(reduceMotion: reduceMotion), value: isVisible)
     }
 }
 
@@ -183,7 +183,6 @@ public struct MediaPageView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
     private var trackDetails: some View {
-        let trackIdentity = model.state.trackID ?? model.state.title ?? "unknown-track"
         return VStack(alignment: .leading, spacing: MusicPlayerSpacing.metadataToProgress) {
             HStack(alignment: .center, spacing: ExpandedPageStyle.Space.sm) {
                 VStack(alignment: .leading, spacing: MusicPlayerSpacing.metadataGap) {
@@ -191,10 +190,14 @@ public struct MediaPageView: View {
                         .font(ExpandedPageStyle.title)
                         .lineLimit(1).truncationMode(.tail)
                         .help(model.state.title ?? "")
+                        .contentTransition(.opacity)
+                        .animation(NotchMotionStyle.contentChange(reduceMotion: reduceMotion), value: model.state.title)
                     Text(model.state.artist ?? "")
                         .font(ExpandedPageStyle.body)
                         .foregroundStyle(ExpandedPageStyle.secondary)
                         .lineLimit(1)
+                        .contentTransition(.opacity)
+                        .animation(NotchMotionStyle.contentChange(reduceMotion: reduceMotion), value: model.state.artist)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 MediaWaveform(isPlaying: model.state.isPlaying, meter: model.audioMeter,
@@ -202,9 +205,6 @@ public struct MediaPageView: View {
                               isPresented: isExpanded && isPageVisible)
                     .frame(width: 24, height: 16)
             }
-            .id(trackIdentity)
-            .transition(.opacity)
-            .animation(MediaMotion.track(reduceMotion: reduceMotion), value: trackIdentity)
             .opacity(model.isShowingCachedTrack ? 0.94 : 1)
             MediaProgressView(model: model)
         }
@@ -251,8 +251,9 @@ public struct MediaPageView: View {
         }
             .foregroundStyle(.white.opacity(foregroundOpacity))
             .disabled(!isAvailable)
-            .animation(MediaMotion.control(reduceMotion: reduceMotion), value: symbol)
-            .animation(MediaMotion.control(reduceMotion: reduceMotion), value: active)
+            .animation(NotchMotionStyle.feedback(reduceMotion: reduceMotion), value: symbol)
+            .animation(NotchMotionStyle.feedback(reduceMotion: reduceMotion), value: active)
+            .animation(NotchMotionStyle.feedback(reduceMotion: reduceMotion), value: isAvailable)
             .accessibilityRespondsToUserInteraction(isAvailable)
             .help(label).accessibilityLabel(label)
             .accessibilityValue(value ?? "")
@@ -355,30 +356,14 @@ private struct MediaControlFeedback: View {
 
     var body: some View {
         configuration.label
-            .background(.white.opacity(isHovered && isEnabled ? 0.08 : 0),
-                        in: .rect(cornerRadius: ExpandedPageStyle.controlRadius))
+            .animation(NotchMotionStyle.feedback(reduceMotion: reduceMotion)) { label in
+                label
+                    .background(.white.opacity(isHovered && isEnabled ? 0.08 : 0),
+                                in: .rect(cornerRadius: ExpandedPageStyle.controlRadius))
+                    .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
+                    .opacity(configuration.isPressed ? 0.78 : 1)
+                    .brightness(configuration.isPressed ? 0.08 : 0)
+            }
             .onHover { isHovered = $0 }
-            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
-            .opacity(configuration.isPressed ? 0.78 : 1)
-            .brightness(configuration.isPressed ? 0.08 : 0)
-            .animation(MediaMotion.control(reduceMotion: reduceMotion), value: configuration.isPressed)
-    }
-}
-
-private enum MediaMotion {
-    static func control(reduceMotion: Bool) -> Animation {
-        reduceMotion ? .easeOut(duration: 0.1) : .smooth(duration: 0.16)
-    }
-
-    static func surface(reduceMotion: Bool) -> Animation {
-        reduceMotion ? .easeOut(duration: 0.12) : .smooth(duration: 0.26)
-    }
-
-    static func track(reduceMotion: Bool) -> Animation {
-        reduceMotion ? .easeOut(duration: 0.12) : .smooth(duration: 0.22)
-    }
-
-    static func waveform(reduceMotion: Bool) -> Animation {
-        reduceMotion ? .easeOut(duration: 0.1) : .smooth(duration: 0.2)
     }
 }
