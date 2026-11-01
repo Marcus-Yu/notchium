@@ -73,6 +73,14 @@ The black shape alone receives animated width, height, center, corner radius and
 
 Content hide and reveal are immediate (0 ms); opening reveal is geometry-based rather than delayed until spring completion. Reduce Motion retains the black choreography with 0.12 s ease-out shell geometry. Services continue receiving target-state visibility changes, never per-frame animation progress.
 
+Changing Reduce Motion while the shell is moving immediately settles its current target
+and invalidates the interrupted completion, retaining both mounted content trees. Subsequent
+interactions use the selected motion policy. Page buttons, phased swipes, accessibility
+selection and Shelf section changes share a scoped fade through black: 80 ms out,
+then 120 ms in (40 ms out, then 60 ms in with Reduce Motion). The incoming page
+waits for the outgoing page to clear, including on rapid reversals. This never animates
+playback coordinates or page layout. See [motion rehearsal](NOTCH_MOTION_REHEARSAL.md).
+
 Motion reference: [current BoringNotch ContentView](https://github.com/TheBoredTeam/boring.notch/blob/main/boringNotch/ContentView.swift), inspected September 25, 2026. The reference uses a shared interactive spring (response 0.38, damping 0.8) and separate open/close springs (0.42/0.8 and 0.45/1.0). Notchium independently implements the requested symmetric 0.40/0.80 spring and black-only choreography. No GPL source was copied.
 
 The active surface and its content mask cannot shrink below the measured hardware
