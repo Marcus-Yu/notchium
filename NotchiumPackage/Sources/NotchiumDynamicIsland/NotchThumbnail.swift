@@ -1,6 +1,7 @@
 import AppKit
 import QuickLookThumbnailing
 import SwiftUI
+import NotchiumDesignSystem
 
 /// Small file previews for the notch, the Shelf and screenshots. Quick Look generates a
 /// downsampled representation off the main actor (never a full-resolution decode), and a
@@ -96,6 +97,7 @@ public struct NotchThumbnailView: View {
     let size: CGSize
     var cornerRadius: CGFloat = 4
     @State private var image: NSImage?
+    @NotchReducedMotion private var reduceMotion
 
     public init(url: URL, size: CGSize, cornerRadius: CGFloat = 4) {
         self.url = url
@@ -122,7 +124,7 @@ public struct NotchThumbnailView: View {
         }
         .frame(width: size.width, height: size.height)
         .clipShape(.rect(cornerRadius: cornerRadius, style: .continuous))
-        .animation(.easeOut(duration: 0.15), value: image != nil)
+        .animation(NotchMotionStyle.contentChange(reduceMotion: reduceMotion), value: image != nil)
         .task(id: url) {
             let loaded = await NotchThumbnailCache.shared.image(for: url, size: size)
             guard !Task.isCancelled else { return }
