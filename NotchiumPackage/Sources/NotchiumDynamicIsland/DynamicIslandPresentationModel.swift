@@ -218,6 +218,10 @@ public final class DynamicIslandPresentationModel {
         self.activityCoordinator = activityCoordinator ?? ActivityCoordinator(clock: clock)
         pageModel = NotchPageModel()
         if phase.visualState != .collapsed { pageModel.beginExpansion(default: .home) }
+        pageModel.onSelectionChanged = { [weak self] in
+            guard let camera = self?.cameraController, camera.isPreviewPresented else { return }
+            camera.closePreview()
+        }
         activityObservation = self.activityCoordinator.presentationDidResolve
             .sink { [weak self] _ in
                 self?.activityRevision &+= 1
