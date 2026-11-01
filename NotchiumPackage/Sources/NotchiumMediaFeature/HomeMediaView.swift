@@ -7,6 +7,7 @@ struct HomeMediaView: View {
     let model: MediaSessionController
     let openMusic: @MainActor () -> Void
     @Environment(\.homeUsesCompactLayout) private var compact
+    @NotchReducedMotion private var reduceMotion
 
     var body: some View {
         Group {
@@ -43,13 +44,24 @@ struct HomeMediaView: View {
 
     private var information: some View {
         Button(action: openMusic) {
-            HStack(spacing: compact ? ExpandedPageStyle.Space.sm : ExpandedPageStyle.groupGap) {
+            HStack(alignment: .top, spacing: compact ? ExpandedPageStyle.Space.sm : ExpandedPageStyle.groupGap) {
                 MediaArtwork(url: model.state.artwork, size: compact ? 56 : 72)
                 VStack(alignment: .leading, spacing: compact ? 3 : 5) {
-                    Text(model.state.title ?? "").font(.system(size: compact ? 14 : 15, weight: .semibold)).lineLimit(2)
+                    Text(model.state.title ?? "").font(.system(size: compact ? 14 : 15, weight: .semibold))
+                        .lineLimit(2)
+                        .help(model.state.title ?? "")
+                        .contentTransition(.opacity)
+                        .animation(NotchMotionStyle.contentChange(reduceMotion: reduceMotion), value: model.state.title)
                     Text(model.state.artist ?? "").font(.system(size: compact ? 12 : 13))
                         .foregroundStyle(ExpandedPageStyle.secondary).lineLimit(1)
-                }.frame(maxWidth: .infinity, alignment: .leading)
+                        .help(model.state.artist ?? "")
+                        .contentTransition(.opacity)
+                        .animation(NotchMotionStyle.contentChange(reduceMotion: reduceMotion), value: model.state.artist)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                // Keep spare capacity below the title/artist pair, rather than
+                // reserving an empty title line between those related strings.
+                .frame(height: compact ? 56 : 72, alignment: .topLeading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
@@ -70,12 +82,16 @@ struct HomeMediaView: View {
     }
 
     private func control(_ title: String, symbol: String, command: MediaCommand, enabled: Bool) -> some View {
-        Button { model.send(command) } label: {
+        let isAvailable = enabled && !model.isPending(command)
+        return Button { model.send(command) } label: {
             Image(systemName: symbol).font(.system(size: command == .playPause ? 15 : 12, weight: .semibold))
+                .contentTransition(.opacity)
                 .frame(width: 34, height: 32).contentShape(Rectangle())
         }
         .buttonStyle(MediaControlButtonStyle())
-        .disabled(!enabled || model.isPending(command))
+        .disabled(!isAvailable)
+        .animation(NotchMotionStyle.feedback(reduceMotion: reduceMotion), value: symbol)
+        .animation(NotchMotionStyle.feedback(reduceMotion: reduceMotion), value: isAvailable)
         .help(model.errorMessage ?? title)
         .accessibilityLabel(title)
         .accessibilityIdentifier("notchium.home.media.\(command.controlID)")
