@@ -1,4 +1,5 @@
 import SwiftUI
+import NotchiumDesignSystem
 
 /// Both feature renderers live inside the one persistent, animated shell.
 /// Content has its final dimensions throughout; only the shell clips its reveal.
@@ -32,7 +33,8 @@ struct UnifiedNotchNotificationContent: View {
                 .transition(.opacity)
             }
         }
-        .animation(NotchMotion.notificationContent, value: model.notificationCoordinator.active?.id)
+        .animation(model.reduceMotion ? NotchMotionStyle.reduced : NotchMotion.notificationContent,
+                   value: model.notificationCoordinator.active?.id)
         .environment(\.colorScheme, .dark)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityAction(named: "Dismiss notification") {
