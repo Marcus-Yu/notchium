@@ -28,11 +28,16 @@ public final class NotchPageModel: ObservableObject {
     public private(set) var manualSelectionDuringExpansion = false
     private var expansionIsActive = false
     private var selectingAutomatically = false
+    /// The presentation owner handles navigation effects after the selection is committed.
+    var onSelectionChanged: (() -> Void)?
 
     @Published public var selectedPage: NotchPage {
         didSet {
             if expansionIsActive && !selectingAutomatically { manualSelectionDuringExpansion = true }
             if !enabledPages.contains(selectedPage) { selectedPage = fallbackPage }
+            if expansionIsActive && !selectingAutomatically && selectedPage != oldValue {
+                onSelectionChanged?()
+            }
         }
     }
     @Published public var enabledPages: [NotchPage] {
