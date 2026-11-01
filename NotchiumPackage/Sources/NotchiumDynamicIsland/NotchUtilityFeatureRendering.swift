@@ -1,4 +1,5 @@
 import SwiftUI
+import NotchiumDesignSystem
 
 /// Content injection for the Focus Timer page; timer and history truth stay in the feature.
 @MainActor public protocol NotchPomodoroRendering: AnyObject {
@@ -54,6 +55,7 @@ extension EnvironmentValues {
 /// The Shelf page title doubles as a two-item switch: text only, selection by weight and contrast.
 public struct NotchShelfSectionSwitch: View {
     @Binding var selection: NotchShelfSection
+    @NotchReducedMotion private var reduceMotion
     public init(selection: Binding<NotchShelfSection>) { _selection = selection }
 
     public var body: some View {
@@ -62,7 +64,9 @@ public struct NotchShelfSectionSwitch: View {
                 Button { selection = section } label: {
                     Text(section.title)
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.white.opacity(selection == section ? 1 : 0.42))
+                        .animation(NotchMotionStyle.feedback(reduceMotion: reduceMotion)) { label in
+                            label.foregroundStyle(.white.opacity(selection == section ? 1 : 0.42))
+                        }
                         .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
@@ -70,7 +74,6 @@ public struct NotchShelfSectionSwitch: View {
                 .accessibilityIdentifier("notchium.shelf.section.\(section.rawValue)")
             }
         }
-        .animation(.smooth(duration: 0.16), value: selection)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Shelf sections")
     }
