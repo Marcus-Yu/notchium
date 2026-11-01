@@ -1,7 +1,7 @@
 import XCTest
 
-/// Uses native pointer tracking around the mounted shell. Model-only tests cannot
-/// establish that leaving a camera preview still reaches the panel's hover exit.
+/// Uses native header clicks and pointer tracking around the mounted shell.
+/// Model-only tests cannot establish camera dismissal through these interactions.
 @MainActor
 final class CameraHoverExitUITests: XCTestCase {
     func testCameraHoverExitAndReentryRemainInteractive() {
@@ -10,6 +10,56 @@ final class CameraHoverExitUITests: XCTestCase {
 
     func testCameraHoverExitAndReentryWithReducedMotionRemainInteractive() {
         exerciseCameraHoverExit(reduceMotion: "on")
+    }
+
+    func testSelectingAnotherPageDismissesCameraPreview() {
+        for reduceMotion in ["off", "on"] {
+            exerciseCameraPageNavigation(reduceMotion: reduceMotion)
+        }
+    }
+
+    private func exerciseCameraPageNavigation(reduceMotion: String) {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-testing", "--notchium-stage11-fixture", "--notchium-quality-fixture",
+            "--notchium-display", "builtInMock", "--notchium-surface", "physical",
+            "--notchium-presentation", "expanded", "--notchium-appearance", "dark",
+            "--notchium-reduce-motion", reduceMotion,
+        ]
+        app.launch()
+        defer { app.terminate() }
+        app.activate()
+        let prefix = "camera-navigation-\(reduceMotion)"
+        guard assertState("expanded", in: app, name: "\(prefix)-launch") else { return }
+        let music = app.buttons["notchium.page.music"].firstMatch
+        guard assertHittable(music, app: app, name: "\(prefix)-music") else { return }
+        music.click()
+        XCTAssertTrue(music.isSelected, app.debugDescription)
+
+        let mirror = element("notchium.shell.camera", in: app)
+        let cameraClose = element("notchium.camera.close", in: app)
+        for destination in ["calendar", "music"] {
+            let step = "\(prefix)-\(destination)"
+            guard assertHittable(mirror, app: app, name: "\(step)-mirror") else { return }
+            XCTAssertEqual(mirror.value as? String, "Off", app.debugDescription)
+            mirror.click()
+            guard assertExists(cameraClose, app: app, name: "\(step)-preview") else { return }
+            // Permission and camera capture belong to the in-process mock fixture.
+            let allow = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Allow Camera'")).firstMatch
+            if allow.exists { allow.click() }
+            XCTAssertEqual(mirror.value as? String, "Preview open", app.debugDescription)
+
+            let page = app.buttons["notchium.page.\(destination)"].firstMatch
+            guard assertHittable(page, app: app, name: "\(step)-destination") else { return }
+            page.click()
+            let dismissed = XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "exists == false"), object: cameraClose)], timeout: 5) == .completed
+            XCTAssertTrue(dismissed, "Selecting another page must dismiss the camera preview: \(app.debugDescription)")
+            XCTAssertEqual(mirror.value as? String, "Off", app.debugDescription)
+            XCTAssertTrue(page.isSelected, app.debugDescription)
+            guard assertState("expanded", in: app, name: "\(step)-restored") else { return }
+            XCTAssertFalse(cameraClose.exists, app.debugDescription)
+        }
     }
 
     private func exerciseCameraHoverExit(reduceMotion: String) {
