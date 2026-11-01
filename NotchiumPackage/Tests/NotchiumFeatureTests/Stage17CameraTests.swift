@@ -94,6 +94,68 @@ final class Stage17CameraTests: XCTestCase {
         XCTAssertFalse(service.isRunning, "Closed before the start ran: it never starts")
     }
 
+    func testPageNavigationStopsCaptureWithoutCollapsingTheNotch() async {
+        for state in [NotchStableState.hovered, .expanded] {
+            for swipe in [false, true] {
+                let service = MockCameraService()
+                let camera = CameraModel(service: service, preferences: defaults())
+                let presentation = DynamicIslandPresentationModel(phase: state == .hovered ? .hovered : .expanded)
+                defer { presentation.reset(); camera.stop() }
+                presentation.cameraController = camera
+                camera.togglePreview(source: presentation.cameraPresentationSource)
+                await waitUntil { camera.status == .live }
+
+                if swipe { presentation.pageModel.moveSelection(forward: true) }
+                else { presentation.pageModel.selectedPage = .calendar }
+
+                XCTAssertEqual(presentation.pageModel.selectedPage, swipe ? .music : .calendar)
+                XCTAssertEqual(presentation.visualState, state)
+                XCTAssertFalse(camera.isPreviewPresented)
+                XCTAssertFalse(service.isRunning)
+                XCTAssertEqual(camera.status, .idle)
+            }
+        }
+    }
+
+    func testPageNavigationDuringCameraStartupReleasesTheLateSession() async {
+        let service = MockCameraService()
+        service.startDelay = .milliseconds(30)
+        let camera = CameraModel(service: service, preferences: defaults())
+        let presentation = DynamicIslandPresentationModel(phase: .expanded)
+        defer { presentation.reset(); camera.stop() }
+        presentation.cameraController = camera
+        camera.togglePreview(source: presentation.cameraPresentationSource)
+        await Task.yield()
+
+        presentation.pageModel.selectedPage = .calendar
+        try? await Task.sleep(for: .milliseconds(80))
+
+        XCTAssertFalse(camera.isPreviewPresented)
+        XCTAssertFalse(service.isRunning)
+        XCTAssertEqual(camera.status, .idle)
+    }
+
+    func testAutomaticOpeningPageOnAnotherDisplayPreservesCameraCapture() async {
+        let service = MockCameraService()
+        let camera = CameraModel(service: service, preferences: defaults())
+        let first = DynamicIslandPresentationModel(phase: .expanded)
+        let second = DynamicIslandPresentationModel()
+        defer { first.reset(); second.reset(); camera.stop() }
+        first.cameraController = camera
+        second.cameraController = camera
+        camera.togglePreview(source: first.cameraPresentationSource)
+        await waitUntil { camera.status == .live }
+
+        second.pageModel.selectedPage = .calendar
+        second.present(.expanded, animated: false)
+        camera.setPreviewVisible(true, source: second.cameraPresentationSource)
+        first.collapse()
+
+        XCTAssertEqual(second.pageModel.selectedPage, .home)
+        XCTAssertTrue(camera.isPreviewPresented)
+        XCTAssertTrue(service.isRunning)
+    }
+
     func testSwitchingCamerasRestartsOnTheChosenDevice() async {
         let service = MockCameraService(devices: [builtIn, external])
         let model = CameraModel(service: service, preferences: defaults())
