@@ -35,7 +35,6 @@ private struct NotchCameraButton: View {
     let camera: any NotchCameraControlling
     let source: String
 
-    @NotchReducedMotion private var reduceMotion
     @State private var isHovered = false
 
     var body: some View {
@@ -45,8 +44,6 @@ private struct NotchCameraButton: View {
         }
         .buttonStyle(NotchUtilityButtonStyle())
         .onHover { isHovered = $0 }
-        .animation(reduceMotion ? .easeOut(duration: 0.1) : .smooth(duration: 0.18), value: isHovered)
-        .animation(reduceMotion ? .easeOut(duration: 0.1) : .smooth(duration: 0.18), value: isPresented)
         .help(isPresented ? "Close Mirror" : "Mirror")
         .accessibilityLabel("Mirror")
         .accessibilityValue(isPresented ? "Preview open" : "Off")
@@ -59,7 +56,6 @@ private struct NotchCameraButton: View {
 /// App utility in the expanded header, outside the media controls.
 private struct NotchSettingsButton: View {
     @Environment(\.openSettings) private var openSettings
-    @NotchReducedMotion private var reduceMotion
     @State private var isHovered = false
 
     var body: some View {
@@ -71,7 +67,6 @@ private struct NotchSettingsButton: View {
         }
         .buttonStyle(NotchUtilityButtonStyle())
         .onHover { isHovered = $0 }
-        .animation(reduceMotion ? .easeOut(duration: 0.1) : .smooth(duration: 0.18), value: isHovered)
         .help("Settings")
         .accessibilityLabel("Settings")
         .accessibilityIdentifier("notchium.shell.settings")
@@ -81,7 +76,6 @@ private struct NotchSettingsButton: View {
 private struct NotchCloseButton: View {
     let action: () -> Void
 
-    @NotchReducedMotion private var reduceMotion
     @State private var isHovered = false
 
     var body: some View {
@@ -91,7 +85,6 @@ private struct NotchCloseButton: View {
         .buttonStyle(NotchUtilityButtonStyle())
         .keyboardShortcut(.cancelAction)
         .onHover { isHovered = $0 }
-        .animation(reduceMotion ? .easeOut(duration: 0.1) : .smooth(duration: 0.18), value: isHovered)
         .help("Close Notchium")
         .accessibilityLabel("Close Notchium")
         .accessibilityIdentifier("notchium.shell.close")
@@ -104,10 +97,11 @@ public struct NotchUtilityButtonStyle: ButtonStyle {
 
     public func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(!reduceMotion && configuration.isPressed ? 0.97 : 1)
-            .opacity(configuration.isPressed ? 0.8 : 1)
-            .animation(reduceMotion ? .easeOut(duration: 0.1) : .smooth(duration: 0.16),
-                       value: configuration.isPressed)
+            .animation(NotchMotionStyle.feedback(reduceMotion: reduceMotion)) { label in
+                label
+                    .scaleEffect(!reduceMotion && configuration.isPressed ? 0.97 : 1)
+                    .opacity(configuration.isPressed ? 0.8 : 1)
+            }
     }
 }
 
@@ -118,6 +112,7 @@ public struct NotchUtilityLabel: View {
     let isSelected: Bool
     let foreground: Color?
     let glass: Glass?
+    @NotchReducedMotion private var reduceMotion
 
     public init(symbol: String, isHovered: Bool, isSelected: Bool = false,
                 foreground: Color? = nil, glass: Glass? = nil) {
@@ -128,12 +123,15 @@ public struct NotchUtilityLabel: View {
     public var body: some View {
         Image(systemName: symbol)
             .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(foreground ?? .white.opacity(isHovered || isSelected ? 1 : 0.6))
             .frame(width: 28, height: 28)
-            .background(.white.opacity(isSelected ? 0.14 : 0.06), in: .circle)
             .contentShape(.circle)
-            .glassEffect(glass ?? (isHovered || isSelected
-                ? .regular.tint(.white.opacity(0.1)).interactive()
-                : .clear.interactive()), in: .circle)
+            .animation(NotchMotionStyle.feedback(reduceMotion: reduceMotion)) { label in
+                label
+                    .foregroundStyle(foreground ?? .white.opacity(isHovered || isSelected ? 1 : 0.6))
+                    .background(.white.opacity(isSelected ? 0.14 : 0.06), in: .circle)
+                    .glassEffect(glass ?? (isHovered || isSelected
+                        ? .regular.tint(.white.opacity(0.1)).interactive()
+                        : .clear.interactive()), in: .circle)
+            }
     }
 }
