@@ -46,28 +46,43 @@ public struct NotchiumSlider: View {
             ZStack(alignment: .leading) {
                 ZStack(alignment: .leading) {
                     Capsule()
-                        .fill(.white.opacity(unfilledTrackOpacity(active: active)))
-                        .frame(width: trackWidth, height: active ? 3 : 2)
+                        .fill(.white)
+                        .frame(width: trackWidth)
+                        .animation(interactionAnimation) { track in
+                            track
+                                .opacity(unfilledTrackOpacity(active: active))
+                                .frame(height: active ? 3 : 2)
+                        }
 
                     Capsule()
-                        .fill(.white.opacity(isEnabled ? (active ? 1 : 0.86) : 0.45))
-                        .frame(width: trackWidth * fraction, height: active ? 3 : 2)
-                        .animation(nil, value: value)
+                        .fill(.white)
+                        .frame(width: trackWidth * fraction)
+                        .animation(interactionAnimation) { track in
+                            track
+                                .opacity(isEnabled ? (active ? 1 : 0.86) : 0.45)
+                                .frame(height: active ? 3 : 2)
+                        }
 
                     Circle()
-                        .fill(.white.opacity(isEnabled ? 1 : 0.65))
-                        .frame(width: thumbSize, height: thumbSize)
-                        .modifier(SliderThumbMaterial(reduceTransparency: reduceTransparency))
-                        .shadow(color: .black.opacity(active ? 0.35 : 0.2), radius: active ? 2 : 1, y: 1)
-                        .opacity(active ? 1 : 0.55)
-                        .offset(x: trackWidth * fraction - thumbSize / 2)
-                        .animation(nil, value: value)
+                        .fill(.white)
+                        .animation(interactionAnimation) { thumb in
+                            thumb
+                                .frame(width: thumbSize, height: thumbSize)
+                                .modifier(SliderThumbMaterial(reduceTransparency: reduceTransparency))
+                                .shadow(color: .black.opacity(active ? 0.35 : 0.2), radius: active ? 2 : 1, y: 1)
+                                .opacity((active ? 1 : 0.55) * (isEnabled ? 1 : 0.65))
+                        }
+                        // The center never shifts as the thumb grows under the pointer.
+                        .frame(width: 10, height: 10)
+                        .offset(x: trackWidth * fraction - 5)
                 }
                 .frame(width: trackWidth, height: proxy.size.height)
                 .offset(x: horizontalInset)
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
-            .animation(interactionAnimation, value: active)
+            // Pointer/playback coordinates never inherit a shell or control animation.
+            // Scoped animations above affect appearance only, even on the initial press.
+            .transaction { $0.animation = nil }
             .overlay {
                 if hasKeyboardFocus {
                     RoundedRectangle(cornerRadius: 5, style: .continuous)
@@ -132,7 +147,7 @@ public struct NotchiumSlider: View {
     }
 
     private var interactionAnimation: Animation {
-        reduceMotion ? .easeOut(duration: 0.1) : .smooth(duration: 0.16)
+        NotchMotionStyle.feedback(reduceMotion: reduceMotion)
     }
 
     private func unfilledTrackOpacity(active: Bool) -> Double {
