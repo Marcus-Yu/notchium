@@ -93,7 +93,7 @@ struct NotchPagesView: View {
             HomeDashboardView(pages: model, media: mediaRenderer, calendar: calendarRenderer, quickActions: quickActions)
                 .environment(\.notchHomePageVisible, pageVisible(.home))
                 .environment(\.notchMediaExpanded, pageVisible(.home))
-                .opacity(model.selectedPage == .home ? 1 : 0)
+                .modifier(NotchPageVisibility(isVisible: model.selectedPage == .home))
                 .disabled(model.selectedPage != .home)
                 .allowsHitTesting(model.selectedPage == .home)
                 .accessibilityElement(children: pageVisible(.home) ? .contain : .ignore)
@@ -107,7 +107,7 @@ struct NotchPagesView: View {
             }
             .environment(\.notchMediaPageVisible, pageVisible(.music))
             .environment(\.notchMediaExpanded, pageVisible(.music))
-            .opacity(model.selectedPage == .music ? 1 : 0)
+            .modifier(NotchPageVisibility(isVisible: model.selectedPage == .music))
             .disabled(model.selectedPage != .music)
             .allowsHitTesting(model.selectedPage == .music)
             .accessibilityElement(children: pageVisible(.music) ? .contain : .ignore)
@@ -123,7 +123,7 @@ struct NotchPagesView: View {
                 }
             }
             .environment(\.notchCalendarPageVisible, pageVisible(.calendar))
-            .opacity(model.selectedPage == .calendar ? 1 : 0)
+            .modifier(NotchPageVisibility(isVisible: model.selectedPage == .calendar))
             .disabled(model.selectedPage != .calendar)
             .allowsHitTesting(model.selectedPage == .calendar)
             .accessibilityElement(children: pageVisible(.calendar) ? .contain : .ignore)
@@ -139,7 +139,7 @@ struct NotchPagesView: View {
                 }
             }
             .environment(\.notchAudioPageVisible, pageVisible(.audio))
-            .opacity(model.selectedPage == .audio ? 1 : 0)
+            .modifier(NotchPageVisibility(isVisible: model.selectedPage == .audio))
             .disabled(model.selectedPage != .audio)
             .allowsHitTesting(model.selectedPage == .audio)
             .accessibilityElement(children: pageVisible(.audio) ? .contain : .ignore)
@@ -155,7 +155,7 @@ struct NotchPagesView: View {
                 }
             }
             .environment(\.notchPomodoroPageVisible, pageVisible(.pomodoro))
-            .opacity(model.selectedPage == .pomodoro ? 1 : 0)
+            .modifier(NotchPageVisibility(isVisible: model.selectedPage == .pomodoro))
             .disabled(model.selectedPage != .pomodoro)
             .allowsHitTesting(model.selectedPage == .pomodoro)
             .accessibilityElement(children: pageVisible(.pomodoro) ? .contain : .ignore)
@@ -163,7 +163,7 @@ struct NotchPagesView: View {
 
             shelfSection
                 .environment(\.notchShelfPageVisible, pageVisible(.shelf) && model.shelfSection == .files)
-                .opacity(model.selectedPage == .shelf ? 1 : 0)
+                .modifier(NotchPageVisibility(isVisible: model.selectedPage == .shelf))
                 .disabled(model.selectedPage != .shelf)
                 .allowsHitTesting(model.selectedPage == .shelf)
                 .accessibilityElement(children: pageVisible(.shelf) ? .contain : .ignore)
@@ -186,14 +186,14 @@ struct NotchPagesView: View {
                         .foregroundStyle(.white.opacity(0.55))
                 }
             }
-            .opacity(section == .files ? 1 : 0)
+            .modifier(NotchPageVisibility(isVisible: section == .files))
             .disabled(section != .files)
             .allowsHitTesting(section == .files)
             .accessibilityElement(children: section == .files ? .contain : .ignore)
             .accessibilityHidden(section != .files)
             if let clipboardRenderer {
                 clipboardRenderer.expandedClipboard()
-                    .opacity(section == .clipboard ? 1 : 0)
+                    .modifier(NotchPageVisibility(isVisible: section == .clipboard))
                     .disabled(section != .clipboard)
                     .allowsHitTesting(section == .clipboard)
                     .accessibilityElement(children: section == .clipboard ? .contain : .ignore)
@@ -214,8 +214,7 @@ struct NotchPagesView: View {
             }
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Main sections")
-            NotchPageSwipeSurface(model: model, isEnabled: isExpanded && !auxiliaryInteractionPresented,
-                                  reduceMotion: reduceMotion)
+            NotchPageSwipeSurface(model: model, isEnabled: isExpanded && !auxiliaryInteractionPresented)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             NotchUtilityControls(caffeine: caffeine, camera: camera, cameraPresentationSource: cameraPresentationSource,
                                  quickReminder: quickActions, close: close)
