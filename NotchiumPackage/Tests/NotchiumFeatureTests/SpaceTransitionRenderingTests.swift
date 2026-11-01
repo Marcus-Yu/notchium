@@ -8,6 +8,81 @@ import XCTest
 /// whether a revision cancels a spring whose stored target is already collapsed.
 @MainActor
 final class SpaceTransitionRenderingTests: XCTestCase {
+    func testRevealedContentKeepsFeedbackDuringOpeningSpringTail() async throws {
+        let fixture = SpaceFeedbackFixture()
+        let size = CGSize(width: 600, height: 322)
+        let host = NSHostingView(rootView: HStack(spacing: 0) {
+            SpaceFeedbackSurface(fixture: fixture, phase: .expanded)
+            SpaceFeedbackSurface(fixture: fixture, phase: .openingBlack)
+        })
+        let window = NSWindow(contentRect: CGRect(origin: CGPoint(x: -10000, y: -10000), size: size),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.ignoresMouseEvents = true
+        window.contentView = host
+        host.frame = CGRect(origin: .zero, size: size)
+        window.orderBack(nil)
+        defer { window.close() }
+
+        try await Task.sleep(for: .milliseconds(80))
+        fixture.dimmed = true
+        try await Task.sleep(for: .milliseconds(50))
+        host.layoutSubtreeIfNeeded()
+        host.displayIfNeeded()
+        let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        func brightness(at x: CGFloat) throws -> CGFloat {
+            let color = try XCTUnwrap(bitmap.colorAt(
+                x: Int(x * CGFloat(bitmap.pixelsWide) / size.width),
+                y: Int(110 * CGFloat(bitmap.pixelsHigh) / size.height))?.usingColorSpace(.deviceRGB))
+            return color.redComponent
+        }
+        let resting = try brightness(at: 150)
+        try XCTSkipIf(resting <= 0.3 || resting >= 0.99,
+                      "Offscreen native hosting did not expose intermediate control feedback (reference brightness: \(resting))")
+        XCTAssertEqual(try brightness(at: 450), resting, accuracy: 0.1,
+                       "A revealed control must animate just as it does on a settled shell")
+    }
+
+    func testEnablingReduceMotionSettlesLiveSpringAndKeepsContentMounted() async throws {
+        let fixture = SpaceRenderingFixture()
+        let size = CGSize(width: 600, height: 322)
+        let host = NSHostingView(rootView: SpaceRenderingSurface(fixture: fixture))
+        let window = NSWindow(contentRect: CGRect(origin: CGPoint(x: -10000, y: -10000), size: size),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.ignoresMouseEvents = true
+        window.contentView = host
+        host.frame = CGRect(origin: .zero, size: size)
+        window.orderBack(nil)
+        defer { window.close() }
+
+        try await Task.sleep(for: .milliseconds(80))
+        fixture.expanded = false
+        var observedMotion = false
+        for _ in 0..<15 {
+            try await Task.sleep(for: .milliseconds(16))
+            let rows = try blackRows(in: host)
+            if rows > 45, rows < 260 { observedMotion = true; break }
+        }
+        try XCTSkipIf(!observedMotion, "Offscreen native hosting did not expose an intermediate closing frame")
+
+        fixture.reduceMotion = true
+        try await Task.sleep(for: .milliseconds(20))
+        XCTAssertLessThanOrEqual(try blackRows(in: host), 40, "Reduce Motion must cancel the existing spring")
+        XCTAssertEqual(fixture.probe.mountCount, 1)
+        XCTAssertEqual(fixture.probe.dismantleCount, 0)
+
+        // A new opening uses reduced timing and rejects the interrupted close's completion.
+        fixture.expanded = true
+        try await Task.sleep(for: .milliseconds(180))
+        XCTAssertGreaterThan(try blackRows(in: host), 260)
+        try await Task.sleep(for: .milliseconds(500))
+        XCTAssertGreaterThan(try blackRows(in: host), 260)
+        XCTAssertEqual(fixture.probe.mountCount, 1)
+        XCTAssertEqual(fixture.probe.dismantleCount, 0)
+    }
+
     func testSpaceSettleCancelsClosingSpringWithoutReplacingMountedContent() async throws {
         let fixture = SpaceRenderingFixture()
         let host = NSHostingView(rootView: SpaceRenderingSurface(fixture: fixture))
@@ -74,8 +149,39 @@ final class SpaceTransitionRenderingTests: XCTestCase {
 
 @MainActor
 @Observable
+private final class SpaceFeedbackFixture {
+    var dimmed = false
+}
+
+private struct SpaceFeedbackSurface: View {
+    let fixture: SpaceFeedbackFixture
+    let phase: NotchVisualTransition.Phase
+
+    var body: some View {
+        NotchSurfaceFrame(
+            shape: .init(width: 300, height: 240, centerX: 150, bottomRadius: 26,
+                         passiveShape: .init(width: 212, height: 38, centerX: 150,
+                                             topCornerRadius: 0, bottomCornerRadius: 8)),
+            phase: phase, expandedHeight: 266) { _ in
+                ZStack(alignment: .top) {
+                    Color.clear
+                    Color.white.frame(width: 20, height: 20)
+                        .animation(.linear(duration: 0.25)) { control in
+                            control.opacity(fixture.dimmed ? 0.2 : 1)
+                        }
+                        .offset(y: 100)
+                }
+                .frame(width: 300, height: 322)
+            }
+            .frame(width: 300, height: 322)
+    }
+}
+
+@MainActor
+@Observable
 private final class SpaceRenderingFixture {
     var expanded = true
+    var reduceMotion = false
     var systemTransitionRevision = 0
     let probe = SpaceRenderingMountProbe()
 }
@@ -98,7 +204,7 @@ private struct SpaceRenderingSurface: View {
                                      height: fixture.expanded ? 266 : 38,
                                      centerX: 300, bottomRadius: fixture.expanded ? 26 : 8,
                                      passiveShape: passive),
-            reduceMotion: false,
+            reduceMotion: fixture.reduceMotion,
             systemTransitionRevision: fixture.systemTransitionRevision
         ) { _ in
             SpaceRenderingProbeView(probe: fixture.probe).frame(width: 1, height: 1)
