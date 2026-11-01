@@ -75,6 +75,28 @@ final class CameraExitRenderingTests: XCTestCase {
         }
     }
 
+    func testPageNavigationClosesCameraAndRevealsTheDestination() async throws {
+        for reduced in [false, true] {
+            let fixture = try CameraExitRenderingFixture(reduced: reduced)
+            defer { fixture.stop() }
+            try await fixture.open(.expanded)
+
+            for swipe in [false, true] {
+                fixture.model.pageModel.selectedPage = .calendar
+                try await fixture.finishTransition()
+                try await fixture.openCamera()
+
+                if swipe { fixture.model.pageModel.moveSelection(forward: false) }
+                else { fixture.model.pageModel.selectedPage = .music }
+                try await fixture.finishTransition()
+
+                fixture.assertCameraStopped()
+                XCTAssertEqual(fixture.model.visualState, .expanded)
+                try fixture.assertExpandedContent()
+            }
+        }
+    }
+
     func testRapidCameraCollapseReversalRestoresContentAndRemainsDismissible() async throws {
         for reduced in [false, true] {
             let fixture = try CameraExitRenderingFixture(reduced: reduced)
