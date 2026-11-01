@@ -64,13 +64,13 @@ public struct NotchToolbarButtonStyle: ButtonStyle {
         let fill = !isEnabled ? 0.05 : (configuration.isPressed ? NotchToolbarMetrics.pressedFill
             : (isHovered ? NotchToolbarMetrics.hoverFill : NotchToolbarMetrics.restingFill))
         configuration.label
-            .background(.white.opacity(fill), in: .circle)
-            .overlay { Circle().strokeBorder(.white.opacity(isEnabled && isHovered ? 0.18 : 0), lineWidth: 0.5) }
-            // The shared press feedback used by header utilities and media controls.
-            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
+            .animation(NotchMotionStyle.feedback(reduceMotion: reduceMotion)) { label in
+                label
+                    .background(.white.opacity(fill), in: .circle)
+                    .overlay { Circle().strokeBorder(.white.opacity(isEnabled && isHovered ? 0.18 : 0), lineWidth: 0.5) }
+                    .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
+            }
             .onHover { isHovered = $0 && isEnabled }
-            .animation(.easeOut(duration: 0.12), value: isHovered)
-            .animation(reduceMotion ? .easeOut(duration: 0.1) : .smooth(duration: 0.16), value: configuration.isPressed)
     }
 }
 
@@ -106,6 +106,7 @@ public struct NotchToolbarSearchField: View {
     var onSubmit: () -> Void = {}
     @FocusState private var focused: Bool
     @State private var isHovered = false
+    @NotchReducedMotion private var reduceMotion
 
     public init(text: Binding<String>, prompt: String, onSubmit: @escaping () -> Void = {}) {
         _text = text
@@ -136,14 +137,16 @@ public struct NotchToolbarSearchField: View {
         }
         .padding(.horizontal, 12)
         .frame(height: NotchToolbarMetrics.control)
-        .background(.white.opacity(focused || isHovered ? NotchToolbarMetrics.hoverFill : NotchToolbarMetrics.restingFill),
-                    in: .capsule)
-        .overlay { Capsule().strokeBorder(.white.opacity(focused ? 0.22 : 0), lineWidth: 0.5) }
+        // The field's contents stay under direct input; only its chrome eases.
+        .animation(NotchMotionStyle.feedback(reduceMotion: reduceMotion)) { field in
+            field
+                .background(.white.opacity(focused || isHovered ? NotchToolbarMetrics.hoverFill : NotchToolbarMetrics.restingFill),
+                            in: .capsule)
+                .overlay { Capsule().strokeBorder(.white.opacity(focused ? 0.22 : 0), lineWidth: 0.5) }
+        }
         .contentShape(.capsule)
         .onTapGesture { focused = true }
         .onHover { isHovered = $0 }
-        .animation(.easeOut(duration: 0.12), value: isHovered)
-        .animation(.easeOut(duration: 0.12), value: focused)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(prompt)
     }
