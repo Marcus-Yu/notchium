@@ -1,6 +1,5 @@
 import NotchiumCore
 import Observation
-import SwiftUI
 
 /// Keeps an already-visible local session mounted through a brief track gap.
 /// Provider playback truth and audio capture activity remain independent.
@@ -50,7 +49,8 @@ final class CollapsedMediaVisibility {
 
     private func setVisible(_ visible: Bool) {
         guard isVisible != visible else { return }
-        withAnimation(.easeInOut(duration: 0.12)) { isVisible = visible }
+        // The shell animates this projection with its own geometry/reveal policy.
+        isVisible = visible
         didChange?()
     }
 }
