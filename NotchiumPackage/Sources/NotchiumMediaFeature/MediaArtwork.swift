@@ -1,6 +1,7 @@
 import AppKit
 import ImageIO
 import SwiftUI
+import NotchiumDesignSystem
 import NotchiumDynamicIsland
 
 @MainActor final class MediaArtworkResource {
@@ -64,23 +65,25 @@ public struct MediaArtwork: View {
     let url: URL?
     let size: CGFloat
     @State private var image: NSImage?
+    @NotchReducedMotion private var reduceMotion
     public init(url: URL?, size: CGFloat) { self.url = url; self.size = size }
     public var body: some View {
         ZStack {
             if let image { Image(nsImage: image).resizable().scaledToFill().id(image).transition(.opacity) }
-            else { placeholder }
+            else { placeholder.transition(.opacity) }
         }
+        .animation(NotchMotionStyle.contentChange(reduceMotion: reduceMotion), value: image)
         .frame(width: size, height: size)
         .clipShape(.rect(cornerRadius: size > 24 ? 13 : 4))
         .accessibilityHidden(true)
         .task(id: url) {
             guard let url, url.scheme == "https" else {
-                withAnimation(.easeInOut(duration: 0.18)) { image = nil }
+                image = nil
                 return
             }
             let loaded = try? await MediaArtworkCache.shared.load(url)
             guard !Task.isCancelled else { return }
-            withAnimation(.easeInOut(duration: 0.18)) { image = loaded?.image }
+            image = loaded?.image
         }
     }
 
