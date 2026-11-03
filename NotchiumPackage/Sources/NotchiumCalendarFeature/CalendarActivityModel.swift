@@ -9,7 +9,7 @@ import SwiftUI
 @Observable
 public final class CalendarActivityModel: NotchCalendarRendering {
     public private(set) var snapshot = CalendarSnapshot(
-        availability: .unavailable(.permissionNotDetermined), permission: .notRequested)
+        availability: .unavailable(.temporarilyUnavailable), permission: .checking)
     public private(set) var selectedEventID: UUID?
     @ObservationIgnored private let service: any CalendarService
     @ObservationIgnored private let openMeeting: @MainActor (URL) -> Void
