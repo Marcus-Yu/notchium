@@ -372,24 +372,52 @@ final class NotchiumUITests: XCTestCase {
         attachScreenshot(named: "stage11-reminder-denied")
     }
 
+    func testStage11UnverifiedReminderExplainsRecoveryAndRetainsDraft() throws {
+        let app = XCUIApplication()
+        defer { app.terminate() }
+        app.launchArguments = fixtureArguments(display: "builtInMock", surface: "physical", presentation: "expanded", appearance: "dark") + ["--notchium-reminders-unverified"]
+        app.launch()
+        let reminder = shellElement("notchium.shell.quickReminder", in: app)
+        XCTAssertTrue(reminder.waitForExistence(timeout: 5))
+        reminder.click()
+        let title = app.textFields["notchium.reminder.title"]
+        let add = app.buttons["notchium.reminder.add"]
+        let checkAgain = app.buttons["Check Again"]
+        let explanation = app.staticTexts["notchium.reminder.accessVerificationFailure"]
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        app.typeText("Review fixture notes tomorrow 9am")
+        XCTAssertTrue(explanation.waitForExistence(timeout: 3))
+        XCTAssertTrue(checkAgain.exists)
+        XCTAssertFalse(add.isEnabled)
+        app.typeKey(.return, modifierFlags: [])
+        XCTAssertTrue(title.exists)
+        XCTAssertEqual(title.value as? String, "Review fixture notes tomorrow 9am")
+        checkAgain.click()
+        XCTAssertTrue(explanation.waitForExistence(timeout: 3))
+        XCTAssertEqual(title.value as? String, "Review fixture notes tomorrow 9am")
+        XCTAssertFalse(add.isEnabled)
+        XCTAssertFalse(app.staticTexts["Reminder Added"].exists)
+        attachScreenshot(named: "stage11-reminder-unverified")
+    }
+
     func testExpandedGearReopensExistingSettingsScene() throws {
         let app = XCUIApplication()
         defer { app.terminate() }
         app.launchArguments = fixtureArguments(display: "builtInMock", surface: "physical",
-            presentation: "collapsed", appearance: "system") + ["--notchium-media-settings-fixture"]
+            presentation: "expanded", appearance: "system") + ["--notchium-media-settings-fixture"]
         app.launch()
-        XCTAssertTrue(waitForState("collapsed", in: app, timeout: 5))
-        XCTAssertFalse(shellElement("notchium.shell.settings", in: app).exists)
+        XCTAssertTrue(waitForState("expanded", in: app, timeout: 5))
+        // Tests.xcconfig gives this test bundle the target app's bundle ID.
+        let applicationBundleIdentifier = try XCTUnwrap(Bundle(for: Self.self).bundleIdentifier)
         let runningApp = try XCTUnwrap(
-            NSRunningApplication.runningApplications(withBundleIdentifier: "com.marcusyu.notchium")
+            NSRunningApplication.runningApplications(withBundleIdentifier: applicationBundleIdentifier)
                 .max { ($0.launchDate ?? .distantPast) < ($1.launchDate ?? .distantPast) }
         )
         XCTAssertTrue(waitForActivationPolicy(.accessory, application: runningApp))
 
         let settings = app.windows["com_apple_SwiftUI_Settings_window"]
         for attempt in 0..<3 {
-            shellElement("notchium.shell", in: app)
-                .coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.07)).click()
+            ensureExpanded(app)
             let gear = shellElement("notchium.shell.settings", in: app)
             XCTAssertTrue(gear.waitForExistence(timeout: 5))
             gear.click()
