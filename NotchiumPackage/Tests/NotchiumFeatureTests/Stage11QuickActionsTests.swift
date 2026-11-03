@@ -436,6 +436,37 @@ import NotchiumServices
         XCTAssertFalse(model.reminder.canSaveReminder)
     }
 
+    func testUnverifiedAccessRetainsDraftAndRecoveryEnablesSaveWithoutAnotherPrompt() async {
+        let service = MockReminderService()
+        service.authorization = .checking
+        let (model, presentation) = fixture(reminders: service)
+        defer { model.reminder.endSession(); presentation.reset() }
+        await model.reminder.prepare()
+        model.reminder.draft.title = "call dentist tomorrow 9am"
+        let dueDate = model.reminder.draft.date
+        XCTAssertEqual(model.reminder.access, .checking)
+        XCTAssertFalse(model.reminder.canSaveReminder)
+        XCTAssertEqual(service.requestCount, 0)
+
+        service.authorization = .verificationFailed
+        service.notifyChanges()
+        for _ in 0..<100 where model.reminder.access != .verificationFailed { await Task.yield() }
+        XCTAssertEqual(model.reminder.access, .verificationFailed)
+        let blocked = await model.reminder.saveCurrent()
+        XCTAssertFalse(blocked)
+        XCTAssertEqual(model.reminder.draft.title, "call dentist tomorrow 9am")
+        XCTAssertEqual(model.reminder.draft.date, dueDate)
+        XCTAssertTrue(service.saved.isEmpty)
+
+        service.authorization = .allowed
+        await model.reminder.refreshAccess()
+        XCTAssertTrue(model.reminder.canSaveReminder)
+        XCTAssertEqual(service.requestCount, 0)
+        let saved = await model.reminder.saveCurrent()
+        XCTAssertTrue(saved)
+        XCTAssertEqual(service.saved.map(\.title), ["call dentist"])
+    }
+
     func testPendingSaveBlocksDuplicateSubmission() async {
         let clock = PausedReminderClock(date: date)
         let presentation = DynamicIslandPresentationModel(clock: clock)
