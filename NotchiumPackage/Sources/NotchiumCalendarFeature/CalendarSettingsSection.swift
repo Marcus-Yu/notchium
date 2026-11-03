@@ -8,6 +8,13 @@ public struct CalendarSettingsSection: View {
     public var body: some View {
         Section("Calendar") {
             switch model.snapshot.permission {
+            case .checking:
+                ProgressView("Checking calendar access…")
+            case .verificationFailed:
+                Text("Calendar access couldn’t be verified. Quit and reopen Notchium, then check again. Your saved calendar choices are preserved.")
+                    .foregroundStyle(.secondary)
+                Button("Check Again") { model.refresh() }
+                    .accessibilityIdentifier("notchium.calendar.settings.checkAccess")
             case .notRequested:
                 Text("Show upcoming events from calendars in Apple Calendar.")
                     .foregroundStyle(.secondary)
