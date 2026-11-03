@@ -19,12 +19,18 @@ struct HomeCalendarView: View {
     @Environment(\.notchHomePageVisible) private var isVisible
 
     var body: some View {
-        if isVisible {
-            TimelineView(.periodic(from: .now, by: 60)) { timeline in
-                HomeCalendarContent(snapshot: model.snapshot, date: timeline.date, openCalendar: openCalendar)
+        Group {
+            if isVisible {
+                TimelineView(.periodic(from: .now, by: 60)) { timeline in
+                    HomeCalendarContent(snapshot: model.snapshot, date: timeline.date, openCalendar: openCalendar)
+                }
+            } else {
+                HomeCalendarContent(snapshot: model.snapshot, date: .now, openCalendar: openCalendar)
             }
-        } else {
-            HomeCalendarContent(snapshot: model.snapshot, date: .now, openCalendar: openCalendar)
+        }
+        .task(id: isVisible) {
+            guard isVisible else { return }
+            model.refresh()
         }
     }
 }
@@ -48,7 +54,11 @@ struct HomeCalendarContent: View {
                         .font(.system(size: 11)).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
                 }.padding(.top, compact ? 2 : 3)
                 Rectangle().fill(.white.opacity(0.1)).frame(height: 1).padding(.vertical, compact ? ExpandedPageStyle.Space.xs : ExpandedPageStyle.groupGap)
-                if snapshot.permission != .granted {
+                if snapshot.permission == .checking {
+                    status("Checking Calendar", detail: "Verifying calendar access…")
+                } else if snapshot.permission == .verificationFailed {
+                    status("Calendar unavailable", detail: "Reopen Notchium to check access.")
+                } else if snapshot.permission != .granted {
                     status("Set up Calendar", detail: "Open Calendar to get started.")
                 } else if snapshot.availability != .available {
                     status("Calendar unavailable", detail: "Open Calendar to check access.")
