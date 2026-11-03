@@ -39,6 +39,7 @@ struct QuickReminderComposer: View {
     let close: () -> Void
     @FocusState private var titleFocused: Bool
     @State private var saveTask: Task<Void, Never>?
+    @State private var accessTask: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -60,7 +61,19 @@ struct QuickReminderComposer: View {
             if model.draft.includesTime {
                 DatePicker("Time", selection: Binding(get: { model.draft.date }, set: model.setDate), displayedComponents: .hourAndMinute)
             }
-            if model.access == .denied {
+            if model.access == .checking {
+                ProgressView("Checking Reminders access…")
+                    .controlSize(.small)
+            } else if model.access == .verificationFailed {
+                Text("macOS could not verify Reminders access. Copy your text before quitting and reopening Notchium. This reminder has not been saved.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("notchium.reminder.accessVerificationFailure")
+                Button("Check Again") { refreshAccess() }
+                    .disabled(accessTask != nil)
+            } else if model.access == .notDetermined {
+                Button("Allow Reminders Access…") { refreshAccess(request: true) }
+                    .disabled(accessTask != nil)
+            } else if model.access == .denied {
                 Text("Reminders access is disabled.")
                     .font(.caption).foregroundStyle(.secondary)
                 Button("Open System Settings", action: model.openPrivacy)
@@ -88,11 +101,22 @@ struct QuickReminderComposer: View {
         .padding(16)
         .frame(width: 320)
         .background(PopoverKeyFocus())
-        .task { titleFocused = true; await model.prepare(); titleFocused = true }
+        .task {
+            titleFocused = true
+            await model.prepare()
+            if !Task.isCancelled { titleFocused = true }
+        }
         .task(id: model.draft.title) { await model.parseAfterDebounce() }
         .onChange(of: model.canSaveReminder) { _, _ in model.logValidation() }
-        .onDisappear { saveTask?.cancel(); model.endSession() }
-        .onExitCommand { saveTask?.cancel(); model.cancel(); close() }
+        .onDisappear { saveTask?.cancel(); accessTask?.cancel(); model.endSession() }
+        .onExitCommand { saveTask?.cancel(); accessTask?.cancel(); model.cancel(); close() }
+    }
+    private func refreshAccess(request: Bool = false) {
+        guard accessTask == nil else { return }
+        accessTask = Task {
+            defer { accessTask = nil }
+            await model.refreshAccess(request: request)
+        }
     }
     private func add() {
         guard model.canSaveReminder, saveTask == nil else { return }
