@@ -44,7 +44,8 @@ final class CalendarPermissionViewTests: XCTestCase {
     func testPartialAndDeniedPermissionStatesRenderWithinCalendarPage() async throws {
         // Offscreen NSHostingView fixtures do not expose SwiftUI accessibility children.
         // These captures cover native layout; service tests cover permission actions.
-        for (permission, name) in [(CalendarPermission.needsFullAccess, "full-access"), (.denied, "denied")] {
+        for (permission, name) in [(CalendarPermission.needsFullAccess, "full-access"),
+                                   (.denied, "denied"), (.verificationFailed, "verification-failed")] {
             let service = PermissionViewCalendarService(permission: permission)
             let model = makeModel(service: service)
             let visibility = CalendarPermissionPageVisibility(visible: true)
