@@ -1,13 +1,42 @@
 import AppKit
+import Combine
 import SwiftUI
 import NotchiumFeature
+import NotchiumServices
 
 @MainActor
-final class NotchiumAppDelegate: NSObject, NSApplicationDelegate {
-    let controller = NotchiumApplicationController.production()
+final class NotchiumAppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
+    @Published private(set) var controller: NotchiumApplicationController?
+    private var startupTask: Task<Void, Never>?
     private var isSettingsWindowOpen = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        startupTask = Task { [weak self] in
+            do {
+                let outcome = try await ApplicationInstanceCoordinator().waitForOlderInstancesToExit()
+                guard !Task.isCancelled, let self else { return }
+                self.startupTask = nil
+                switch outcome {
+                case .ready: self.startController()
+                case .superseded: NSApplication.shared.terminate(nil)
+                case .terminationRefused, .timedOut:
+                    let alert = NSAlert()
+                    alert.messageText = "Notchium couldn’t restart"
+                    alert.informativeText = "Another copy is still running. Quit Notchium from its menu, then reopen this copy."
+                    alert.addButton(withTitle: "Quit")
+                    alert.runModal()
+                    NSApplication.shared.terminate(nil)
+                }
+            } catch {
+                // Termination cancels admission before any application services exist.
+                if !Task.isCancelled { NSApplication.shared.terminate(nil) }
+            }
+        }
+    }
+
+    private func startController() {
+        let controller = NotchiumApplicationController.production()
+        self.controller = controller
         let needsSetup = controller.needsOnboardingPresentation
         NSApplication.shared.setActivationPolicy(isSettingsWindowOpen || needsSetup ? .regular : .accessory)
 #if DEBUG
@@ -22,6 +51,7 @@ final class NotchiumAppDelegate: NSObject, NSApplicationDelegate {
 
     func settingsWindowOpenChanged(_ isOpen: Bool) {
         isSettingsWindowOpen = isOpen
+        guard let controller else { return }
         let application = NSApplication.shared
         let policy: NSApplication.ActivationPolicy = isOpen || controller.needsOnboardingPresentation ? .regular : .accessory
         guard application.activationPolicy() != policy,
@@ -30,7 +60,9 @@ final class NotchiumAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        controller.stop()
+        startupTask?.cancel()
+        startupTask = nil
+        controller?.stop()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(
@@ -53,7 +85,7 @@ struct NotchiumApp: App {
 
     var body: some Scene {
         MenuBarExtra(isInserted: menuBarInsertion) {
-            NotchiumMenuView(controller: appDelegate.controller)
+            NotchiumMenuSceneRoot(appDelegate: appDelegate)
         } label: {
             Label("Notchium", systemImage: "capsule.fill")
                 .onAppear {
@@ -65,60 +97,16 @@ struct NotchiumApp: App {
         .menuBarExtraStyle(.menu)
 
         Settings {
-            if appDelegate.controller.needsOnboardingPresentation {
-                VStack(spacing: 16) {
-                    Text("Complete Notchium setup to continue.")
-                    Button("Resume Setup…") { appDelegate.controller.showOnboarding() }
-                }.padding(40)
-            } else {
-            NotchiumSettingsView(environment: appDelegate.controller.environment,
-                                 audioMeter: appDelegate.controller.mediaModel.audioMeter,
-                                 waveformAppearance: appDelegate.controller.mediaModel.waveformAppearance,
-                                 calendarModel: appDelegate.controller.calendarModel,
-                                 menuBarInsertion: menuBarInsertion,
-                                 caffeineModel: appDelegate.controller.caffeineModel,
-                                 quickActions: appDelegate.controller.quickActions,
-                                 clipboardModel: appDelegate.controller.clipboardModel,
-                                 focusModeModel: appDelegate.controller.focusModeModel,
-                                 pomodoroModel: appDelegate.controller.pomodoroModel,
-                                 systemFeedback: appDelegate.controller.systemFeedback,
-                                 displayCoordinator: appDelegate.controller.displayCoordinator,
-                                 onboarding: appDelegate.controller.onboarding)
-#if DEBUG
-                .preferredColorScheme(debugSettingsColorScheme)
-#endif
-                .background {
-                    SettingsWindowLifecycle(onOpenChanged: appDelegate.settingsWindowOpenChanged)
-                        .frame(width: 0, height: 0)
-                }
-            }
+            NotchiumSettingsSceneRoot(appDelegate: appDelegate, menuBarInsertion: menuBarInsertion)
         }
 
 #if DEBUG
         Window("Developer Panel", id: "developer-panel") {
-            NotchiumDeveloperPanelView(
-                model: appDelegate.controller.developerPanelModel,
-                shellDebugModel: appDelegate.controller.shellDebugModel,
-                presentationModel: appDelegate.controller.displayCoordinator.presentationModel,
-                uuids: appDelegate.controller.environment.uuids,
-                mediaModel: appDelegate.controller.mediaModel,
-                mockMedia: appDelegate.controller.mockMediaProvider,
-                realMedia: appDelegate.controller.environment.services.media
-            )
+            NotchiumDeveloperSceneRoot(appDelegate: appDelegate)
         }
         .defaultSize(width: 720, height: 520)
 #endif
     }
-
-#if DEBUG
-    private var debugSettingsColorScheme: ColorScheme? {
-        switch appDelegate.controller.shellDebugModel.appearance {
-        case .system: nil
-        case .light: .light
-        case .dark: .dark
-        }
-    }
-#endif
 
     private var menuBarInsertion: Binding<Bool> {
         Binding(
