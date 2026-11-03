@@ -22,6 +22,7 @@ import Observation
     @ObservationIgnored private var sessionRevision = 0
     @ObservationIgnored private var editRevision = 0
     @ObservationIgnored private var accessObservation: AnyCancellable?
+    @ObservationIgnored private var accessChangeTask: Task<Void, Never>?
 
     public init(service: any ReminderService, workspace: any QuickActionWorkspace,
                 store: QuickActionStore, notifications: NotificationCoordinator, clock: any AppClock, calendar: Calendar = .current) {
@@ -37,9 +38,12 @@ import Observation
 
     public func prepare() async {
         accessObservation = service.changes.sink { [weak self] in
-            Task { @MainActor [weak self] in
+            self?.accessChangeTask?.cancel()
+            self?.accessChangeTask = Task { @MainActor [weak self] in
                 guard let self, self.accessObservation != nil else { return }
                 self.refreshState()
+                if self.access == .checking { await self.refreshAccess() }
+                self.logValidation()
             }
         }
         sessionRevision += 1
@@ -57,12 +61,19 @@ import Observation
         logValidation()
     }
     public func refreshAccess(request: Bool = false) async {
+        defer { logValidation() }
         error = nil
         refreshState()
         do {
-            if request && access == .notDetermined { _ = try await service.requestAccess() }
+            if request && access == .notDetermined {
+                _ = try await service.requestAccess()
+            } else {
+                _ = await service.refreshAccess()
+            }
+            guard !Task.isCancelled else { return }
             refreshState()
         } catch {
+            guard !Task.isCancelled else { return }
             refreshState()
             self.error = error.localizedDescription
         }
@@ -150,13 +161,16 @@ import Observation
         let now = await clock.now()
         guard session == sessionRevision, !Task.isCancelled else { return false }
         applySuggestion(now: now)
-        refreshState()
+        await refreshAccess()
+        guard session == sessionRevision, !Task.isCancelled else { return false }
         guard validationFailure == nil else { return false }
         return persist()
     }
 
     func endSession() {
         accessObservation = nil
+        accessChangeTask?.cancel()
+        accessChangeTask = nil
         editRevision += 1
         sessionRevision += 1
     }
@@ -191,6 +205,8 @@ import Observation
         let authorization = switch access {
         case .allowed: "fullAccess"
         case .notDetermined: "notDetermined"
+        case .checking: "checking"
+        case .verificationFailed: "verificationFailed"
         case .denied: "denied"
         case .restricted: "restricted"
         }
