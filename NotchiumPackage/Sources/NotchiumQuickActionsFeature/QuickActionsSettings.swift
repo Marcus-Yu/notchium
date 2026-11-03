@@ -9,6 +9,7 @@ public struct QuickActionsSettings: View {
     @State private var editing: QuickAction?
     @State private var selection: UUID?
     @State private var error: String?
+    @State private var reminderAccessTask: Task<Void, Never>?
     public init(model: QuickActionsModel, showActions: Bool = true, showReminders: Bool = true) {
         self.model = model; self.showActions = showActions; self.showReminders = showReminders
     }
@@ -23,6 +24,7 @@ public struct QuickActionsSettings: View {
             if showReminders { await model.reminder.refreshAccess() }
         }
         .onChange(of: model.requestedEditID) { _, _ in if showActions { consumeEditRequest() } }
+        .onDisappear { reminderAccessTask?.cancel() }
     }
     private var actionSection: some View {
         Section("Shortcuts") {
@@ -79,13 +81,28 @@ public struct QuickActionsSettings: View {
                 }
                 Text("Scheduled reminders can appear in Calendar when Scheduled Reminders is enabled there.")
                     .font(.caption).foregroundStyle(.secondary)
+            } else if model.reminder.access == .checking {
+                ProgressView("Checking Reminders access…").controlSize(.small)
+            } else if model.reminder.access == .verificationFailed {
+                Text("macOS could not verify Reminders access. Quit and reopen Notchium, then try again.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button("Check Again") { refreshReminderAccess() }
+                    .disabled(reminderAccessTask != nil)
             } else {
-                Button("Enable Quick Reminder…") { Task { await model.reminder.refreshAccess(request: true) } }
+                Button("Enable Quick Reminder…") { refreshReminderAccess(request: true) }
+                    .disabled(reminderAccessTask != nil)
                 if model.reminder.access == .denied || model.reminder.access == .restricted {
                     Button("Open Reminders Privacy Settings", action: model.reminder.openPrivacy)
                 }
             }
             if let error = model.reminder.error { Text(error).font(.caption).foregroundStyle(.red) }
+        }
+    }
+    private func refreshReminderAccess(request: Bool = false) {
+        guard reminderAccessTask == nil else { return }
+        reminderAccessTask = Task {
+            defer { reminderAccessTask = nil }
+            await model.reminder.refreshAccess(request: request)
         }
     }
     private var selectedAction: QuickAction? { model.store.actions.first { $0.id == selection } }
