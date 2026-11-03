@@ -108,7 +108,9 @@ public struct ReminderList: Identifiable, Equatable, Sendable {
     public init(id: String, title: String) { self.id = id; self.title = title }
 }
 
-public enum ReminderAccess: Equatable, Sendable { case notDetermined, allowed, denied, restricted }
+public enum ReminderAccess: Equatable, Sendable {
+    case notDetermined, checking, verificationFailed, allowed, denied, restricted
+}
 
 public struct ReminderDraft: Equatable, Sendable {
     public var title: String
