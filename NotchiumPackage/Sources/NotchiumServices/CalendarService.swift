@@ -4,6 +4,8 @@ import Foundation
 import NotchiumCore
 
 public enum CalendarPermission: Sendable, Equatable {
+    /// No permission claim is made while checking or reconciling an inconsistent OS response.
+    case checking, verificationFailed
     case notRequested, needsFullAccess, granted, denied, restricted
 }
 
@@ -95,10 +97,11 @@ public protocol CalendarService: Sendable {
 public final class RealCalendarService: CalendarService {
     private let store: any CalendarEventStoreAccessing
     private let preferences: UserDefaults
+    private let clock: any AppClock
     private let selectionKey = "notchium.calendar.selectedIdentifiers"
     private var continuations: [UUID: AsyncStream<CalendarSnapshot>.Continuation] = [:]
-    private var latest = CalendarSnapshot(availability: .unavailable(.permissionNotDetermined),
-                                          permission: .notRequested)
+    private var latest = CalendarSnapshot(availability: .unavailable(.temporarilyUnavailable),
+                                          permission: .checking)
     private var eventIDs: [String: UUID] = [:]
     private var boundaryTask: Task<Void, Never>?
     private var changeTask: Task<Void, Never>?
@@ -106,23 +109,33 @@ public final class RealCalendarService: CalendarService {
     private var started = false
     private var generation = 0
     private var isRequestingAccess = false
+    private var hasVerifiedAccess = false
+    private var accessRequestReportedGrant = false
+    private var authorizationRecheckTask: Task<Void, Never>?
+    private var authorizationRecheckAttempt = 0
+    static let authorizationRecheckDelays: [Duration] = [.milliseconds(250), .milliseconds(750), .seconds(2)]
 
     public convenience init() {
         self.init(store: EventKitCalendarStore(), preferences: .standard)
     }
 
-    init(store: any CalendarEventStoreAccessing, preferences: UserDefaults) {
+    init(store: any CalendarEventStoreAccessing, preferences: UserDefaults,
+         clock: any AppClock = ContinuousAppClock()) {
         self.store = store
         self.preferences = preferences
+        self.clock = clock
     }
     isolated deinit { stopObservation() }
 
     public func availability() async -> FeatureAvailability {
         return switch permission {
         case .granted: .available
-        case .notRequested: .unavailable(.permissionNotDetermined)
-        case .denied, .needsFullAccess: .unavailable(.permissionDenied)
+        case .notRequested: .unavailable(hasVerifiedAccess || accessRequestReportedGrant
+            ? .temporarilyUnavailable : .permissionNotDetermined)
+        case .denied: .unavailable(.permissionDenied)
+        case .needsFullAccess: .unavailable(accessRequestReportedGrant ? .temporarilyUnavailable : .permissionDenied)
         case .restricted: .unavailable(.permissionRestricted)
+        case .checking, .verificationFailed: .unavailable(.temporarilyUnavailable)
         }
     }
 
@@ -142,21 +155,29 @@ public final class RealCalendarService: CalendarService {
         }
     }
 
-    public func refresh() async throws { refreshNow() }
+    public func refresh() async throws {
+        guard started else { return }
+        if latest.permission == .verificationFailed { cancelAuthorizationRecheck() }
+        refreshNow()
+    }
 
     public func requestAccess() async {
-        guard !isRequestingAccess else { return }
+        guard started, !isRequestingAccess else { return }
+        // A successful callback followed by an unverified status needs reconciliation,
+        // not another prompt. Only the current OS status can authorize calendar reads.
+        guard latest.permission != .checking, latest.permission != .verificationFailed else { refreshNow(); return }
         guard permission == .notRequested || permission == .needsFullAccess else { refreshNow(); return }
         isRequestingAccess = true
         defer { isRequestingAccess = false }
         let generation = generation
-        _ = try? await store.requestFullAccess()
+        let reportedGrant = try? await store.requestFullAccess()
         guard self.generation == generation, !Task.isCancelled else { return }
+        accessRequestReportedGrant = reportedGrant == true
         refreshNow()
     }
 
     public func setCalendarSelected(_ id: String, selected: Bool) async {
-        guard permission == .granted else { return }
+        guard started, permission == .granted else { return }
         let valid = Set(store.calendars().map(\.calendarIdentifier))
         guard valid.contains(id) else { return }
         var ids = selectedIDs(valid: valid)
@@ -173,6 +194,7 @@ public final class RealCalendarService: CalendarService {
         generation &+= 1
         boundaryTask?.cancel(); boundaryTask = nil
         changeTask?.cancel(); changeTask = nil
+        cancelAuthorizationRecheck()
         for (center, token) in observers { center.removeObserver(token) }
         observers.removeAll()
         let finished = continuations.values
@@ -235,12 +257,31 @@ public final class RealCalendarService: CalendarService {
     private func refreshNow() {
         boundaryTask?.cancel()
         let state = permission
+        if (state == .notRequested && (hasVerifiedAccess || accessRequestReportedGrant))
+            || (state == .needsFullAccess && accessRequestReportedGrant) {
+            // Fail closed without relabeling a lost/contradictory authorization check
+            // as first use. A replaced executable or unavailable TCC connection needs
+            // recovery; repeatedly asking for access cannot repair its identity.
+            let unresolved: CalendarPermission = authorizationRecheckAttempt < Self.authorizationRecheckDelays.count
+                ? .checking : .verificationFailed
+            // Keep opaque occurrence identities during a short verification gap so
+            // recovery cannot replay an already-consumed reminder threshold.
+            if unresolved == .verificationFailed { eventIDs.removeAll() }
+            publish(.init(availability: .unavailable(.temporarilyUnavailable), permission: unresolved))
+            scheduleAuthorizationRecheck()
+            return
+        }
+        cancelAuthorizationRecheck()
         guard state == .granted else {
+            eventIDs.removeAll()
+            accessRequestReportedGrant = false
             let reason: AvailabilityReason = state == .notRequested ? .permissionNotDetermined
                 : state == .denied || state == .needsFullAccess ? .permissionDenied : .permissionRestricted
             publish(.init(availability: .unavailable(reason), permission: state))
             return
         }
+        hasVerifiedAccess = true
+        accessRequestReportedGrant = false
 
         // Setup owns a different EKEventStore and Settings can change authorization
         // externally. Reconnect this read-only store before its first newly granted read.
@@ -275,6 +316,26 @@ public final class RealCalendarService: CalendarService {
         publish(.init(availability: .available, upcomingEvents: events,
                       permission: .granted, calendars: calendars))
         scheduleBoundary(for: events, at: now)
+    }
+
+    private func scheduleAuthorizationRecheck() {
+        guard started, authorizationRecheckTask == nil,
+              authorizationRecheckAttempt < Self.authorizationRecheckDelays.count else { return }
+        let delay = Self.authorizationRecheckDelays[authorizationRecheckAttempt]
+        let generation = generation
+        authorizationRecheckTask = Task { [weak self, clock] in
+            do { try await clock.sleep(for: delay) } catch { return }
+            guard !Task.isCancelled, let self, self.started, self.generation == generation else { return }
+            self.authorizationRecheckTask = nil
+            self.authorizationRecheckAttempt += 1
+            self.refreshNow()
+        }
+    }
+
+    private func cancelAuthorizationRecheck() {
+        authorizationRecheckTask?.cancel()
+        authorizationRecheckTask = nil
+        authorizationRecheckAttempt = 0
     }
 
     private func publish(_ snapshot: CalendarSnapshot) {
