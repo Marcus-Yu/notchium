@@ -82,6 +82,8 @@ Every permission-dependent feature follows this sequence:
 
 Calendar treats Add Events Only access separately from denial and offers an explicit full-access upgrade before reading events. Opening its nonactivating notch page, or returning to Calendar Settings, rechecks OS authorization without prompting. A newly granted service resets its read-only EventKit store before fetching calendars; setup completion never substitutes for a real grant.
 
+Calendar distinguishes initial permission checks and inconsistent OS responses from first-use consent. Previously working access that becomes undetermined, or a successful request whose status has not settled, pauses native reads, clears the displayed events, and triggers bounded automatic rechecks. Confirmed denial/restriction still takes effect immediately. Persistent verification failure offers quit/reopen guidance and Check Again; it never treats a cached grant or successful callback as permission. Home refreshes authorization when shown too. The newest normal app instance retires older copies before constructing services, and mock UI fixtures use a separate bundle identity to avoid invalidating the normal app’s TCC record through ad-hoc signing. See [Calendar identity and verification](CALENDAR_ACTIVITY.md#permission-identity-and-verification).
+
 ## 5. Permission-denial behavior by feature group
 
 | Feature | Denied or unavailable behavior |
@@ -154,6 +156,8 @@ Stage 1 must add exact localized strings and review them against the final behav
 ## Stage 11 — Quick Reminder and actions
 
 Quick Reminder requests EventKit Reminders full access only on opening its composer or explicitly enabling it in Settings. `NSRemindersFullAccessUsageDescription` describes this use. Denied/restricted access leaves the draft available and offers explicit System Settings guidance. Existing Calendar access is separate; no calendar permission is requested to create a reminder. Writable lists are read after authorization, and a missing selection falls back to the system default or first writable list.
+
+A successful Reminders access callback can disagree with EventKit's current authorization status. Quick Reminder treats this as unverified access, checks again with bounded delays, and displays a verification message instead of leaving Add disabled without explanation. Callback success alone never permits list reads or saving. Persistent inconsistency offers Check Again and quit/reopen guidance; it does not repeatedly request consent. Confirmed denial/restriction takes effect immediately. The draft remains available through checking and failed verification.
 
 App/file/folder actions obtain user-selected access through NSOpenPanel and retain bookmarks: read-only security-scoped references in sandboxed builds, ordinary bookmarks for direct distribution, matching Shelf. Every successful scope acquisition is balanced with release through native open completion; stale bookmarks are refreshed. Stage 20 URL actions accept HTTP(S) and validated registered app links, rejecting credentials and file/script/executable schemes. System actions are limited to opening System Settings, Downloads, and Desktop. Shortcuts use Apple’s command-line interface and the shortcut’s own system permissions; Notchium adds no Accessibility or Input Monitoring request. The removed Keyboard Lock event tap and prompt infrastructure no longer run.
 
