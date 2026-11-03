@@ -20,6 +20,7 @@ extension NotchiumApplicationController {
         store.showOnHome = true
         let reminders = MockReminderService()
         if CommandLine.arguments.contains("--notchium-reminders-denied") { reminders.authorization = .denied }
+        if CommandLine.arguments.contains("--notchium-reminders-unverified") { reminders.authorization = .verificationFailed }
         let services: ServiceRegistry
         let nativeFiles = CommandLine.arguments.contains("--notchium-native-files-fixture")
         let qualityFixture = CommandLine.arguments.contains("--notchium-quality-fixture")
