@@ -13,6 +13,15 @@ public struct CalendarActivityView: View {
     public var body: some View {
         Group {
             switch model.snapshot.permission {
+            case .checking:
+                ProgressView("Checking calendar access…")
+                    .accessibilityIdentifier("notchium.calendar.checkingAccess")
+            case .verificationFailed:
+                permissionView("Calendar access couldn’t be verified", detail: "Quit and reopen Notchium, then check again. Your saved calendar choices are preserved.") {
+                    Button("Check Again") { model.refresh() }
+                        .buttonStyle(.glass)
+                        .accessibilityIdentifier("notchium.calendar.checkAccess")
+                }
             case .notRequested:
                 permissionView("See what’s next", detail: "Allow Notchium to read your macOS calendars.") {
                     Button("Allow Calendar Access") { model.requestAccess() }
