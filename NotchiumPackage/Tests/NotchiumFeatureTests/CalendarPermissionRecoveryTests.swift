@@ -1,3 +1,4 @@
+import AppKit
 import EventKit
 import Foundation
 import NotchiumCore
@@ -7,6 +8,171 @@ import XCTest
 @MainActor
 final class CalendarPermissionRecoveryTests: XCTestCase {
     private let selectionKey = "notchium.calendar.selectedIdentifiers"
+
+    func testPreviouslyGrantedAccessDoesNotBecomeAnUnrequestedPermissionAfterOneStatusRead() async throws {
+        let store = PermissionRecoveryCalendarStore(authorization: .fullAccess)
+        let clock = TestAppClock(now: .distantPast, automaticallyAdvances: false)
+        let service = RealCalendarService(store: store, preferences: try preferences(), clock: clock)
+        var updates = await service.updates().makeAsyncIterator()
+        let granted = await updates.next()
+        XCTAssertEqual(granted?.permission, .granted)
+
+        store.authorizationStatus = .notDetermined
+        try await service.refresh()
+        let unresolved = await updates.next()
+
+        XCTAssertNotEqual(unresolved?.permission, .notRequested,
+                          "A failed recheck of working access must not ask for a new grant")
+        XCTAssertEqual(unresolved?.availability, .unavailable(.temporarilyUnavailable))
+        XCTAssertEqual(store.calls, ["reset", "calendars"], "Unverified access must stop native reads")
+
+        await clock.waitForPendingSleeps()
+        store.authorizationStatus = .fullAccess
+        await clock.advance(by: RealCalendarService.authorizationRecheckDelays[0])
+        let restored = await updates.next()
+        XCTAssertEqual(restored?.permission, .granted, "Recovery must not depend on another notification or click")
+        XCTAssertEqual(store.calls, ["reset", "calendars", "reset", "calendars"])
+        await service.stop()
+    }
+
+    func testSuccessfulRequestWithUnverifiedStatusStopsPromptingAndCanRecover() async throws {
+        let store = PermissionRecoveryCalendarStore(authorization: .notDetermined)
+        let clock = TestAppClock(now: .distantPast, automaticallyAdvances: false)
+        let service = RealCalendarService(store: store, preferences: try preferences(), clock: clock)
+        var updates = await service.updates().makeAsyncIterator()
+        _ = await updates.next()
+        await service.requestAccess()
+        let checking = await updates.next()
+        XCTAssertEqual(checking?.permission, .checking)
+
+        for (index, delay) in RealCalendarService.authorizationRecheckDelays.enumerated() {
+            await clock.waitForPendingSleeps()
+            await clock.advance(by: delay)
+            let rechecked = await updates.next()
+            XCTAssertEqual(rechecked?.permission, index == RealCalendarService.authorizationRecheckDelays.count - 1
+                ? .verificationFailed : .checking)
+            XCTAssertEqual(rechecked?.availability, .unavailable(.temporarilyUnavailable))
+        }
+        await service.requestAccess()
+        _ = await updates.next()
+        XCTAssertEqual(store.calls, ["request"], "A contradictory grant must not create an endless prompt loop or read data")
+
+        // Check Again restarts bounded verification, rather than another access request.
+        try await service.refresh()
+        _ = await updates.next()
+        await clock.waitForPendingSleeps()
+        store.authorizationStatus = .fullAccess
+        await clock.advance(by: RealCalendarService.authorizationRecheckDelays[0])
+        let restored = await updates.next()
+        XCTAssertEqual(restored?.permission, .granted)
+        XCTAssertEqual(store.calls, ["request", "reset", "calendars"])
+        await service.stop()
+    }
+
+    func testRevocationDuringVerificationImmediatelyOverridesPendingRecovery() async throws {
+        for authorization in [EKAuthorizationStatus.denied, .restricted, .writeOnly] {
+            let store = PermissionRecoveryCalendarStore(authorization: .fullAccess)
+            let clock = TestAppClock(now: .distantPast, automaticallyAdvances: false)
+            let service = RealCalendarService(store: store, preferences: try preferences(), clock: clock)
+            var updates = await service.updates().makeAsyncIterator()
+            _ = await updates.next()
+            store.authorizationStatus = .notDetermined
+            try await service.refresh()
+            _ = await updates.next()
+            await clock.waitForPendingSleeps()
+
+            store.authorizationStatus = authorization
+            try await service.refresh()
+            let revoked = await updates.next()
+            XCTAssertEqual(revoked?.permission, authorization == .denied ? .denied
+                : authorization == .restricted ? .restricted : .needsFullAccess)
+            XCTAssertEqual(revoked?.calendars, [])
+            XCTAssertEqual(revoked?.upcomingEvents, [])
+            await clock.advance(by: .seconds(10))
+            for _ in 0..<20 { await Task.yield() }
+            XCTAssertEqual(store.calls, ["reset", "calendars"], "Revocation must cancel native reads and pending recovery")
+            await service.stop()
+        }
+    }
+
+    func testSuccessfulFullAccessUpgradeRechecksALaggingWriteOnlyStatus() async throws {
+        let store = PermissionRecoveryCalendarStore(authorization: .writeOnly)
+        let clock = TestAppClock(now: .distantPast, automaticallyAdvances: false)
+        let service = RealCalendarService(store: store, preferences: try preferences(), clock: clock)
+        var updates = await service.updates().makeAsyncIterator()
+        _ = await updates.next()
+        await service.requestAccess()
+        let checking = await updates.next()
+        XCTAssertEqual(checking?.permission, .checking)
+        XCTAssertEqual(store.calls, ["request"])
+
+        await clock.waitForPendingSleeps()
+        store.authorizationStatus = .fullAccess
+        await clock.advance(by: RealCalendarService.authorizationRecheckDelays[0])
+        let restored = await updates.next()
+        XCTAssertEqual(restored?.permission, .granted)
+        XCTAssertEqual(store.calls, ["request", "reset", "calendars"])
+        await service.stop()
+    }
+
+    func testAutomaticRecoveryPreservesOccurrenceIdentityForReminderDeduplication() async throws {
+        // These objects are unsaved fixtures. No EventKit query, save, or access request is made.
+        let objects = EKEventStore()
+        let calendar = EKCalendar(for: .event, eventStore: objects)
+        calendar.title = "Fixture"
+        calendar.cgColor = NSColor.systemBlue.cgColor
+        let event = EKEvent(eventStore: objects)
+        event.calendar = calendar
+        event.title = "Fixture"
+        event.startDate = Date.now.addingTimeInterval(600)
+        event.endDate = event.startDate.addingTimeInterval(1800)
+        let store = PermissionRecoveryCalendarStore(authorization: .fullAccess)
+        store.fixtureCalendars = [calendar]
+        store.fixtureEvents = [event]
+        let clock = TestAppClock(now: .distantPast, automaticallyAdvances: false)
+        let service = RealCalendarService(store: store, preferences: try preferences(), clock: clock)
+        var updates = await service.updates().makeAsyncIterator()
+        let initial = await updates.next()
+        let occurrence = try XCTUnwrap(initial?.upcomingEvents.first?.id)
+
+        store.authorizationStatus = .notDetermined
+        try await service.refresh()
+        let checking = await updates.next()
+        XCTAssertEqual(checking?.upcomingEvents, [])
+        await clock.waitForPendingSleeps()
+        store.authorizationStatus = .fullAccess
+        await clock.advance(by: RealCalendarService.authorizationRecheckDelays[0])
+        let restored = await updates.next()
+        XCTAssertEqual(restored?.upcomingEvents.map(\.id), [occurrence],
+                       "A permission recheck must not replay consumed reminder thresholds for an unchanged occurrence")
+        await service.stop()
+    }
+
+    func testStoppingVerificationPreventsLateReadsAndRestartRechecksAuthorization() async throws {
+        let store = PermissionRecoveryCalendarStore(authorization: .fullAccess)
+        let clock = TestAppClock(now: .distantPast, automaticallyAdvances: false)
+        let service = RealCalendarService(store: store, preferences: try preferences(), clock: clock)
+        var updates = await service.updates().makeAsyncIterator()
+        _ = await updates.next()
+        store.authorizationStatus = .notDetermined
+        try await service.refresh()
+        _ = await updates.next()
+        await clock.waitForPendingSleeps()
+
+        await service.stop()
+        store.authorizationStatus = .fullAccess
+        await clock.advance(by: .seconds(10))
+        try await service.refresh()
+        let finished = await updates.next()
+        XCTAssertNil(finished)
+        XCTAssertEqual(store.calls, ["reset", "calendars"])
+
+        var restarted = await service.updates().makeAsyncIterator()
+        let restored = await restarted.next()
+        XCTAssertEqual(restored?.permission, .granted)
+        XCTAssertEqual(store.calls, ["reset", "calendars", "reset", "calendars"])
+        await service.stop()
+    }
 
     func testWriteOnlyAccessCanUpgradeToFullAccess() async throws {
         let store = PermissionRecoveryCalendarStore(authorization: .writeOnly)
@@ -197,13 +363,16 @@ final class CalendarPermissionRecoveryTests: XCTestCase {
     }
 }
 
-/// This fake never creates an EKEventStore or reads the user's Calendar database.
+/// This fake never requests access or queries the user's Calendar database.
+/// Optional EventKit fixtures are constructed in memory without saving them.
 @MainActor
 private final class PermissionRecoveryCalendarStore: CalendarEventStoreAccessing {
     var authorizationStatus: EKAuthorizationStatus
     var authorizationAfterRequest: EKAuthorizationStatus?
     var requestResult = true
     var suspendRequest = false
+    var fixtureCalendars: [EKCalendar] = []
+    var fixtureEvents: [EKEvent] = []
     private(set) var calls: [String] = []
     private var pendingRequest: CheckedContinuation<Bool, Never>?
 
@@ -232,9 +401,9 @@ private final class PermissionRecoveryCalendarStore: CalendarEventStoreAccessing
     }
 
     func reset() { calls.append("reset") }
-    func calendars() -> [EKCalendar] { calls.append("calendars"); return [] }
+    func calendars() -> [EKCalendar] { calls.append("calendars"); return fixtureCalendars }
     func events(from start: Date, to end: Date, calendars: [EKCalendar]) -> [EKEvent] {
         calls.append("events")
-        return []
+        return fixtureEvents
     }
 }
