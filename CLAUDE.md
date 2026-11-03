@@ -21,9 +21,9 @@ swift test  --package-path NotchiumPackage --filter NotificationLifetimeTests/te
 xcodebuild -workspace Notchium.xcworkspace -scheme Notchium -destination 'platform=macOS' \
   -configuration Debug -derivedDataPath /tmp/notchium-dd CODE_SIGNING_ALLOWED=NO build
 
-# Full test plan (package unit tests + NotchiumUITests), or a single UI test
-xcodebuild -workspace Notchium.xcworkspace -scheme Notchium -destination 'platform=macOS' test
-xcodebuild ... test -only-testing:NotchiumUITests/NotchiumUITests/<testName>
+# Mock UI tests, or a single UI test (package unit tests use swift test above)
+./scripts/run-ui-tests.sh
+./scripts/run-ui-tests.sh -only-testing:NotchiumUITests/NotchiumUITests/<testName>
 
 git diff --check   # used as the whitespace gate; no linter is configured
 
@@ -40,6 +40,7 @@ Notes:
 - `CODE_SIGNING_ALLOWED=NO` only checks that the app compiles. Signed builds can fail locally when the development provisioning profile is missing. Do not change the project's signing settings to work around this.
 - Some native integration tests need host access (for example Finder resolution and real screencapture detection). They fail or skip under a sandboxed `swift test`, so earlier runs used `--disable-sandbox`. Mixer tests in `AudioMixerTests` have failed intermittently in the past.
 - UI tests launch the real app with fixture arguments (`--ui-testing`, `--notchium-stage11-fixture`, `--notchium-display builtInMock`, …; see `NotchiumUITests.swift`). Display-only fixtures must still use mock services, or the run hits Keychain/SecurityAgent prompts.
+- Run UI fixtures through `scripts/run-ui-tests.sh`: it uses `com.marcusyu.notchium.uitesting` for the target app and a matching runner identity, with local ad-hoc signing overrides. Mixing ad-hoc test launches with the normal app's bundle ID can invalidate its macOS permission grants. The script accepts UI-test selectors, `--derived-data`, `--result-bundle`, and `--log`; it keeps build outputs and rejects arbitrary build-setting overrides. Normal builds retain `com.marcusyu.notchium` and their configured signing policy.
 - `Helpers/LidAwake` is a privileged closed-lid daemon. `scripts/build-lid-awake-helper.sh` compiles it in an Xcode build phase, and the build leaves it out for `NOTCH_APP_STORE` and `NOTCH_FREE_DISTRIBUTION` (so the shipped free build has no closed-lid mode). Its tests (`Helpers/LidAwakeTests/main.swift`) are standalone and are not part of `swift test` (see `docs/LID_AWAKE.md`).
 
 ## Architecture
