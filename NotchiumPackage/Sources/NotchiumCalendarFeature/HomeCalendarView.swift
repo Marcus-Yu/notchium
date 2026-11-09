@@ -68,12 +68,18 @@ struct HomeCalendarContent: View {
                         .foregroundStyle(ExpandedPageStyle.secondary).lineLimit(1)
                     VStack(alignment: .leading, spacing: compact ? 5 : 6) {
                         ForEach(summary.nextEvents) { event in
-                            VStack(alignment: .leading, spacing: compact ? 2 : 4) {
-                                Text(event.title).font(.system(size: compact ? 11 : 12, weight: .medium))
-                                    .lineLimit(summary.nextEvents.count > 1 ? 1 : 2)
-                                    .help(event.title)
-                                Text(eventTime(event)).font(.system(size: 10))
-                                    .foregroundStyle(ExpandedPageStyle.secondary).lineLimit(1)
+                            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                // The event's own calendar color, as in Calendar's list views.
+                                Circle().fill(event.calendarColor.swiftUIColor).frame(width: 6, height: 6)
+                                    .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
+                                    .accessibilityHidden(true)
+                                VStack(alignment: .leading, spacing: compact ? 2 : 4) {
+                                    Text(event.title).font(.system(size: compact ? 11 : 12, weight: .medium))
+                                        .lineLimit(summary.nextEvents.count > 1 ? 1 : 2)
+                                        .help(event.title)
+                                    Text(eventTime(event)).font(.system(size: 10))
+                                        .foregroundStyle(ExpandedPageStyle.secondary).lineLimit(1)
+                                }
                             }
                             .accessibilityElement(children: .combine)
                         }
