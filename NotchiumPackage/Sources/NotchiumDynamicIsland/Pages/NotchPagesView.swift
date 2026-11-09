@@ -13,17 +13,22 @@ struct NotchPagesView: View {
     var quickActions: (any NotchQuickActionsRendering)?
     var shelfRenderer: (any NotchShelfRendering)?
     var pomodoroRenderer: (any NotchPomodoroRendering)?
+    var teleprompterRenderer: (any NotchTeleprompterRendering)?
     var clipboardRenderer: (any NotchClipboardRendering)?
     var camera: (any NotchCameraControlling)?
     var cameraPresentationSource = "feature"
+    var prepareForReading: @MainActor () -> Void = {}
     var close: () -> Void = {}
     @NotchReducedMotion private var reduceMotion
+    @Namespace private var selectionNamespace
 
     var body: some View {
         let cameraOpen = camera?.isPreviewPresented == true
         VStack(spacing: 0) {
             navigation
                 .frame(height: ExpandedNotchLayout.navigationHeight)
+                // The header blooms first, then the page beneath it, both on the shell spring.
+                .notchBloom(stage: 0)
                 .zIndex(1) // Keep utility hover labels above the page content.
 
             ZStack {
@@ -46,6 +51,7 @@ struct NotchPagesView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .animation(reduceMotion ? NotchMotion.reduced : NotchMotion.compactIn, value: cameraOpen)
+            .notchBloom(stage: 1)
         }
         .disabled(!isExpanded)
         .onChange(of: pageVisible(.audio), initial: true) { _, visible in
@@ -61,6 +67,9 @@ struct NotchPagesView: View {
         .onChange(of: pageVisible(.pomodoro), initial: true) { _, visible in
             pomodoroRenderer?.setPageVisible(visible)
         }
+        .onChange(of: pageVisible(.teleprompter), initial: true) { _, visible in
+            teleprompterRenderer?.setReadingVisible(visible, source: cameraPresentationSource)
+        }
         .onChange(of: isExpanded && cameraOpen, initial: true) { _, visible in
             camera?.setPreviewVisible(visible, source: cameraPresentationSource)
         }
@@ -69,6 +78,7 @@ struct NotchPagesView: View {
             shelfRenderer?.setPageVisible(false)
             clipboardRenderer?.setVisible(false)
             pomodoroRenderer?.setPageVisible(false)
+            teleprompterRenderer?.setReadingVisible(false, source: cameraPresentationSource)
             camera?.setPreviewVisible(false, source: cameraPresentationSource)
         }
         .accessibilityElement(children: .contain)
@@ -87,12 +97,31 @@ struct NotchPagesView: View {
         isExpanded && model.selectedPage == page && camera?.isPreviewPresented != true
     }
 
+    /// Music follows the playing artwork; every other page keeps its fixed identity hue.
+    private func hue(for page: NotchPage) -> Color {
+        page == .music ? (mediaRenderer?.accentColor ?? page.hue) : page.hue
+    }
+
     /// Every page stays mounted; only the selected one is visible and interactive.
     private var pages: some View {
         ZStack {
-            HomeDashboardView(pages: model, media: mediaRenderer, calendar: calendarRenderer, quickActions: quickActions)
+            VStack(spacing: 0) {
+                if teleprompterRenderer?.meetingSuggested == true {
+                    Button { model.selectedPage = .teleprompter } label: {
+                        Label("In a meeting? Open Teleprompter", systemImage: "text.alignleft")
+                            .font(.system(size: 11))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.borderless)
+                    .padding(.horizontal, NotchGeometryResolver.expandedContentHorizontalInset)
+                    .padding(.top, 4)
+                    .accessibilityIdentifier("notchium.teleprompter.meetingSuggestion")
+                }
+                HomeDashboardView(pages: model, media: mediaRenderer, calendar: calendarRenderer, quickActions: quickActions)
+            }
                 .environment(\.notchHomePageVisible, pageVisible(.home))
                 .environment(\.notchMediaExpanded, pageVisible(.home))
+                .tint(hue(for: .home))
                 .modifier(NotchPageVisibility(isVisible: model.selectedPage == .home))
                 .disabled(model.selectedPage != .home)
                 .allowsHitTesting(model.selectedPage == .home)
@@ -107,6 +136,7 @@ struct NotchPagesView: View {
             }
             .environment(\.notchMediaPageVisible, pageVisible(.music))
             .environment(\.notchMediaExpanded, pageVisible(.music))
+            .tint(hue(for: .music))
             .modifier(NotchPageVisibility(isVisible: model.selectedPage == .music))
             .disabled(model.selectedPage != .music)
             .allowsHitTesting(model.selectedPage == .music)
@@ -123,6 +153,7 @@ struct NotchPagesView: View {
                 }
             }
             .environment(\.notchCalendarPageVisible, pageVisible(.calendar))
+            .tint(hue(for: .calendar))
             .modifier(NotchPageVisibility(isVisible: model.selectedPage == .calendar))
             .disabled(model.selectedPage != .calendar)
             .allowsHitTesting(model.selectedPage == .calendar)
@@ -139,6 +170,7 @@ struct NotchPagesView: View {
                 }
             }
             .environment(\.notchAudioPageVisible, pageVisible(.audio))
+            .tint(hue(for: .audio))
             .modifier(NotchPageVisibility(isVisible: model.selectedPage == .audio))
             .disabled(model.selectedPage != .audio)
             .allowsHitTesting(model.selectedPage == .audio)
@@ -155,14 +187,30 @@ struct NotchPagesView: View {
                 }
             }
             .environment(\.notchPomodoroPageVisible, pageVisible(.pomodoro))
+            .tint(hue(for: .pomodoro))
             .modifier(NotchPageVisibility(isVisible: model.selectedPage == .pomodoro))
             .disabled(model.selectedPage != .pomodoro)
             .allowsHitTesting(model.selectedPage == .pomodoro)
             .accessibilityElement(children: pageVisible(.pomodoro) ? .contain : .ignore)
             .accessibilityHidden(!pageVisible(.pomodoro))
 
+            Group {
+                if let teleprompterRenderer {
+                    teleprompterRenderer.expandedTeleprompter(prepareToRead: prepareForReading)
+                } else {
+                    Text("Teleprompter is unavailable.").font(.system(size: 12)).foregroundStyle(.secondary)
+                }
+            }
+            .tint(hue(for: .teleprompter))
+            .modifier(NotchPageVisibility(isVisible: model.selectedPage == .teleprompter))
+            .disabled(model.selectedPage != .teleprompter)
+            .allowsHitTesting(model.selectedPage == .teleprompter)
+            .accessibilityElement(children: pageVisible(.teleprompter) ? .contain : .ignore)
+            .accessibilityHidden(!pageVisible(.teleprompter))
+
             shelfSection
                 .environment(\.notchShelfPageVisible, pageVisible(.shelf) && model.shelfSection == .files)
+                .tint(hue(for: .shelf))
                 .modifier(NotchPageVisibility(isVisible: model.selectedPage == .shelf))
                 .disabled(model.selectedPage != .shelf)
                 .allowsHitTesting(model.selectedPage == .shelf)
@@ -207,11 +255,14 @@ struct NotchPagesView: View {
         HStack(spacing: 0) {
             HStack(spacing: ExpandedPageStyle.controlGap) {
                 ForEach(model.enabledPages) { page in
-                    NotchPageButton(page: page, isSelected: page == model.selectedPage) {
+                    NotchPageButton(page: page, isSelected: page == model.selectedPage, hue: hue(for: page),
+                                    selection: selectionNamespace) {
                         model.selectedPage = page
                     }
                 }
             }
+            // Every selection source (click, swipe, keys, VoiceOver) slides the same pill.
+            .animation(NotchMotionStyle.selection(reduceMotion: reduceMotion), value: model.selectedPage)
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Main sections")
             NotchPageSwipeSurface(model: model, isEnabled: isExpanded && !auxiliaryInteractionPresented)
@@ -225,25 +276,42 @@ struct NotchPagesView: View {
     }
 }
 
-/// Compact desktop navigation with selection conveyed by contrast as well as VoiceOver.
+/// Compact desktop navigation. The selected page shows its own hue on a pill that slides between
+/// tabs; selection is also carried by the filled symbol variant and the VoiceOver trait.
 private struct NotchPageButton: View {
     let page: NotchPage
     let isSelected: Bool
+    let hue: Color
+    let selection: Namespace.ID
     let action: () -> Void
     @State private var isHovered = false
+    @State private var selectionBounce = 0
     @FocusState private var isFocused: Bool
     @NotchIncreasedContrast private var increaseContrast
+    @NotchReducedMotion private var reduceMotion
 
     var body: some View {
         Button(action: action) {
             Image(systemName: page.symbol)
+                .symbolVariant(isSelected ? .fill : .none)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white.opacity(isSelected || isHovered ? 1 : 0.65))
+                .foregroundStyle(isSelected ? hue : .white.opacity(isHovered ? 0.95 : 0.6))
+                // The fill variant swaps directly: the sliding pill and the bounce carry the motion,
+                // and a replace transition would visibly shrink the tab being left.
+                .symbolEffect(.bounce.down, options: .speed(1.6), value: selectionBounce)
                 .frame(width: ExpandedPageStyle.headerControlSize, height: ExpandedPageStyle.headerControlSize)
-                .background(.white.opacity(isSelected ? 0.18 : (isHovered ? 0.10 : 0.04)), in: .circle)
+                .background {
+                    ZStack {
+                        Circle().fill(.white.opacity(isHovered && !isSelected ? NotchPalette.hoverFillOpacity : 0))
+                        if isSelected {
+                            Circle().fill(hue.opacity(NotchPalette.selectionFillOpacity))
+                                .matchedGeometryEffect(id: "notch.page.selection", in: selection)
+                        }
+                    }
+                }
                 .overlay {
-                    Circle().strokeBorder(.white.opacity(isFocused ? 0.95 :
-                        (increaseContrast ? (isSelected ? 0.8 : 0.5) : (isSelected ? 0.22 : 0))),
+                    Circle().strokeBorder(isFocused ? .white.opacity(0.95)
+                        : (increaseContrast ? (isSelected ? hue : .white.opacity(0.5)) : .clear),
                         lineWidth: isFocused ? 2 : 1)
                 }
                 .contentShape(.circle)
@@ -251,6 +319,9 @@ private struct NotchPageButton: View {
         .buttonStyle(NotchUtilityButtonStyle())
         .focused($isFocused)
         .onHover { isHovered = $0 }
+        .onChange(of: isSelected) { _, selected in
+            if selected && !reduceMotion { selectionBounce += 1 }
+        }
         .help(page.title)
         .accessibilityLabel(page.title)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
