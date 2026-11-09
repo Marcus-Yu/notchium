@@ -1,3 +1,4 @@
+import NotchiumDesignSystem
 import SwiftUI
 
 /// Content slots in the single shell. All frames are shared with AppKit hit testing.
@@ -68,7 +69,7 @@ struct NotchSecondaryActivityChip: View {
         case let .glyph(.thumbnail(url), _):
             NotchThumbnailView(url: url, size: CGSize(width: size, height: size), cornerRadius: 4)
         case let .progress(fraction):
-            NotchProgressRing(fraction: fraction, reduceMotion: model.reduceMotion)
+            NotchProgressRing(fraction: fraction, reduceMotion: model.reduceMotion, fill: NotchPalette.sky)
                 .frame(width: 15, height: 15)
         case let .countdown(countdown):
             // Coarse ticks are enough for a 15 pt ring; the timer itself is deadline-based.
@@ -91,11 +92,13 @@ struct NotchProgressRing: View {
     let fraction: Double?
     let reduceMotion: Bool
     let trackColor: Color
+    let fill: Color
 
-    init(fraction: Double?, reduceMotion: Bool, trackColor: Color = .white.opacity(0.22)) {
+    init(fraction: Double?, reduceMotion: Bool, trackColor: Color = .white.opacity(0.22), fill: Color = .white) {
         self.fraction = fraction
         self.reduceMotion = reduceMotion
         self.trackColor = trackColor
+        self.fill = fill
     }
 
     var body: some View {
@@ -104,7 +107,7 @@ struct NotchProgressRing: View {
                 Circle().stroke(trackColor, lineWidth: 2)
                 Circle()
                     .trim(from: 0, to: CGFloat(min(max(fraction, 0), 1)))
-                    .stroke(.white, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .stroke(fill, style: StrokeStyle(lineWidth: 2, lineCap: .round))
                     .rotationEffect(.degrees(-90))
                     .animation(reduceMotion ? nil : NotchMotion.compactLevel, value: fraction)
             }
