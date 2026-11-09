@@ -40,7 +40,9 @@ private struct NotchCameraButton: View {
     var body: some View {
         let isPresented = camera.isPreviewPresented
         Button { camera.togglePreview(source: source) } label: {
-            NotchUtilityLabel(symbol: isPresented ? "web.camera.fill" : "web.camera", isHovered: isHovered, isSelected: isPresented)
+            // Green matches the Mac's own camera-in-use indicator.
+            NotchUtilityLabel(symbol: isPresented ? "web.camera.fill" : "web.camera", isHovered: isHovered,
+                              isSelected: isPresented, tint: NotchPalette.green)
         }
         .buttonStyle(NotchUtilityButtonStyle())
         .onHover { isHovered = $0 }
@@ -105,19 +107,22 @@ public struct NotchUtilityButtonStyle: ButtonStyle {
     }
 }
 
-/// Shared chrome for the utility group on the permanently dark notch surface.
+/// Shared chrome for the utility group on the permanently dark notch surface. At rest it is a
+/// bare glyph, like the Dynamic Island; hover lifts it onto interactive glass, and an active
+/// utility (Mirror on, Caffeine running) shows its own color on a matching tinted disc.
 public struct NotchUtilityLabel: View {
     let symbol: String
     let isHovered: Bool
     let isSelected: Bool
+    let tint: Color
     let foreground: Color?
     let glass: Glass?
     @NotchReducedMotion private var reduceMotion
 
-    public init(symbol: String, isHovered: Bool, isSelected: Bool = false,
+    public init(symbol: String, isHovered: Bool, isSelected: Bool = false, tint: Color = .white,
                 foreground: Color? = nil, glass: Glass? = nil) {
         self.symbol = symbol; self.isHovered = isHovered; self.isSelected = isSelected
-        self.foreground = foreground; self.glass = glass
+        self.tint = tint; self.foreground = foreground; self.glass = glass
     }
 
     public var body: some View {
@@ -127,11 +132,11 @@ public struct NotchUtilityLabel: View {
             .contentShape(.circle)
             .animation(NotchMotionStyle.feedback(reduceMotion: reduceMotion)) { label in
                 label
-                    .foregroundStyle(foreground ?? .white.opacity(isHovered || isSelected ? 1 : 0.6))
-                    .background(.white.opacity(isSelected ? 0.14 : 0.06), in: .circle)
-                    .glassEffect(glass ?? (isHovered || isSelected
-                        ? .regular.tint(.white.opacity(0.1)).interactive()
-                        : .clear.interactive()), in: .circle)
+                    .foregroundStyle(foreground ?? (isSelected ? tint : .white.opacity(isHovered ? 1 : 0.6)))
+                    .background(isSelected ? tint.opacity(NotchPalette.selectionFillOpacity)
+                                : .white.opacity(isHovered ? NotchPalette.hoverFillOpacity : 0), in: .circle)
+                    .glassEffect(glass ?? (isHovered ? .regular.tint(.white.opacity(0.06)).interactive() : .identity),
+                                 in: .circle)
             }
     }
 }
