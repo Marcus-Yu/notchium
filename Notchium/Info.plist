@@ -16,6 +16,8 @@
 	<string>Notchium reads your selected calendars to show upcoming events and meeting links around the notch.</string>
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>Notchium captures app audio in memory to control each app’s volume and generate the Spotify waveform. Audio is never saved.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Notchium follows your script using on-device speech recognition while the teleprompter is running. Microphone audio is never saved or uploaded.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Notchium shows a small live preview in the notch when you open Mirror, so you can check yourself before a call. Nothing is recorded or saved.</string>
 	<key>NSFocusStatusUsageDescription</key>
