@@ -43,6 +43,7 @@ struct AudioPageView: View {
                         .foregroundStyle(ExpandedPageStyle.secondary)
                     Image(systemName: outputSymbol(output))
                         .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.tint)
                     Text(output.name)
                         .font(.system(size: 14, weight: .semibold))
                         .lineLimit(1)
@@ -118,13 +119,16 @@ struct AudioPageView: View {
                             HStack(spacing: 8) {
                                 Image(systemName: outputSymbol(output))
                                     .font(.system(size: 12))
+                                    .foregroundStyle(output.isDefaultOutput ? AnyShapeStyle(.tint) : AnyShapeStyle(.white))
                                     .frame(width: 16)
                                 Text(output.name)
                                     .font(.system(size: 11, weight: output.isDefaultOutput ? .semibold : .regular))
                                     .lineLimit(1)
                                 Spacer(minLength: 3)
                                 if output.isDefaultOutput {
-                                    Circle().fill(.white).frame(width: 5, height: 5)
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 9, weight: .bold))
+                                        .foregroundStyle(.tint)
                                 } else if let volume = output.volume {
                                     Text("\(Int((volume * 100).rounded()))%")
                                         .font(.system(size: 9).monospacedDigit())
@@ -133,8 +137,8 @@ struct AudioPageView: View {
                             }
                             .padding(.horizontal, 8)
                             .frame(height: ExpandedPageStyle.controlSize)
-                            .background(output.isDefaultOutput ? .white.opacity(0.12) : .clear,
-                                        in: RoundedRectangle(cornerRadius: 8))
+                            .background(.tint.opacity(output.isDefaultOutput ? NotchPalette.selectionFillOpacity * 0.8 : 0),
+                                        in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("\(output.name)\(output.isDefaultOutput ? ", current output" : "")")
@@ -143,7 +147,7 @@ struct AudioPageView: View {
             }
             .scrollIndicators(.hidden)
             if let error = model.errorMessage {
-                Text(error).font(.system(size: 9)).foregroundStyle(.orange.opacity(0.85))
+                Text(error).font(.system(size: 9)).foregroundStyle(NotchStatusColor.warning)
             }
         }
     }
@@ -161,14 +165,14 @@ struct AudioPageView: View {
                         Label("Audio Access", systemImage: "exclamationmark.triangle.fill")
                             .labelStyle(.iconOnly)
                             .font(.system(size: 10))
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(NotchStatusColor.warning)
                     }
                     .menuStyle(.borderlessButton)
                     .help("System Audio Recording permission is required")
                 } else if model.mixerStatus == .unavailable {
                     Image(systemName: "exclamationmark.circle")
                         .font(.system(size: 10))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(NotchStatusColor.warning)
                         .help("Per-app audio is temporarily unavailable; direct audio is restored")
                 }
             }
@@ -202,7 +206,7 @@ struct AudioPageView: View {
                 } else {
                     Image(systemName: "app.fill").frame(width: 17, height: 17)
                 }
-                Circle().fill(process.isRunningOutput ? .green.opacity(0.9) : .white.opacity(0.38))
+                Circle().fill(process.isRunningOutput ? NotchPalette.green : .white.opacity(0.38))
                     .frame(width: 4, height: 4)
                     .accessibilityLabel(process.isRunningOutput ? "Audio active" : "Audio inactive")
                 Text(model.appName(process))
