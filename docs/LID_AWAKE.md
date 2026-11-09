@@ -1,17 +1,32 @@
 # Closed-lid keep-awake (experimental, direct distribution)
 
-**Stage 24 free release:** The helper is omitted and its controls report unavailable.
-Its Apple-anchored XPC requirements cannot authenticate an ad-hoc build. Ordinary
-Caffeine remains available. The architecture below is preserved for an edition
-with an appropriate trusted signing identity; its requirements are not weakened.
+**November 8, 2026: the free release ships the helper.** Caffeine keeps the Mac awake with the lid
+closed in both direct builds; only the sandboxed App Store profile omits it. The owner chose this
+over paid Developer ID signing, accepting a weaker peer check in the ad-hoc build (see *Free-build
+trust model* below). The Developer ID build keeps its Apple-anchored requirements unchanged.
 
-Ordinary Caffeine uses public idle-sleep assertions; those do not override lid-close sleep. In the direct-download app, clicking Caffeine turns its shortcut orange and keeps the Mac and display awake indefinitely; the native right-click menu offers 15/30/60/120 minutes. Activation also requests the existing separate `SMAppService` launch daemon. First-time administrator approval in Login Items & Extensions is required: the app opens those settings, and the Caffeine menu offers an approval shortcut while pending. After approval, toggle Caffeine off/on again to acquire the lease. Settings → Closed-lid keep-awake also remains available. The helper defaults inactive at launch and is never registered by mocked services. Turning Caffeine off, timed expiry, or app shutdown releases the lease. The built-in panel still turns off when the lid closes.
+Ordinary Caffeine uses public idle-sleep assertions; those do not override lid-close sleep. In the direct-download app, clicking Caffeine turns its shortcut orange and keeps the Mac and display awake indefinitely; the native right-click menu offers 15/30/60/120 minutes. Activation also requests the existing separate `SMAppService` launch daemon. First-time administrator approval in Login Items & Extensions is required: the app opens those settings, and the Caffeine menu offers an approval shortcut while pending. Approval is detected automatically (checked every 2 seconds for up to 10 minutes) and, if Caffeine is still on, the lease starts without toggling it again. A never-registered daemon can report `.notFound` instead of `.notRegistered`; both trigger registration, and the resulting status (not a thrown registration error) decides between ready, pending approval and failure. Settings → Closed-lid keep-awake also remains available. The helper defaults inactive at launch and is never registered by mocked services. Turning Caffeine off, timed expiry, or app shutdown releases the lease. The built-in panel still turns off when the lid closes.
 
 ## Privilege boundary
 
-The bundled daemon is signed as `com.marcusyu.notchium.lid-awake`. Both XPC endpoints enforce Apple-anchored signing requirements with team `ZU27M973HX` and their exact peer identifier. Its interface accepts only renewal and release, with no caller-provided command, path, timeout, or executable. Signing-team changes must update `LidAwakeIdentity` and the Xcode signing configuration together.
+The bundled daemon is signed as `com.marcusyu.notchium.lid-awake`. In the Developer ID build, both XPC endpoints enforce Apple-anchored signing requirements with team `ZU27M973HX` and their exact peer identifier. Its interface accepts only renewal and release, with no caller-provided command, path, timeout, or executable. Signing-team changes must update `LidAwakeIdentity` and the Xcode signing configuration together.
 
 The daemon runs `/usr/bin/pmset -a disablesleep 1` and verifies `SleepDisabled` before reporting success. This is a system-wide setting, **including manual Sleep**, not a public idle assertion or guaranteed cross-version clamshell API. Physical testing is required on each supported macOS/hardware combination. No privileged operation is performed by a SwiftUI view, shell interpolation, password capture, sudoers change, or private kernel API.
+
+### Free-build trust model
+
+The free build is ad-hoc signed and has no certificate chain, so `LidAwakeIdentity.requirement` (compiled
+with `NOTCH_FREE_DISTRIBUTION` into both the app and, by `scripts/build-lid-awake-helper.sh`, the helper)
+requires only the peer's signing identifier. The helper also accepts a connection only when the
+kernel-reported executable of the client (`proc_pidpath`, symlinks resolved) is `Contents/MacOS/Notchium`
+inside the same app bundle that contains the helper. The mach service is registered by launchd from the
+app's own `SMAppService` job, so the app's check of the helper is not spoofable without root.
+
+Residual risk, accepted by the owner: a local process running as the user that can place a binary at
+that exact bundle path, or reuse the client identity, could hold the keep-awake lease. The interface is
+unchanged and verb-only, so such a client can keep the Mac from sleeping, still bounded by the 15-second
+lease, the 15% battery floor and the thermal cutoff. It cannot run commands, choose paths or change any
+other setting.
 
 ## Recovery
 
@@ -29,7 +44,7 @@ The app shows active only after a successful helper reply. Losing helper connect
 
 ## Build and validation
 
-The app's build phase compiles the daemon with Swift 6 and strict concurrency for each requested architecture, embeds it in `Contents/Library/HelperTools`, installs its plist in `Contents/Library/LaunchDaemons`, and signs it with the app's identity. The build phase omits the helper for `NOTCH_APP_STORE`.
+The app's build phase compiles the daemon with Swift 6 and strict concurrency for each requested architecture, embeds it in `Contents/Library/HelperTools`, installs its plist in `Contents/Library/LaunchDaemons`, and signs it with the app's identity (ad-hoc, without Hardened Runtime, in the free build). The build phase omits the helper for `NOTCH_APP_STORE`. `release.sh` builds with signing disabled, then seals the helper ad-hoc with its fixed identifier before the app. `verify-release.py` requires exactly this helper and launchd job (exact plist equality, identifier, ad-hoc signature, system-only links) and fails on any other privileged component.
 
 `Helpers/LidAwakeTests/main.swift` tests the power adapter with an injected fake command runner and a temporary journal; it never changes system settings or requires root. Scenarios: acquire, idempotent renewal, release, foreign ownership rejection, unsafe-condition rejection, crash recovery, and failed restoration followed by retry.
 
