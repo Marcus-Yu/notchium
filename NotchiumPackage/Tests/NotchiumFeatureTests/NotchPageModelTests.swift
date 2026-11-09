@@ -1,11 +1,25 @@
-import NotchiumDynamicIsland
+import NotchiumCore
+@testable import NotchiumDynamicIsland
 import XCTest
 
 @MainActor
 final class NotchPageModelTests: XCTestCase {
+    func testAdditionalDisplayCopiesDisabledPagePolicy() {
+        let clock = TestAppClock(now: Date(timeIntervalSince1970: 0), automaticallyAdvances: false)
+        let primary = DynamicIslandPresentationModel(clock: clock)
+        primary.pageModel.enabledPages = [.home, .music]
+        primary.pageModel.defaultPage = .music
+        let secondary = DynamicIslandPresentationModel(clock: clock)
+        secondary.useRenderers(from: primary)
+        XCTAssertEqual(secondary.pageModel.enabledPages, [.home, .music])
+        XCTAssertEqual(secondary.pageModel.defaultPage, .music)
+        secondary.pageModel.selectedPage = .teleprompter
+        XCTAssertEqual(secondary.pageModel.selectedPage, .music)
+    }
+
     func testHomeMusicCalendarAndAudioAreOrderedTopLevelPages() {
         let model = NotchPageModel()
-        XCTAssertEqual(model.enabledPages, [.home, .music, .calendar, .pomodoro, .audio, .shelf])
+        XCTAssertEqual(model.enabledPages, [.home, .music, .calendar, .pomodoro, .audio, .shelf, .teleprompter])
         XCTAssertEqual(model.selectedPage, .home)
         model.moveSelection(forward: true)
         XCTAssertEqual(model.selectedPage, .music)
