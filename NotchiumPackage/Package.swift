@@ -33,6 +33,10 @@ let package = Package(
         ),
         .target(name: "NotchiumDesignSystem"),
         .target(
+            name: "NotchiumTeleprompterFeature",
+            dependencies: ["NotchiumCore", "NotchiumServices", "NotchiumPersistence", "NotchiumDynamicIsland", "NotchiumDesignSystem"]
+        ),
+        .target(
             name: "NotchiumDynamicIsland",
             dependencies: ["NotchiumCore", "NotchiumDesignSystem"],
             resources: [.process("Resources")]
@@ -118,6 +122,7 @@ let package = Package(
                 "NotchiumPersistence",
                 "NotchiumServices",
                 "NotchiumShelfFeature",
+                "NotchiumTeleprompterFeature",
             ]
         ),
         .target(
@@ -152,6 +157,7 @@ let package = Package(
                 "NotchiumClipboardFeature",
                 "NotchiumCameraFeature",
                 "NotchiumFocusFeature",
+                "NotchiumTeleprompterFeature",
             ]
         ),
     ]
