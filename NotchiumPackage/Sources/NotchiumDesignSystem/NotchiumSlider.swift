@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 /// A compact pointer-first slider that keeps gesture tracking separate from command handling.
+/// Its fill follows the environment `.tint`; set `.tint(.white)` for a neutral slider.
 public struct NotchiumSlider: View {
     @Binding private var value: Double
 
@@ -54,8 +55,10 @@ public struct NotchiumSlider: View {
                                 .frame(height: active ? 3 : 2)
                         }
 
+                    // The filled portion carries the page's tint (Music's artwork accent, Audio's
+                    // blue); the unfilled track and the thumb stay neutral.
                     Capsule()
-                        .fill(.white)
+                        .fill(.tint)
                         .frame(width: trackWidth * fraction)
                         .animation(interactionAnimation) { track in
                             track
