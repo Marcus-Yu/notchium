@@ -13,6 +13,7 @@ public enum FeatureID: String, CaseIterable, Codable, Hashable, Sendable {
     case activities
     case pages
     case focus
+    case teleprompter
     case developerPanel
 }
 
