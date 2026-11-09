@@ -136,7 +136,7 @@ struct ShelfPageView: View {
     private var emptyShelf: some View {
         VStack(spacing: 8) {
             Image(systemName: "tray.and.arrow.down").font(.system(size: 22, weight: .light))
-                .foregroundStyle(.white.opacity(0.45))
+                .foregroundStyle(.tint)
             Text("Drop files onto the notch to keep them here")
                 .font(.system(size: 12)).foregroundStyle(.white.opacity(0.55))
             Button("Add Files…") { model.addChosenFiles(from: actionAnchor.view, interaction: interaction) }
@@ -267,11 +267,13 @@ private struct FileTile<Menu: View>: View {
             }
             .padding(.horizontal, 3)
             .padding(.vertical, 5)
-            .background(.white.opacity(isSelected ? 0.15 : (isHovered ? 0.07 : 0)),
+            // Selection takes Shelf's lavender, with a soft full hairline so it never relies on fill alone.
+            .background(isSelected ? AnyShapeStyle(.tint.opacity(NotchPalette.selectionFillOpacity))
+                        : AnyShapeStyle(.white.opacity(isHovered ? 0.07 : 0)),
                         in: .rect(cornerRadius: ExpandedPageStyle.selectionRadius))
             .overlay {
                 RoundedRectangle(cornerRadius: ExpandedPageStyle.selectionRadius)
-                    .strokeBorder(.white.opacity(isSelected ? 0.22 : 0), lineWidth: 1)
+                    .strokeBorder(.tint.opacity(isSelected ? 0.45 : 0), lineWidth: 1)
             }
             .contentShape(.rect)
         }
@@ -310,7 +312,7 @@ private struct TransferRow: View {
                 Capsule().fill(.white.opacity(0.18))
                     .overlay(alignment: .leading) {
                         GeometryReader { proxy in
-                            Capsule().fill(.white).frame(width: proxy.size.width * CGFloat(min(max(fraction, 0), 1)))
+                            Capsule().fill(.tint).frame(width: proxy.size.width * CGFloat(min(max(fraction, 0), 1)))
                         }
                     }
                     .frame(width: 110, height: 4)
