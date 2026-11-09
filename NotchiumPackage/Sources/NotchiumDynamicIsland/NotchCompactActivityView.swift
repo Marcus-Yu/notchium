@@ -246,12 +246,13 @@ struct NotchCompactActivityView: View {
                 HStack(spacing: 7) {
                     if let fraction {
                         NotchCompactLevelBar(level: fraction, reveal: progress, dimmed: false,
-                                             reduceMotion: reduceMotion)
+                                             reduceMotion: reduceMotion, fill: activity.tint.valueColor)
                             .frame(maxWidth: .infinity)
                             .frame(height: 4)
                     }
                     Text(label)
                         .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(activity.tint.valueColor)
                         .lineLimit(1)
                         .fixedSize()
                         .contentTransition(reduceMotion ? .identity : .numericText())
@@ -262,11 +263,14 @@ struct NotchCompactActivityView: View {
                 NotchCountdownTimeline(countdown: countdown) { date in
                     HStack(spacing: 7) {
                         NotchCompactLevelBar(level: countdown.elapsedFraction(at: date), reveal: progress,
-                                             dimmed: !countdown.isRunning, reduceMotion: reduceMotion)
+                                             dimmed: !countdown.isRunning, reduceMotion: reduceMotion,
+                                             fill: activity.tint.valueColor)
                             .frame(maxWidth: .infinity)
                             .frame(height: 4)
+                        // A running timer's digits glow in its color, as on the Dynamic Island.
                         Text(NotchCountdown.label(countdown.remaining(at: date)))
                             .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                            .foregroundStyle(activity.tint.valueColor)
                             .lineLimit(1)
                             .fixedSize()
                             .opacity(textOpacity * (countdown.isRunning ? 1 : 0.6))
@@ -311,10 +315,20 @@ extension NotchCompactActivity.Tint {
         switch self {
         case .primary: .white
         case .muted: .white.opacity(0.62)
-        case .charging: Color(red: 0.19, green: 0.82, blue: 0.35)
-        case .warning: Color(red: 1, green: 0.27, blue: 0.23)
-        // macOS Focus's indigo, softened for the black shell.
+        case .charging, .success: NotchStatusColor.success
+        case .warning: NotchStatusColor.failure
+        // macOS Focus's indigo, lifted slightly so the moon reads on black.
         case .focus: Color(red: 0.49, green: 0.47, blue: 1.0)
+        case .transfer: NotchPalette.sky
+        }
+    }
+
+    /// Live values (progress, countdown) take the activity's color only when it has one;
+    /// neutral activities keep white bars.
+    var valueColor: Color {
+        switch self {
+        case .primary, .muted: .white
+        default: color
         }
     }
 }
@@ -325,12 +339,13 @@ private struct NotchCompactLevelBar: View {
     let reveal: CGFloat
     let dimmed: Bool
     let reduceMotion: Bool
+    var fill: Color = .white
 
     var body: some View {
         GeometryReader { proxy in
             Capsule().fill(.white.opacity(0.2))
                 .overlay(alignment: .leading) {
-                    Capsule().fill(.white.opacity(dimmed ? 0.4 : 1))
+                    Capsule().fill(fill.opacity(dimmed ? 0.4 : 1))
                         .animation(reduceMotion ? NotchMotion.reduced : NotchMotion.compactLevel, value: dimmed)
                         .frame(width: proxy.size.width * CGFloat(min(max(level, 0), 1)) * reveal)
                         .animation(reduceMotion ? nil : NotchMotion.compactLevel, value: level)
