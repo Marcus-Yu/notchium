@@ -11,6 +11,7 @@ The first public release is being prepared; local preview artifacts are for vali
 
 - Local Spotify controls and an audio waveform.
 - Calendar events, meeting links, and quick reminders.
+- A [Teleprompter](docs/TELEPROMPTER.md) with local scripts, Word/text import, on-device voice following, and fixed-speed reading.
 - Download and screenshot activities, Shelf, AirDrop, and sharing.
 - Clipboard history, Pomodoro, Mirror, and Caffeine.
 - Audio controls, system HUDs, Home shortcuts, and macOS Shortcuts.
@@ -73,6 +74,7 @@ Notchium uses these permissions for the corresponding features:
 | Calendars | Show selected calendar events and meeting links. Setup offers a full-access request. |
 | Reminders | Add a reminder when you use Quick Reminder. |
 | Camera | Show the live Mirror preview when you open it. |
+| Microphone | Follow the teleprompter script locally after you press Start in a voice mode. Fixed Speed keeps the microphone off. |
 | Automation (Spotify) | Show the current song and control Spotify on this Mac. Setup verifies the running Spotify target before requesting consent. |
 | System Audio Recording | Capture app audio in memory for volume control and the Spotify waveform. Core Audio asks when capture first starts; setup explains this exception without recording. No microphone or Screen Recording request is used. |
 | Accessibility | Optional volume-HUD replacement uses Accessibility trust and event-post access. Granting access does not enable replacement. |
@@ -94,6 +96,7 @@ approval is requested in the free build. See [the permission contract](docs/PERM
   export or share them. Screenshot activities observe files saved by macOS.
 - Mirror uses a live camera preview while open; it does not record or save frames.
 - Audio processing uses in-memory buffers and does not save recordings.
+- Teleprompter scripts are saved locally. Voice following uses Apple's on-device speech models; a language model may download on first use. Audio and recognized speech are never saved or uploaded by Notchium.
 - Spotify playback is read and controlled locally through macOS Apple Events. Only
   album artwork is downloaded from Spotify’s artwork CDN. No OAuth tokens are used.
 - The production source contains no telemetry or analytics service. Local macOS
@@ -106,9 +109,11 @@ approval is requested in the free build. See [the permission contract](docs/PERM
 - **Focus:** Unavailable in this free build because the required Apple entitlement
   cannot be provisioned through the current development team. The implementation
   remains in place, and Pomodoro works independently.
-- **Closed-lid keep-awake:** Unavailable in the free build. Its privileged helper
-  requires an Apple-trusted signing identity and is omitted from the download.
-  Ordinary Caffeine still prevents idle sleep with the lid open.
+- **Closed-lid keep-awake:** Caffeine keeps the Mac awake with the lid closed after a one-time
+  administrator approval of its bundled helper (Login Items & Extensions). Normal sleep returns when
+  Caffeine turns off or its timer ends. The free build's helper verifies the app by identifier and
+  bundle location rather than a paid developer signature; see docs/LID_AWAKE.md. It disables all
+  system sleep while active, including manual Sleep, so keep the Mac ventilated.
 - **Keychain upgrades:** Ad-hoc releases may require Keychain approval again after
   an update. Older development histories may use a different Keychain backend.
   Recovery authenticates the existing history before copying the same original key
