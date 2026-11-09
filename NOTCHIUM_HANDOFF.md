@@ -37,7 +37,7 @@ Confirmed icon-only header:
 
 Native tooltips and accessibility labels identify controls; permanent captions are absent. `NotchUtilityLabel` provides common utility chrome. The header is 32 pt high with 28 pt controls and a separate gap before Close. Empty header space is the only page-swipe surface.
 
-All four pages use one **524 × 266 pt outer expanded shell**, inside a stable **740 × 322 pt hosting panel**. Those are different measurements, not competing sizes. Page switches do not resize the shell. Music contains Player/Up Next subnavigation. Calendar and Audio may scroll their own lists; Home cannot scroll in either direction and has no carousel.
+Standard pages use a **524 × 266 pt outer expanded shell**; Teleprompter uses **655 × 333 pt** for reading. Both fit inside one stable **740 × 390 pt hosting panel**. Selecting Teleprompter resizes the visible shell and its hit region; the native panel stays fixed. Music contains Player/Up Next subnavigation. Calendar and Audio may scroll their own lists; Home cannot scroll in either direction and has no carousel.
 
 All page trees stay mounted; hidden pages are disabled, excluded from hit testing, and hidden from accessibility. A menu-bar fallback and Settings remain available when the physical-notch panel is unavailable.
 
@@ -172,7 +172,7 @@ One cancellable task per accepted update captures injected clock time and stores
 
 Compact Calendar/Audio feedback is hidden while expanded. **Current exception:** `NotchiumShellView` renders `reminderAdded` in an existing bottom slot while expanded, without selecting or closing the page. Older Stage 10 descriptions of a general expanded Audio strip are superseded; do not assume all utility feedback is visible while open.
 
-Visual contract: the physical black notch appears to grow downward as one continuous silhouette, not a notch plus rectangular card. Black shell, soft concave shoulders, rounded lower corners, restrained spacing/motion, minimal glass accents. Calendar content height is 88 pt; Audio 56 pt; notification shoulders 12 pt and lower radius 34 pt. Music flanks persist during compatible collapsed notification transitions, but main expansion/collapse still uses the black content gate.
+Visual contract: the physical black notch appears to grow downward as one continuous silhouette, not a notch plus rectangular card. Black shell, soft concave shoulders, rounded lower corners. Since November 8, 2026, soft per-page tones and a muted, artwork-derived Music accent mark selection and live state (see [Color and motion](docs/COLOR_AND_MOTION.md)). Glass is reserved for hovered or active controls. Calendar content height is 88 pt; Audio 56 pt; notification shoulders 12 pt and lower radius 34 pt. Music flanks persist during compatible collapsed notification transitions; main expansion/collapse blooms the expanded page, while collapsed-row content keeps the black gate.
 
 ## 11. Notch Window / Animation
 
@@ -186,11 +186,11 @@ Source-keyed auxiliary retention protects nested `NSMenu` tracking, picker, and 
 
 `DynamicIslandPresentationModel` owns collapsed/hovered/pinned target state and timer bookkeeping. `NotchTransitionSurface` separately owns `collapsed → openingBlack → expanded → closingBlack → collapsed` visual phases:
 
-- Open: hide collapsed content immediately; black geometry expands; reveal full-sized expanded content at 75% of height growth under the moving clip.
-- Close: hide expanded content immediately; black shell contracts; reveal collapsed content only after animation removal/completion, including the spring tail.
+- Open: hide collapsed content immediately; black geometry expands; the expanded page blooms in (blur-to-sharp, fade, slight scale) as a function of the interpolated height, header first. Input enables at 75% of height growth.
+- Close: the expanded page dissolves during the first half of the contraction; collapsed content returns when the height lands on the collapsed target.
 - Generation tokens reject stale completion and support reversal without close/reopen queues. Content stays mounted at final dimensions; hidden children do not inherit unwanted animation transactions.
 
-Main geometry spring: response 0.40, damping 0.80, blend 0. Reduce Motion: 0.12 s ease-out. Content hide/reveal is binary/0 ms, not a scale or media cross-morph. No media zoom, shrinking page, matched geometry, or content retraction into the notch. The concept was inspired by BoringNotch; repository notes record independent implementation without copied GPL source.
+Main geometry springs: opening response 0.42 / damping 0.72 (about 4% overshoot), closing response 0.36 / damping 0.94, blend 0. Reduce Motion: 0.12 s ease-out, and the bloom keeps only its fade. The bloom is derived from shell geometry, never a second animation; there is still no media zoom, matched geometry or page reflow. The concept was inspired by BoringNotch; repository notes record independent implementation without copied GPL source.
 
 ## 12. Navigation State
 
@@ -212,7 +212,7 @@ The session guard, not just the Boolean flag, prevents automatic overwrite. A us
 
 The native AppKit header input forwards down/drag/up into one monotonic press session. Hold border progress is elapsed/750 ms; a ~16 ms task updates only during a press. Mouse-up resolves the same deadline if needed; a completed hold consumes release exactly once. Movement tolerance is 10 pt; leaving latches cancellation. Configuration/view updates retain the session; removal/shutdown cancels it. The former combined SwiftUI GestureState/drag/task implementation could cancel prematurely.
 
-Separate implemented experiment: Settings closed-lid keep-awake registers a signed `SMAppService` daemon, requires administrator approval, defaults off each launch, and leases privileged `pmset -a disablesleep 1`. It is system-wide, including manual Sleep, not a normal idle assertion. XPC peer signing checks, a root-owned recovery journal, 5 s renewals/15 s lease, and battery/thermal failure recovery constrain it. See `docs/LID_AWAKE.md`, `LidAwakeController.swift`, `LidAwakeProtocol.swift`, and `Helpers/`. Physical lid qualification is still required; do not conflate ordinary Caffeine success with helper qualification.
+Since November 8, 2026 Caffeine requests this in both direct builds (the free build's helper is ad-hoc, with an identifier-and-bundle peer check; see `docs/LID_AWAKE.md`). Implemented experiment: Settings closed-lid keep-awake registers a signed `SMAppService` daemon, requires administrator approval, defaults off each launch, and leases privileged `pmset -a disablesleep 1`. It is system-wide, including manual Sleep, not a normal idle assertion. XPC peer signing checks, a root-owned recovery journal, 5 s renewals/15 s lease, and battery/thermal failure recovery constrain it. See `docs/LID_AWAKE.md`, `LidAwakeController.swift`, `LidAwakeProtocol.swift`, and `Helpers/`. Physical lid qualification is still required; do not conflate ordinary Caffeine success with helper qualification.
 
 ## 14. Quick Reminder
 
@@ -254,7 +254,7 @@ Remaining qualifications: real shortcut execution/cancellation, relocated bookma
 | System Audio Recording | Spotify waveform/activity and controllable-app probes/mixing | `NSAudioCaptureUsageDescription`; Core Audio tap creation owns consent, no separate reliable preflight API. Denial degrades capture/mixer |
 | File access | User-selected action targets/bookmarks | NSOpenPanel; Store user-selected.read-only and bookmarks.app-scope entitlements |
 | Caffeine | Idle sleep/display assertions | Public IOKit; no Accessibility/TCC grant required |
-| Experimental lid helper | System sleep override lease | SMAppService/admin approval, signed daemon/XPC; direct distribution only |
+| Experimental lid helper | System sleep override lease | SMAppService/admin approval, daemon/XPC (team-signed or ad-hoc); both direct builds |
 
 Current four-page product/Quick Reminder does not require Accessibility permission. Legacy permission enums/future scaffolding are not a reason to request it. No microphone, Notification Center reader, or current AppleScript Automation feature is implied.
 
@@ -264,7 +264,7 @@ For permission testing, preserve stable signed `com.marcusyu.notchium` identity 
 
 ## 17. Design System / Skills
 
-Native macOS, restrained hierarchy, deliberate whitespace, semantic text where appropriate, SF Symbols/system typography, and minimal glass. Music hierarchy: identity → progress → transport → volume/output. Native controls, menus, List/Form, popovers/sheets, NSOpenPanel, and NSWorkspace are preferred. Avoid mobile navigation, excessive glass pills, decorative motion, and unnecessary custom control behavior.
+Native macOS, clear hierarchy, deliberate whitespace, semantic text where appropriate, SF Symbols/system typography, soft, meaningful color, and glass only on hovered or active controls. Music hierarchy: identity → progress → transport → volume/output. Native controls, menus, List/Form, popovers/sheets, NSOpenPanel, and NSWorkspace are preferred. Avoid mobile navigation, excessive glass pills, decorative motion, and unnecessary custom control behavior.
 
 `ExpandedPageStyle`: spacing 4/8/12/16/24; outer inset 30, top 8, bottom 12, group gap 12, column gap 24; header 32/control 28; normal control 32/compact 24; control radius 6/selection 8/artwork 12; title 16 semibold/body 12/caption 11/section 11 medium. Feature-specific overrides exist (e.g. Calendar insets/type); there is not one perfectly universal typography implementation. `NotchiumSlider` is an intentional custom SwiftUI drawing/native AppKit pointer bridge adopted for non-key panel correctness, retaining accessibility.
 
@@ -283,9 +283,9 @@ Native macOS conventions override generic web/mobile recipes. Main shell geometr
 | --- | --- |
 | Canonical expanded shell / host | 524 × 266 / 740 × 322 pt |
 | Hover enter / exit grace | 120 / 600 ms |
-| Main shell | spring 0.40 response / 0.80 damping / 0 blend |
+| Main shell | open spring 0.42 / 0.72, close spring 0.36 / 0.94, 0 blend |
 | Reduce Motion shell | 120 ms ease-out |
-| Opening content reveal | 75% height growth; immediate visibility switch |
+| Opening content reveal | geometry-driven bloom from 26% height growth (header) and 36% (page); input at 75% |
 | Notification entry / exit | 0.26 / 0.20 response, damping 1.0 |
 | Same-size notification content change | 100 ms opacity |
 | Compact activity swap | Enter 0.22 s smooth + 0.96 scale; exit 0.1 s ease-out; Reduce Motion removes the old row and fades the new one in 120 ms. A restored waiting entry does not replay its device turn |
