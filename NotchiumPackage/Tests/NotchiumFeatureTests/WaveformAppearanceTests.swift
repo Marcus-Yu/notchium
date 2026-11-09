@@ -28,6 +28,7 @@ import NotchiumServices
         XCTAssertEqual(appearance.mode, .static)
         XCTAssertEqual(appearance.resolvedColor, .white)
         appearance.setStaticHex("#123456")
+        appearance.mode = .static
         appearance.mode = .adaptive
         let restored = WaveformAppearanceModel(preferences: preferences)
         XCTAssertEqual(restored.mode, .adaptive)
@@ -61,6 +62,41 @@ import NotchiumServices
         let navy = try XCTUnwrap(WaveformColor(hex: "#001040")).visibleOnBlack
         XCTAssertGreaterThan(navy.blue, navy.green)
         XCTAssertGreaterThan(navy.green, navy.red, "Brightening should retain the colour's hue")
+    }
+
+    func testArtworkAccentIsSoftReadableOnBlackAndAbsentForNeutralCovers() throws {
+        for hex in ["#001040", "#2B3D50", "#C98B4E", "#7A1F1F", "#FFD60A", "#3A5F2A"] {
+            let source = try XCTUnwrap(WaveformColor(hex: hex))
+            let accent = try XCTUnwrap(source.mutedAccent, hex)
+            XCTAssertGreaterThanOrEqual(accent.contrastAgainstBlack, 4.5, hex)
+            let sourceHue = NSColor(srgbRed: Double(source.red) / 255, green: Double(source.green) / 255,
+                                    blue: Double(source.blue) / 255, alpha: 1).hueComponent
+            let accentColor = NSColor(srgbRed: Double(accent.red) / 255, green: Double(accent.green) / 255,
+                                      blue: Double(accent.blue) / 255, alpha: 1)
+            let drift = abs(accentColor.hueComponent - sourceHue)
+            XCTAssertLessThan(min(drift, 1 - drift), 0.04, "\(hex): the accent keeps the artwork's hue")
+            // Recognisably the album's colour, never neon: a calm, pastel saturation band.
+            XCTAssertGreaterThanOrEqual(accentColor.saturationComponent, 0.2, hex)
+            XCTAssertLessThanOrEqual(accentColor.saturationComponent, 0.52, hex)
+        }
+        for neutral in ["#000000", "#FFFFFF", "#808080", "#1C1C1E", "#D8D4CC"] {
+            XCTAssertNil(try XCTUnwrap(WaveformColor(hex: neutral)).mutedAccent,
+                         "\(neutral): neutral covers fall back to Music's page hue")
+        }
+    }
+
+    func testAccentFollowsArtworkInBothWaveformModes() async throws {
+        let navy = try XCTUnwrap(WaveformColor(hex: "#001040"))
+        for mode in WaveformColorMode.allCases {
+            let appearance = WaveformAppearanceModel(loadArtworkColor: { _ in navy })
+            appearance.mode = mode
+            XCTAssertNil(appearance.accentColor)
+            appearance.setArtwork(try XCTUnwrap(URL(string: "https://i.scdn.co/image/navy")))
+            await drain()
+            XCTAssertEqual(appearance.accentColor, navy.mutedAccent?.color, "\(mode)")
+            appearance.setArtwork(nil)
+            XCTAssertNil(appearance.accentColor)
+        }
     }
 
     func testAdaptiveBrightensDarkArtworkWithoutChangingItsSampledColour() async throws {
@@ -105,12 +141,13 @@ import NotchiumServices
         let appearance = WaveformAppearanceModel(loadArtworkColor: loader.load)
         let first = try XCTUnwrap(URL(string: "https://i.scdn.co/image/first"))
         let second = try XCTUnwrap(URL(string: "https://i.scdn.co/image/second"))
+        appearance.mode = .static
         appearance.setArtwork(first)
         await drain()
-        XCTAssertTrue(loader.requests.isEmpty, "Static mode does not request a palette")
+        XCTAssertEqual(loader.requests, [first], "Music's accent analyses artwork even while the waveform is static")
         appearance.mode = .adaptive
         await drain()
-        XCTAssertEqual(loader.requests, [first])
+        XCTAssertEqual(loader.requests, [first], "Switching modes never repeats an in-flight analysis")
         appearance.setArtwork(second)
         await drain()
         XCTAssertEqual(loader.requests, [first, second])
@@ -175,7 +212,7 @@ import NotchiumServices
         appearance.mode = .static
         appearance.setArtwork(second)
         await drain()
-        XCTAssertEqual(loader.requests, [first])
+        XCTAssertEqual(loader.requests, [first, second], "The accent keeps following artwork in static mode")
         XCTAssertEqual(appearance.resolvedColor, WaveformColor.black.visibleOnBlack)
         appearance.mode = .adaptive
         XCTAssertEqual(appearance.resolvedColor, .green)
