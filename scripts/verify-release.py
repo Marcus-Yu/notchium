@@ -57,6 +57,35 @@ def scan_source(root):
     print(f"Production source secret scan passed: {count} files (heuristic, not a guarantee).")
 
 
+LID_AWAKE_LABEL = "com.marcusyu.notchium.lid-awake"
+LID_AWAKE_HELPER = "Contents/Library/HelperTools/NotchiumLidAwake"
+LID_AWAKE_PLIST = {
+    "Label": LID_AWAKE_LABEL,
+    "BundleProgram": LID_AWAKE_HELPER,
+    "MachServices": {LID_AWAKE_LABEL: True},
+    "RunAtLoad": True,
+    "KeepAlive": True,
+    "ThrottleInterval": 3,
+}
+
+
+def verify_lid_awake_helper(app):
+    """The only privileged component: exactly one reviewed daemon and its exact launchd job."""
+    daemons = app / "Contents/Library/LaunchDaemons"
+    require(daemons.is_dir() and sorted(p.name for p in daemons.iterdir()) == [f"{LID_AWAKE_LABEL}.plist"],
+            "Unexpected launch daemon inventory")
+    with (daemons / f"{LID_AWAKE_LABEL}.plist").open("rb") as stream:
+        job = plistlib.load(stream)
+    # Exact equality: no ProgramArguments, environment, user, sockets or extra keys.
+    require(job == LID_AWAKE_PLIST, "Unexpected closed-lid launchd job")
+    helper = app / LID_AWAKE_HELPER
+    require(helper.is_file() and not helper.is_symlink(), "Closed-lid helper is missing")
+    tools = app / "Contents/Library/HelperTools"
+    require(sorted(p.name for p in tools.iterdir()) == ["NotchiumLidAwake"], "Unexpected helper tool inventory")
+    signature = run("/usr/bin/codesign", "-dvv", str(helper))
+    require(f"Identifier={LID_AWAKE_LABEL}" in signature, "Closed-lid helper has an unexpected signing identifier")
+
+
 def verify_app(app, version, build):
     require(app.name == "Notchium.app", "Unexpected app name")
     require(not app.is_symlink(), "App must not be a symlink")
@@ -73,21 +102,17 @@ def verify_app(app, version, build):
     }
     for key, value in expected.items():
         require(info.get(key) == value, f"Unexpected {key}")
+    # The microphone is requested only by Teleprompter's voice modes, on an explicit Start.
     for key in ("NSAppleEventsUsageDescription", "NSCameraUsageDescription", "NSCalendarsFullAccessUsageDescription",
                 "NSRemindersFullAccessUsageDescription", "NSAudioCaptureUsageDescription",
                 "NSDesktopFolderUsageDescription", "NSDownloadsFolderUsageDescription",
-                "NSDocumentsFolderUsageDescription"):
+                "NSDocumentsFolderUsageDescription", "NSMicrophoneUsageDescription"):
         require(isinstance(info.get(key), str) and len(info[key]) > 15, f"Missing {key}")
-    require("NSMicrophoneUsageDescription" not in info, "Unneeded microphone permission")
     resources = app / "Contents/Resources"
     require((resources / "LICENSE").is_file(), "Missing project license")
     require((resources / "THIRD_PARTY_NOTICES.md").is_file(), "Missing notices")
     require(any(app.rglob("Assets.car")), "Missing compiled media/app assets")
-    require(not (app / "Contents/Library/HelperTools/NotchiumLidAwake").exists(),
-            "Privileged helper must be omitted from free releases")
-    require(not (app / "Contents/Library/LaunchDaemons").exists() or
-            not any((app / "Contents/Library/LaunchDaemons").iterdir()),
-            "Free releases must not ship launch daemons")
+    verify_lid_awake_helper(app)
     require(not any(app.rglob("*.appex")), "Unexpected extension")
     machos = []
     for path in sorted(app.rglob("*")):
@@ -125,7 +150,7 @@ def verify_app(app, version, build):
         require("runtime" not in signature, f"Unexpected Hardened Runtime policy: {relative}")
         entitlements = run("/usr/bin/codesign", "-d", "--entitlements", "-", str(path))
         require("<key>" not in entitlements, f"Unexpected free-build entitlement: {relative}")
-    require(machos == ["Contents/MacOS/Notchium"], "Unexpected executable inventory")
+    require(machos == [LID_AWAKE_HELPER, "Contents/MacOS/Notchium"], "Unexpected executable inventory")
     binary = (app / "Contents/MacOS/Notchium").read_bytes()
     for marker in (b"Notchium launched; bundle=", b"Initial isMenuBarExtraInserted=true",
                    b"--notchium-stage11-fixture", b"--ui-testing", b"notchium-fixture://",
@@ -135,7 +160,8 @@ def verify_app(app, version, build):
     run("/usr/bin/codesign", "--verify", "--deep", "--strict", str(app))
     print(json.dumps({"version": version, "build": build, "minimum_macos": "26.0",
                       "architectures": ["arm64"], "signing": "ad-hoc; no trusted identity",
-                      "entitlements": [], "executables": machos}, indent=2))
+                      "entitlements": [], "executables": machos,
+                      "launch_daemons": [LID_AWAKE_LABEL]}, indent=2))
 
 
 def main():
