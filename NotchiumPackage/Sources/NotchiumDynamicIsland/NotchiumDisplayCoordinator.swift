@@ -207,7 +207,7 @@ public final class NotchiumDisplayCoordinator: NSObject {
         needsSpaceReassertion = false
     }
 
-    public func openForKeyboard() {
+    public func openForKeyboard(page: NotchPage? = nil) {
         guard isStarted, !isSleeping else { return }
         let pointerDisplay = environmentSource.pointerLocation.flatMap { point in
             shellPlacements.first { $0.display.frame.contains(point) }?.display.id
@@ -216,6 +216,7 @@ public final class NotchiumDisplayCoordinator: NSObject {
             ?? lastInteractedDisplayID.flatMap({ session(for: $0) })
             ?? shellPlacement.flatMap({ session(for: $0.display.id) }) else { return }
         target.model.present(.expanded, animated: false)
+        if let page { target.model.pageModel.selectedPage = page }
         target.reconcile(animated: false)
         target.panel.focusExpandedPanel()
     }
@@ -279,7 +280,8 @@ public final class NotchiumDisplayCoordinator: NSObject {
 #if DEBUG
         if let placement = placements.first {
             debugModel.updateRuntimeGeometry(placement: placement,
-                layout: NotchGeometryResolver.layout(for: placement, state: presentationModel.surfaceState))
+                layout: NotchGeometryResolver.layout(for: placement, state: presentationModel.surfaceState,
+                    expandedSize: presentationModel.expandedContentSize))
         }
 #endif
     }
