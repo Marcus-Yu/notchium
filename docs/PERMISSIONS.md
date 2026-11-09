@@ -14,6 +14,14 @@
 
 ## 1. Permission principles
 
+### Teleprompter first-use addition (2026-11-03)
+
+Teleprompter uses `NSMicrophoneUsageDescription` and the applicable `com.apple.security.device.audio-input` entitlement. Microphone authorization is requested only after Start in Voice Follow or Fixed Speed + Voice Pause. Opening the page/editor, loading scripts, and meeting detection never start capture or request microphone access. Fixed Speed works without microphone authorization. `SpeechAnalyzer` uses local recognition, so this adapter does not invoke the legacy `SFSpeechRecognizer` authorization flow. Language assets may require an explicit first-use download through Apple's asset service; audio is not uploaded by this feature.
+
+Closing the last visible reading surface, explicit Pause/Stop, input-device failure, public sleep/screen-sleep/inactive-session notifications, or denied/revoked access stops capture. Start pins the reader; clicking the system consent dialog or meeting controls does not implicitly hide it and cancel preparation. Permission denial remains distinct from unsupported hardware/language and recoverable recognition failures. Foreground activation rechecks active microphone access. Input defaults to the system microphone, with an optional explicit per-engine selection; Notchium does not change the system default or meeting application's audio route. Raw input levels are displayed separately from lexical matching. Audio and recognized text remain in bounded memory only.
+
+Meeting suggestions read public Core Audio process-input status without taps, microphone audio, window titles, browser URLs, Accessibility, or Screen Recording access. Browser input requires a current video meeting from the existing authorized calendar source. Native Zoom/Teams input is probable-call evidence, not confirmed attendance. Document import uses a native picker and balanced security-scoped access; it copies extracted text without modifying the source. See [Teleprompter](TELEPROMPTER.md) for validation limits and storage behavior.
+
 - First launch presents setup before normal use. Supported upfront permission requests follow explicit, sequential user actions in the wizard.
 - Native requests are never simultaneous. Already-granted and denied choices are rechecked without repeatedly requesting the same one-shot prompt.
 - Education appears immediately before the system/provider prompt and accurately states the data, purpose, retention, visible indicator, and fallback.
@@ -93,7 +101,7 @@ Calendar distinguishes initial permission checks and inconsistent OS responses f
 | Shelf | Managed shelf remains usable when screenshot/download watchers are denied; manual drag/import remains primary. |
 | Camera | Preview is absent; no blank/black fake feed and no microphone request. |
 | Audio | Missing hardware properties hide or disable only those controls; Sound Settings remains available. |
-| Caffeine | Ordinary idle-sleep assertions require no permission. Optional [closed-lid mode](LID_AWAKE.md) requires administrator approval of its SMAppService daemon; denied or unavailable helpers leave it off. |
+| Caffeine | Ordinary idle-sleep assertions require no permission. [Closed-lid mode](LID_AWAKE.md) starts with Caffeine in both direct builds and requires one-time administrator approval of its bundled SMAppService daemon (Login Items & Extensions); denied or unavailable helpers leave it off and ordinary Caffeine keeps working. |
 | Keyboard Lock | The app never presents itself as locked unless the active session tap and effective keyboard mask are confirmed. Secure Input blocks activation and ends an existing lock with specific guidance. Failure means unlocked. |
 | Clipboard | Automatic capture stops. Explicit user-initiated save/paste remains, subject to system behavior. Existing encrypted records remain until retention/deletion. |
 | Monitoring | Unsupported samples are unavailable/stale, not zero. No permission escalation or shell fallback. |
@@ -124,9 +132,9 @@ Stage 1 must add exact localized strings and review them against the final behav
 
 ### Historical Developer ID profile (deferred)
 
-- A future trusted-signing edition would require Developer ID signing, hardened runtime, secure timestamp, and notarization. Stage 24's free edition instead follows [RELEASING.md](RELEASING.md), keeps Focus unavailable, and omits the team-authenticated closed-lid helper.
+- A future trusted-signing edition would require Developer ID signing, hardened runtime, secure timestamp, and notarization. Stage 24's free edition instead follows [RELEASING.md](RELEASING.md) and keeps Focus unavailable. Since November 8, 2026 it bundles the closed-lid helper ad-hoc, with an identifier-and-bundle peer check in place of the team requirement (owner-accepted tradeoff; see [LID_AWAKE.md](LID_AWAKE.md)).
 - TCC, extension, provider, pasteboard, and protected-folder consent still apply; direct distribution is not a privacy bypass.
-- No Full Disk Access, root helper, private entitlement, or disabling library validation is authorized by this contract. The opt-in public volume HID tap is the narrowly scoped exception described below; it does not authorize general keyboard suppression.
+- No Full Disk Access, root helper other than the reviewed closed-lid lease daemon, private entitlement, or disabling library validation is authorized by this contract. The opt-in public volume HID tap is the narrowly scoped exception described below; it does not authorize general keyboard suppression.
 - OAuth callbacks, browser native-host manifests, launch-at-login registration, and Keychain continuity must be tested across updates.
 
 ### Store-compatible profile
