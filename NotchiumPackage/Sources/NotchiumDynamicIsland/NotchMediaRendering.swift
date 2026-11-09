@@ -9,6 +9,9 @@ import SwiftUI
     func mediaArtwork(size: CGFloat) -> AnyView
     /// Music's live waveform, for activities that keep Music visible beside their own content.
     func mediaWaveform() -> AnyView
+    /// A vivid accent sampled from the current artwork, or nil when the artwork is neutral or
+    /// unavailable. The shell uses it for Music's header selection.
+    var accentColor: Color? { get }
 }
 
 extension EnvironmentValues {
@@ -45,6 +48,7 @@ public struct CollapsedMediaGeometry: Equatable {
 }
 
 public extension NotchMediaRendering {
+    var accentColor: Color? { nil }
     func mediaWaveform() -> AnyView { AnyView(EmptyView()) }
     func homeMedia(openMusic: @escaping @MainActor () -> Void) -> AnyView { AnyView(Button("Open Music", action: openMusic).buttonStyle(.plain)) }
 }
