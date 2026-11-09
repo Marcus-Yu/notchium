@@ -41,9 +41,14 @@ public struct NotchPanelLayout: Equatable, Sendable {
     }
 }
 
-/// Shared expanded shell contract for every page; based on the Music layout.
+/// Standard pages share the Music layout; the reader gets a larger reading surface.
 public enum ExpandedNotchLayout {
     public static let size = CGSize(width: 524, height: 266)
+    public static let teleprompterSize = CGSize(width: 655, height: 333)
+
+    public static func size(for page: NotchPage) -> CGSize {
+        page == .teleprompter ? teleprompterSize : size
+    }
     public static let topCornerRadius: CGFloat = 12
     public static let bottomCornerRadius: CGFloat = 26
     public static let navigationHeight: CGFloat = ExpandedPageStyle.headerHeight
@@ -55,7 +60,8 @@ public enum NotchGeometryResolver {
 
     public static let panelSize = CGSize(
         width: 740,
-        height: 322
+        // Keep one stable host, including the reader and a minor-activity extension.
+        height: 390
     )
     public static let virtualNotchWidth: CGFloat = 180
 
@@ -64,7 +70,8 @@ public enum NotchGeometryResolver {
 
     public static func layout(
         for placement: NotchShellPlacement,
-        state: NotchStableState
+        state: NotchStableState,
+        expandedSize: CGSize = expandedNotchSize
     ) -> NotchPanelLayout {
         let hardwareGeometry = hardwareNotchGeometry(for: placement)
         let hasHardwareNotch = hardwareGeometry != nil
@@ -87,7 +94,7 @@ public enum NotchGeometryResolver {
         let surfaceSize = visibleSurfaceSize(
             state: state,
             collapsedSize: collapsedFrame.size,
-            expandedSize: expandedNotchSize
+            expandedSize: expandedSize
         )
         let surfaceCenterX = state == .collapsed ? collapsedFrame.midX : panelFrame.midX
         let visibleSurfaceFrame = CGRect(
@@ -104,7 +111,7 @@ public enum NotchGeometryResolver {
             collapsedHoverFrame: collapsedHoverFrame(from: collapsedFrame),
             hardwareNotchGeometry: hardwareGeometry,
             surfaceSize: surfaceSize,
-            expandedSize: expandedNotchSize,
+            expandedSize: expandedSize,
             hasHardwareNotch: hasHardwareNotch,
             topCornerRadius: topCornerRadius(for: placement.mode, state: state),
             bottomCornerRadius: bottomCornerRadius(for: placement.mode, state: state),
