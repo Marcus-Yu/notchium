@@ -46,8 +46,12 @@ private struct ShortcutTile: View {
             HStack(spacing: 6) {
                 Group {
                     if model.runner.showingProgress.contains(action.id) { ProgressView().controlSize(.mini) }
-                    else if issue != nil { Image(systemName: "exclamationmark.circle") }
-                    else if model.runner.succeeded.contains(action.id) { Image(systemName: "checkmark") }
+                    else if issue != nil {
+                        Image(systemName: "exclamationmark.circle").foregroundStyle(NotchStatusColor.warning)
+                    }
+                    else if model.runner.succeeded.contains(action.id) {
+                        Image(systemName: "checkmark").fontWeight(.bold).foregroundStyle(NotchStatusColor.success)
+                    }
                     else { QuickActionIcon(action: action, runner: model.runner) }
                 }.frame(width: 18, height: 18).accessibilityHidden(true)
                 VStack(alignment: .center, spacing: 2) {
