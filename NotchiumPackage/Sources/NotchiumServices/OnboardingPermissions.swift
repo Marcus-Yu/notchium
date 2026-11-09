@@ -100,9 +100,9 @@ import NotchiumCore
         case .keychain:
             return .init(.notPregrantable, "Clipboard encryption uses your existing Keychain key. macOS may request access to that specific item after an app update. There is no general Keychain grant. A lookup failure never authorizes replacing a key when encrypted history exists. Setup does not read, replace, or delete keys.")
         case .closedLid:
-            return .init(profile == .developerID ? .notPregrantable : .unavailable,
-                         profile == .developerID
-                         ? "Ordinary Caffeine needs no permission. Experimental closed-lid mode requires a separately installed, signed helper and administrator approval in Caffeine settings. Setup does not install or approve helpers."
+            return .init(profile != .appStoreSandboxed ? .notPregrantable : .unavailable,
+                         profile != .appStoreSandboxed
+                         ? "Ordinary Caffeine needs no permission. Keeping the Mac awake with the lid closed uses Notchium's bundled helper, which needs one-time administrator approval in Login Items the first time you turn Caffeine on. Setup does not install or approve helpers."
                          : "Ordinary Caffeine needs no permission. Closed-lid mode and its privileged helper are excluded from this distribution.")
         }
     }
