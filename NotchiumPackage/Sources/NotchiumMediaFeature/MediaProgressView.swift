@@ -37,6 +37,8 @@ struct MediaProgressView: View {
                 }
                 .frame(height: 20)
                 .disabled(!model.state.canSeek)
+                // Playback position keeps its original white on every surface.
+                .tint(.white)
                 HStack {
                     Text(Self.time(position))
                     Spacer()
