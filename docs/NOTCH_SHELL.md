@@ -64,12 +64,18 @@ as closing begins, and ordinary pointer, pinning and exit-grace rules are unchan
 - Hover leave grace: 500 ms. Content stays open during the grace; pointer re-entry cancels collapse, and another exit starts a fresh grace period.
 - Click: pin immediately; second click collapses.
 - Pinned ignores pointer exit; outside click and Esc collapse.
-- Both hover and click use one symmetric `interactiveSpring(response: 0.40, dampingFraction: 0.80, blendDuration: 0)` on shell geometry only. Pinning an already hovered shell does not start another morph.
+- Hover and click share one opening spring, `interactiveSpring(response: 0.42, dampingFraction: 0.72, blendDuration: 0)` (about 4% overshoot, the Dynamic Island's settle), and one closing spring, `interactiveSpring(response: 0.36, dampingFraction: 0.94, blendDuration: 0)`, which lands without bouncing past the hardware notch. Both drive shell geometry only. Pinning an already hovered shell does not start another morph.
 - Reduce Motion uses a native 0.12 s ease-out geometry transition, including explicit DEBUG overrides; media remains opaque.
 
-Injected clock tasks retain interaction/hover bookkeeping (400 ms nominal). They do not reveal content. The persistent SwiftUI `NotchTransitionSurface` owns a separate visual state machine: collapsed → openingBlack → expanded → closingBlack → collapsed. Every new geometry target hides content synchronously, before the shell begins moving. On opening, expanded content appears at 75% of the height expansion and is clipped to the current animated shell, at its full final size. On closing, expanded content hides immediately; collapsed media, compact activities and secondary indicators return when the animated height reaches the collapsed target (within 0.75 pt). They do not wait for SwiftUI's `.removed` completion and its invisible spring tail. Width-only collapsed changes restore content immediately after retargeting. Generation tokens reject completions from superseded targets; input remains enabled and reversal retargets the existing spring.
+Injected clock tasks retain interaction/hover bookkeeping (400 ms nominal). They do not reveal content. The persistent SwiftUI `NotchTransitionSurface` owns a separate visual state machine: collapsed → openingBlack → expanded → closingBlack → collapsed. Every new geometry target hides collapsed-row content synchronously, before the shell begins moving.
 
-The black shape alone receives animated width, height, center, corner radius and auxiliary geometry. Expanded and collapsed content remain separately mounted at their intended dimensions, with no scale, positional retraction, matched geometry or fade. A binary visibility mask hides actual content; this is not a cover over an animated page. The content clip follows the interpolated shell geometry; the page layout itself stays fixed. Child animation transactions are suppressed while black, while normal open-page control animations remain available after settling. All pages share this gate, including utilities, reminders and compact HUD content. Root-host updates no longer inject animation transactions. The NSPanel frame remains stable.
+**Bloom (expanded content).** The expanded page grows out of the notch on the shell's own spring. Each frame, `NotchSurfaceFrame` derives a `NotchBloomProgress` from the interpolated height (0 at the collapsed notch, 1 at the full open height) and publishes it in the environment. Content joins with `.notchBloom(stage:)`: the header is stage 0, the page stage 1 and the minor-activity extension stage 2. Opening stages start at 26%, 36% and 46% of height growth and complete about 46 points later. Each stage sharpens from a 9 pt blur, fades in and settles from 94% scale, 8 pt higher. Closing dissolves every stage between 90% and 50% of the height without stagger, so nothing lingers into the second half of a close. Reduce Motion keeps only the fade. Because the values come from the interpolated geometry, reversals retarget mid-bloom with no timer. Input and accessibility still follow `contentPhase`, which keeps the 75% interaction threshold. Notification reveals never bloom the expanded page.
+
+**Gate (everything else).** Collapsed media, compact activities, notifications and secondary indicators keep the black gate through `NotchSurfaceGate`: hidden while the shell opens or closes, back when the animated height reaches the collapsed target (within 0.75 pt).
+
+Both the bloom and the gate hide content with an **unbounded mask**, never with `.opacity` and never with a mask the size of the frame. Liquid Glass renders through ancestor opacity, so a hidden header would ghost its hover glass on the collapsed notch. A frame-sized mask would also clip content that deliberately overflows its frame: header hover labels, the Caffeine time tag, and the blended Music and timer row beside a narrower Calendar banner. Masks applied after an `.offset` stay at the un-offset frame, so the gate is applied before the collapsed row's hardware-centering offset. The shell's shape remains the only spatial clip. They do not wait for SwiftUI's `.removed` completion and its invisible spring tail. Width-only collapsed changes restore content immediately after retargeting. Generation tokens reject completions from superseded targets; input remains enabled and reversal retargets the existing spring.
+
+The black shape alone receives animated width, height, center, corner radius and auxiliary geometry. Expanded and collapsed content remain separately mounted at their intended dimensions. Only the bloom's small scale, offset and blur touch expanded content, and they are derived from the shell geometry, not animated separately. The page layout itself never resizes or reflows. Gated content uses a binary visibility mask. The content clip follows the interpolated shell geometry. Child animation transactions are suppressed while transitioning, while normal open-page control animations remain available after settling. Root-host updates no longer inject animation transactions. The NSPanel frame remains stable.
 
 Content hide and reveal are immediate (0 ms); opening reveal is geometry-based rather than delayed until spring completion. Reduce Motion retains the black choreography with 0.12 s ease-out shell geometry. Services continue receiving target-state visibility changes, never per-frame animation progress.
 
@@ -129,8 +135,9 @@ Calendar and Audio now use the shared notification target in the persistent
 shoulders and 34 pt lower corners. Calendar content is 88 pt tall; Audio is 56 pt.
 Notification geometry uses response 0.26 / damping 1.0 on entry and response 0.20 /
 damping 1.0 on exit, with blend duration zero. This overrides neither the main
-0.40 / 0.80 expansion spring nor the canonical 524 × 266 expanded size.
-Content reveals at 75% of height growth at its final dimensions. Notification-to-
+expansion springs nor the canonical 524 × 266 expanded size.
+Notification content keeps the gate and reveals at 75% of height growth at its final
+dimensions. Notification-to-
 notification resizing retains content under the live shape mask; equal-size replacement
 uses a 100 ms opacity transition. Dismissal hides content immediately before contraction.
 The target-shape mask was removed: only interpolated presentation geometry clips content,
@@ -140,7 +147,7 @@ See [Unified notifications](STAGE9_NOTIFICATIONS.md) for ownership and validatio
 ## Stage 10 activity and gesture coordination
 
 Notification transitions preserve the persistent media row independently of the content
-reveal gate. Main expand/collapse still uses the established black gate. Expanded
+reveal gate. Main expand/collapse blooms the expanded page (see above). Expanded
 notifications hide while the full shell is open and expire independently;
 pages remain mounted and selected. Horizontal page navigation now receives native phased
 scroll events only in the empty navigation area, replacing the full-page event monitor.
