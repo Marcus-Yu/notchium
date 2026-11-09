@@ -15,13 +15,18 @@ public final class LidAwakeController {
     @ObservationIgnored private var heartbeat: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var lastReply: ContinuousClock.Instant?
+    /// Polls for the administrator's approval in System Settings; owned here, cancelled by
+    /// approval, `disable()`, or after ten minutes.
+    @ObservationIgnored private var approvalWatch: Task<Void, Never>?
     @ObservationIgnored private let service = SMAppService.daemon(plistName: "com.marcusyu.notchium.lid-awake.plist")
 
-    public var isAvailableInThisBuild: Bool { DistributionProfile.current == .developerID }
+    /// Both direct builds ship the helper (Developer ID verifies it by team signature, the free
+    /// ad-hoc build by identifier and containing bundle). The sandboxed App Store build cannot.
+    public var isAvailableInThisBuild: Bool { DistributionProfile.current != .appStoreSandboxed }
 
     public init() {
         if !isAvailableInThisBuild {
-            message = "Unavailable in this build. Closed-lid mode requires a helper with an Apple-trusted signing identity. Ordinary Caffeine remains available."
+            message = "Unavailable in the App Store edition. Ordinary Caffeine remains available."
         }
     }
 
@@ -29,20 +34,28 @@ public final class LidAwakeController {
         guard isAvailableInThisBuild else {
             return
         }
-        do {
-            if service.status == .notRegistered { try service.register() }
-            needsApproval = service.status == .requiresApproval
-            guard service.status == .enabled else {
-                message = needsApproval
-                    ? "Approve Notchium in System Settings → General → Login Items & Extensions, then enable this toggle again."
-                    : "The signed closed-lid helper is unavailable. Install the direct-download app to enable it."
-                return
-            }
+        // A daemon that has never been registered can report `.notFound` instead of
+        // `.notRegistered`; both mean "register now". Registration may also throw while still
+        // leaving the job pending approval, so the resulting status decides, not the throw.
+        var registrationError: Error?
+        if service.status == .notRegistered || service.status == .notFound {
+            do { try service.register() } catch { registrationError = error }
+        }
+        switch service.status {
+        case .enabled:
+            stopWatchingApproval()
+            needsApproval = false
             isEnabled = true
             message = "Ready. Closed-lid mode starts when Caffeine is active."
             reconcile()
-        } catch {
-            message = "Could not register the closed-lid helper: \(error.localizedDescription)"
+        case .requiresApproval:
+            needsApproval = true
+            message = "Approve Notchium in System Settings → General → Login Items & Extensions. Closed-lid mode starts as soon as it is approved."
+            watchForApproval()
+        default:
+            needsApproval = false
+            message = registrationError.map { "Could not register the closed-lid helper: \($0.localizedDescription)" }
+                ?? "The closed-lid helper could not be found in this copy of Notchium."
         }
     }
 
@@ -54,8 +67,32 @@ public final class LidAwakeController {
     }
 
     public func disable() {
+        stopWatchingApproval()
         isEnabled = false
         stopLease()
+    }
+
+    /// Approval happens outside the app, so check lightly until it lands; then enable once and,
+    /// if Caffeine is still on, take the lease without asking the user to toggle Caffeine again.
+    private func watchForApproval() {
+        guard approvalWatch == nil else { return }
+        approvalWatch = Task { [weak self] in
+            for _ in 0..<300 {
+                do { try await Task.sleep(for: .seconds(2)) } catch { return }
+                guard let self, self.needsApproval else { return }
+                if self.service.status == .enabled {
+                    self.approvalWatch = nil
+                    self.enable()
+                    return
+                }
+            }
+            self?.approvalWatch = nil
+        }
+    }
+
+    private func stopWatchingApproval() {
+        approvalWatch?.cancel()
+        approvalWatch = nil
     }
 
     public func removeHelper() async {
