@@ -16,9 +16,14 @@ struct UnifiedNotchNotificationContent: View {
                 Group {
                     switch notification.content {
                     case let .feedback(title, symbol):
-                        Label(title, systemImage: symbol)
-                            .font(.system(size: 13, weight: .medium))
-                            .lineLimit(2).padding(.horizontal, NotchNotificationGeometry.contentLeadingInset)
+                        Label {
+                            Text(title)
+                        } icon: {
+                            NotchFeedbackGlyph(symbol: symbol, color: Self.feedbackColor(notification.kind),
+                                               reduceMotion: model.reduceMotion)
+                        }
+                        .font(.system(size: 13, weight: .medium))
+                        .lineLimit(2).padding(.horizontal, NotchNotificationGeometry.contentLeadingInset)
                     case .calendar:
                         model.calendarRenderer?.reminderBanner(action: model.activateCurrentActivity)
                     case let .pomodoroCompletion(title):
@@ -40,5 +45,31 @@ struct UnifiedNotchNotificationContent: View {
         .accessibilityAction(named: "Dismiss notification") {
             model.notificationCoordinator.dismissByUser()
         }
+    }
+
+    /// The glyph carries the outcome: green for done, red for failed. The symbol shape
+    /// (checkmark or exclamation mark) says the same thing without color.
+    static func feedbackColor(_ kind: NotchNotification.Kind) -> Color {
+        switch kind {
+        case .actionFailed, .transferFailed: NotchStatusColor.failure
+        case .reminderAdded: NotchPalette.orange
+        default: NotchStatusColor.success
+        }
+    }
+}
+
+/// A status glyph that lands with one small bounce when its banner appears.
+private struct NotchFeedbackGlyph: View {
+    let symbol: String
+    let color: Color
+    let reduceMotion: Bool
+    @State private var landed = false
+
+    var body: some View {
+        Image(systemName: symbol)
+            .symbolVariant(.fill)
+            .foregroundStyle(color)
+            .symbolEffect(.bounce.up, options: .speed(1.3), value: landed)
+            .onAppear { if !reduceMotion { landed = true } }
     }
 }
