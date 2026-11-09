@@ -2,6 +2,8 @@ import SwiftUI
 import NotchiumDynamicIsland
 
 extension MediaFeatureModel: NotchMediaRendering {
+    public var accentColor: Color? { waveformAppearance.accentColor }
+
     public func homeMedia(openMusic: @escaping @MainActor () -> Void) -> AnyView {
         AnyView(HomeMediaView(model: self, openMusic: openMusic))
     }
