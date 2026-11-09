@@ -8,14 +8,16 @@ public enum WaveformColorMode: String, CaseIterable, Identifiable {
     var title: String { self == .static ? "Static" : "Adaptive" }
 }
 
-/// One appearance owner for every waveform surface. Audio samples never enter this model.
+/// One appearance owner for every artwork-coloured surface: the waveform, and Music's accent
+/// (progress, primary transport, selection). Audio samples never enter this model.
 @MainActor @Observable
 public final class WaveformAppearanceModel {
     public var mode: WaveformColorMode {
         didSet {
             guard mode != oldValue else { return }
+            // Artwork analysis is mode-independent (Music's accent needs it), so a mode switch
+            // only changes which colour the waveform resolves to.
             preferences?.set(mode.rawValue, forKey: "media.waveform.colorMode")
-            refreshArtworkColor()
         }
     }
     var staticColor: WaveformColor {
@@ -29,6 +31,8 @@ public final class WaveformAppearanceModel {
     var resolvedColor: WaveformColor {
         (mode == .static ? staticColor : artworkColor ?? .white).visibleOnBlack
     }
+    /// Music's accent follows the artwork in both waveform modes; nil for neutral or missing art.
+    public var accentColor: Color? { artworkColor?.mutedAccent?.color }
     @ObservationIgnored private let preferences: UserDefaults?
     @ObservationIgnored private let loadArtworkColor: @MainActor (URL) async -> WaveformColor?
     @ObservationIgnored private var artworkURL: URL?
@@ -37,7 +41,11 @@ public final class WaveformAppearanceModel {
 
     public convenience init(preferences: UserDefaults? = nil) {
         self.init(preferences: preferences) { url in
-            try? await MediaArtworkCache.shared.load(url)?.primaryColor
+#if DEBUG
+            // The drawn fixture cover (an orange sun) never reaches the network cache.
+            if url.scheme == "notchium-fixture" { return WaveformColor(red: 230, green: 138, blue: 52) }
+#endif
+            return try? await MediaArtworkCache.shared.load(url)?.primaryColor
         }
     }
 
@@ -66,13 +74,15 @@ public final class WaveformAppearanceModel {
         refreshArtworkColor()
     }
 
+    /// The artwork is analysed once per cover in both modes, because Music's accent always
+    /// follows it; only the waveform's own colour depends on the mode.
     private func refreshArtworkColor() {
         artworkTask?.cancel(); artworkTask = nil
-        guard mode == .adaptive, let url = artworkURL, artworkColorURL != url else { return }
+        guard let url = artworkURL, artworkColorURL != url else { return }
         let load = loadArtworkColor
         artworkTask = Task { [weak self] in
             let color = await load(url)
-            guard !Task.isCancelled, let self, self.mode == .adaptive, self.artworkURL == url else { return }
+            guard !Task.isCancelled, let self, self.artworkURL == url else { return }
             self.artworkColor = color
             self.artworkColorURL = color == nil ? nil : url
             self.artworkTask = nil
