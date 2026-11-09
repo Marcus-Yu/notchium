@@ -1,3 +1,4 @@
+import NotchiumDesignSystem
 import SwiftUI
 
 /// Visual lifetime is independent of interaction state and its hover bookkeeping.
@@ -58,6 +59,8 @@ struct NotchTransitionSurface<Content: View>: View {
     @State private var transition: NotchVisualTransition
     @State private var appliedSystemTransitionRevision: Int
     @State private var appliedReduceMotion: Bool
+    /// The latest open height: the reference a closing bloom dissolves from.
+    @State private var openHeight: CGFloat
 
     init(expanded: Bool, shape: NotchShellSurface, reduceMotion: Bool, systemTransitionRevision: Int = 0,
          notificationVisible: Bool = false,
@@ -84,6 +87,7 @@ struct NotchTransitionSurface<Content: View>: View {
         _transition = State(initialValue: NotchVisualTransition(expanded: expanded))
         _appliedSystemTransitionRevision = State(initialValue: systemTransitionRevision)
         _appliedReduceMotion = State(initialValue: reduceMotion)
+        _openHeight = State(initialValue: expanded ? shape.height : 0)
     }
 
     var body: some View {
@@ -116,6 +120,7 @@ struct NotchTransitionSurface<Content: View>: View {
                 : (compactRetracting && !settlesImmediately ? NotchCompactSpan(base: compactSpan.base,
                                                         full: enteredCompactSpan?.full ?? compactSpan.full) : nil),
             compactRetracting: compactRetracting && !settlesImmediately,
+            openHeight: expanded ? shape.height : openHeight,
             content: content
         )
         .transaction { transaction in
@@ -159,6 +164,7 @@ struct NotchTransitionSurface<Content: View>: View {
                 compactExiting = false
                 enteredCompactSpan = compactVisible ? compactSpan : nil
                 enteredCompactUsesAirPods = compactUsesAirPods
+                if expanded { openHeight = shape.height }
             }
             return
         }
@@ -175,7 +181,9 @@ struct NotchTransitionSurface<Content: View>: View {
             : transition.begin(expanded: Self.revealsContent(expanded: expanded,
                 notificationVisible: notificationVisible, wasExpanded: wasExpanded))
         let animation = updatesOpenPage
-            ? (shape.extensionHeight > renderedShape.extensionHeight ? NotchMotion.compactIn : NotchMotion.compactOut)
+            ? (shape.width != renderedShape.width || shape.height != renderedShape.height
+                ? NotchMotion.pageResize
+                : (shape.extensionHeight > renderedShape.extensionHeight ? NotchMotion.compactIn : NotchMotion.compactOut))
             : compactMotion
             ? (compactVisible ? NotchMotion.compactIn
                 : (enteredCompactUsesAirPods
@@ -183,7 +191,8 @@ struct NotchTransitionSurface<Content: View>: View {
                     : NotchMotion.compactOut))
             : notificationMotion
             ? (notificationVisible ? NotchMotion.notificationIn : NotchMotion.notificationOut)
-            : NotchMotion.shell
+            : NotchMotion.shell(opening: expanded)
+        if expanded { openHeight = shape.height }
         wasExpanded = expanded
         wasNotificationVisible = notificationVisible
         wasCompactVisible = compactVisible
@@ -217,6 +226,8 @@ nonisolated struct NotchSurfaceFrame<Content: View>: View, Animatable {
     var preservesCollapsedMedia = false
     var compactSpan: NotchCompactSpan?
     var compactRetracting = false
+    /// The expanded height a closing bloom is measured against (the opening target otherwise).
+    var openHeight: CGFloat = 0
     @ViewBuilder var content: @MainActor (NotchVisualTransition.Phase) -> Content
 
     var animatableData: AnimatablePair<NotchShellSurface.AnimatableData, CGFloat> {
@@ -243,6 +254,26 @@ nonisolated struct NotchSurfaceFrame<Content: View>: View, Animatable {
         return phase
     }
 
+    /// How far the expanded content has bloomed, read from the interpolated geometry every frame.
+    /// Visual only: input and accessibility still follow `contentPhase`, which keeps the 75%
+    /// interaction threshold. Notification reveals never show the expanded page.
+    var bloom: NotchBloomProgress {
+        guard !notificationVisible else { return .hidden }
+        switch phase {
+        case .expanded:
+            return .settled
+        case .collapsed:
+            return .hidden
+        case .openingBlack, .closingBlack:
+            let closing = phase == .closingBlack
+            let collapsedHeight = shape.passiveShape.height
+            let fullHeight = closing ? openHeight : expandedHeight
+            guard fullHeight > collapsedHeight + 1 else { return .hidden }
+            let progress = (shape.height - collapsedHeight) / (fullHeight - collapsedHeight)
+            return NotchBloomProgress(progress: min(max(progress, 0), 1), closing: closing)
+        }
+    }
+
     /// Read from the interpolated geometry every frame: compact content moves with the
     /// shell's own spring (and reverses with it) instead of running a second animation.
     var compactReveal: CGFloat {
@@ -254,11 +285,17 @@ nonisolated struct NotchSurfaceFrame<Content: View>: View, Animatable {
         let visible = contentPhase == .expanded || contentPhase == .collapsed
         let transitioning = phase == .openingBlack || phase == .closingBlack || hidesPendingTarget
             || abs(shape.extensionHeight - targetExtensionHeight) > 0.001
+        let bloom = bloom
+        // The established black gate. Collapsed-row content keeps it (`NotchSurfaceGate`); only
+        // content that joins the bloom may show while the shell is still opening or closing.
+        let gateOpen = visible || preservesCollapsedMedia || compactRetracting
         ZStack(alignment: .top) {
             shape.fill(.black).allowsHitTesting(false)
             content(contentPhase)
-                .modifier(NotchPresentationClip(visible: visible || preservesCollapsedMedia || compactRetracting))
+                .modifier(NotchPresentationClip(visible: gateOpen || bloom.amount(stage: 0) > 0))
                 .mask(shape)
+                .environment(\.notchBloom, bloom)
+                .environment(\.notchSurfaceGateOpen, gateOpen)
                 .environment(\.notchPreservesCollapsedMedia, preservesCollapsedMedia)
                 .environment(\.notchShellIsTransitioning, transitioning)
                 .environment(\.notchCompactReveal, compactReveal)
@@ -292,6 +329,28 @@ extension EnvironmentValues {
     @Entry var notchCompactReveal: CGFloat = 0
     @Entry var notchCompactRetracting = false
     @Entry var notchExpandedMinorReveal: CGFloat = 0
+    @Entry var notchSurfaceGateOpen = true
+}
+
+/// Keeps the shell's black gate for content that does not bloom (the collapsed row, compact
+/// activities, notifications and indicators): hidden while the shell opens or closes.
+/// Visibility only, never geometry: the mask extends far past the row's frame because that row
+/// legitimately overflows it (a blended Music + timer row beside a narrower Calendar banner).
+/// The shell's own shape mask still does all spatial clipping.
+struct NotchSurfaceGate: ViewModifier {
+    @Environment(\.notchSurfaceGateOpen) private var gateOpen
+
+    func body(content: Content) -> some View {
+        content.mask {
+            Rectangle()
+                .opacity(gateOpen ? 1 : 0)
+                .padding(-1_000)
+                .transaction { transaction in
+                    transaction.animation = nil
+                    transaction.disablesAnimations = true
+                }
+        }
+    }
 }
 
 /// Whether the collapsed row is currently revealed by the shell (false during the black
