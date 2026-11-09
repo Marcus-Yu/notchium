@@ -22,7 +22,9 @@ public struct NotchCompactActivity: Equatable, Sendable {
         case countdown(NotchCountdown)
     }
 
-    public enum Tint: Equatable, Sendable { case primary, muted, charging, warning, focus }
+    /// Semantic color of the leading glyph and any live value. White stays the default; a soft
+    /// tone marks live state the way Dynamic Island activities do (a transfer, power, an outcome).
+    public enum Tint: Equatable, Sendable { case primary, muted, charging, warning, focus, transfer, success }
 
     public let glyph: Glyph
     /// Always spoken; shown beside the glyph only when `showsTitle`.
