@@ -14,6 +14,7 @@ import Observation
 import NotchiumMediaFeature
 import NotchiumQuickActionsFeature
 import NotchiumShelfFeature
+import NotchiumTeleprompterFeature
 import Foundation
 import NotchiumPersistence
 import NotchiumServices
@@ -35,6 +36,8 @@ public final class NotchiumApplicationController {
     public let cameraModel: CameraModel
     public let focusModeModel: FocusModeModel
     public let pomodoroModel: PomodoroModel
+    public let teleprompterModel: TeleprompterModel
+    @ObservationIgnored private var teleprompterEditor: TeleprompterEditorWindow?
     public let onboarding: OnboardingModel?
     @ObservationIgnored private var onboardingWindow: OnboardingWindowController?
 #if DEBUG
@@ -62,6 +65,10 @@ public final class NotchiumApplicationController {
                 clipboardStore: (any ClipboardStoring)? = nil,
                 pomodoroStore: (any PomodoroPersisting)? = nil,
                 onboarding: OnboardingModel? = nil,
+                teleprompterSpeech: any TeleprompterSpeechService = MockTeleprompterSpeechService(),
+                teleprompterStore: any TeleprompterScriptStoring = MockTeleprompterScriptStore(),
+                teleprompterImporter: any TeleprompterDocumentImporting = MockTeleprompterDocumentService(),
+                teleprompterMeetings: any TeleprompterMeetingContextService = MockTeleprompterMeetingContextService(),
                 audioMeter: SystemAudioMeter = SystemAudioMeter(captureEnabled: false)) {
         self.environment = environment
         self.onboarding = onboarding
@@ -106,7 +113,7 @@ public final class NotchiumApplicationController {
         quickActions = QuickActionsModel(store: store, runner: runner, reminder: reminder)
         displayCoordinator.presentationModel.quickActionsRenderer = quickActions
         caffeineModel = CaffeineControlModel(service: environment.services.caffeine, clock: environment.clock,
-                                             automaticallyEnableClosedLid: environment.distributionProfile == .developerID
+                                             automaticallyEnableClosedLid: environment.distributionProfile != .appStoreSandboxed
                                                 && environment.services.caffeine is RealCaffeineService)
         filesModel = FilesFeatureModel(transfers: environment.services.transfers,
                                        screenshots: environment.services.screenshot,
@@ -127,6 +134,15 @@ public final class NotchiumApplicationController {
         pomodoroModel = PomodoroModel(store: pomodoroStore ?? InMemoryPomodoroStore(),
                                       notifications: notifications, clock: environment.clock)
         pomodoroModel.focusControl = focusModeModel
+        teleprompterModel = TeleprompterModel(speech: teleprompterSpeech, store: teleprompterStore,
+            importer: teleprompterImporter, meetingContext: teleprompterMeetings,
+            calendar: environment.services.calendar, activities: presentation.activityCoordinator,
+            clock: environment.clock, uuids: environment.uuids)
+        if environment.featureFlags[.teleprompter] {
+            presentation.teleprompterRenderer = teleprompterModel
+        } else {
+            presentation.pageModel.enabledPages.removeAll { $0 == .teleprompter }
+        }
         if environment.featureFlags[.clipboard] { presentation.clipboardRenderer = clipboardModel }
         if environment.featureFlags[.camera] { presentation.cameraController = cameraModel }
         if environment.featureFlags[.focus] { presentation.pomodoroRenderer = pomodoroModel }
@@ -137,6 +153,11 @@ public final class NotchiumApplicationController {
         displayCoordinator.presentationModel.calendarRenderer = calendarModel
         displayCoordinator.presentationModel.audioRenderer = audioModel
         displayCoordinator.presentationModel.caffeineController = caffeineModel
+        teleprompterModel.openEditor = { [weak self] in self?.showTeleprompterEditor() }
+        teleprompterModel.openReader = { [weak self] in
+            self?.teleprompterEditor?.window?.orderOut(nil)
+            self?.displayCoordinator.openForKeyboard(page: .teleprompter)
+        }
     }
 
     /// Event-driven battery activities; the stream ends when the task is cancelled.
@@ -169,6 +190,10 @@ public final class NotchiumApplicationController {
                                       shortcutService: AppleShortcutService(),
                                       clipboardStore: FileClipboardStore(), pomodoroStore: FilePomodoroStore(),
                                       onboarding: onboarding,
+                                      teleprompterSpeech: RealTeleprompterSpeechService(),
+                                      teleprompterStore: RealTeleprompterScriptStore(),
+                                      teleprompterImporter: RealTeleprompterDocumentService(),
+                                      teleprompterMeetings: RealTeleprompterMeetingContextService(),
                                       audioMeter: SystemAudioMeter())
     }
 
@@ -178,6 +203,7 @@ public final class NotchiumApplicationController {
         isRunning = true
         displayCoordinator.start()
         if environment.featureFlags[.calendar] { calendarModel.start() }
+        if environment.featureFlags[.teleprompter] { teleprompterModel.start() }
         if environment.featureFlags[.audioDevices] { audioModel.start(); systemFeedback.start() }
         if environment.featureFlags[.caffeine] { caffeineModel.start() }
         if environment.featureFlags[.activities] { startBatteryActivities() }
@@ -201,6 +227,17 @@ public final class NotchiumApplicationController {
 
         let logger = environment.logger
         Task { await logger.record(.applicationStarted, level: .notice) }
+#if DEBUG
+        // Explicit mock-app UI fixture, independent of WindowServer menu traversal.
+        if CommandLine.arguments.contains("--ui-testing"),
+           CommandLine.arguments.contains("--notchium-teleprompter-editor-fixture") {
+            showTeleprompterEditor()
+            if CommandLine.arguments.contains("--notchium-teleprompter-minimum-editor-fixture") {
+                teleprompterEditor?.window?.setContentSize(NSSize(width: 780, height: 500))
+                teleprompterEditor?.window?.center()
+            }
+        }
+#endif
     }
 
     public func stop() {
@@ -211,6 +248,8 @@ public final class NotchiumApplicationController {
         batteryTask?.cancel(); batteryTask = nil
         mediaModel.stop()
         calendarModel.stop()
+        teleprompterModel.stop()
+        teleprompterEditor?.close()
         audioModel.stop()
         systemFeedback.stop()
         caffeineModel.stop()
@@ -234,6 +273,12 @@ public final class NotchiumApplicationController {
 
         let logger = environment.logger
         Task { await logger.record(.applicationStopped, level: .notice) }
+    }
+
+    public func showTeleprompterEditor() {
+        guard environment.featureFlags[.teleprompter], !needsOnboardingPresentation else { return }
+        if teleprompterEditor == nil { teleprompterEditor = TeleprompterEditorWindow(model: teleprompterModel) }
+        teleprompterEditor?.show()
     }
 
     public func showOnboarding() {
