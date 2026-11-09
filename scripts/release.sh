@@ -131,10 +131,17 @@ app="$stage/Notchium.app"
 # build (rather than archive) can retain local debug symbols. Keep the dSYM
 # separately; strip debugging symbols before sealing the user-facing bundle.
 /usr/bin/strip -S "$app/Contents/MacOS/Notchium"
+helper="$app/Contents/Library/HelperTools/NotchiumLidAwake"
+[[ -f "$helper" ]] || die "Closed-lid helper is missing from the Release build."
+/usr/bin/strip -S "$helper"
 find "$app" -type d -exec chmod 755 {} +
 find "$app" -type f -exec chmod go-w {} +
-/usr/bin/codesign --force --sign - --timestamp=none --identifier com.marcusyu.notchium "$app" \
+# Nested code is sealed first: the app signature below is not --deep, and the helper's fixed
+# identifier is what the app and helper verify each other by in the free build.
+/usr/bin/codesign --force --sign - --timestamp=none --identifier com.marcusyu.notchium.lid-awake "$helper" \
     > "$output/logs/signing.txt" 2>&1
+/usr/bin/codesign --force --sign - --timestamp=none --identifier com.marcusyu.notchium "$app" \
+    >> "$output/logs/signing.txt" 2>&1
 python3 "$source/scripts/verify-release.py" --app "$app" --version "$version" --build "$build" \
     > "$output/logs/app-audit.txt"
 artifact_suffix=""
