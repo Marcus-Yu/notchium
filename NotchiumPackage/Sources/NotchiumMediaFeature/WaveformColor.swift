@@ -46,6 +46,23 @@ struct WaveformColor: Equatable, Sendable {
         return (luminance + 0.05) / 0.05
     }
 
+    /// A soft accent from an artwork colour: the cover's hue at a calm, pastel saturation and a
+    /// bright, even lightness, so every album reads as one family on the black notch rather than
+    /// as a raw, possibly neon, sample. Near-neutral colours (gray, black and white covers) return
+    /// nil, so callers fall back to the page tone rather than inventing a tint the art lacks.
+    var mutedAccent: WaveformColor? {
+        let source = NSColor(srgbRed: Double(red) / 255, green: Double(green) / 255,
+                             blue: Double(blue) / 255, alpha: 1)
+        let peak = max(red, max(green, blue))
+        let low = min(red, min(green, blue))
+        guard Int(peak) - Int(low) >= 24, source.saturationComponent >= 0.18 else { return nil }
+        let lifted = NSColor(colorSpace: .sRGB, hue: source.hueComponent,
+                             saturation: min(max(source.saturationComponent, 0.3), 0.5),
+                             brightness: min(max(source.brightnessComponent, 0.86), 0.94), alpha: 1)
+        guard let accent = WaveformColor(color: Color(nsColor: lifted)) else { return nil }
+        return accent.visibleOnBlack
+    }
+
     /// Lift dark colours toward white just enough for the thin bars to stand out.
     /// A 4.5:1 contrast floor leaves extra room for antialiasing on the black notch.
     var visibleOnBlack: WaveformColor {
