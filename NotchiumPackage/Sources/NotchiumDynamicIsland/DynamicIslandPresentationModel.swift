@@ -127,6 +127,7 @@ public final class DynamicIslandPresentationModel {
     public var quickActionsRenderer: (any NotchQuickActionsRendering)?
     public var shelfRenderer: (any NotchShelfRendering)?
     public var pomodoroRenderer: (any NotchPomodoroRendering)?
+    public var teleprompterRenderer: (any NotchTeleprompterRendering)?
     public var clipboardRenderer: (any NotchClipboardRendering)?
     public var cameraController: (any NotchCameraControlling)?
     public var audioHUD: NotchAudioHUD? {
@@ -165,7 +166,15 @@ public final class DynamicIslandPresentationModel {
         return pageModel.selectedPage == .music
     }
     private var activityRevision = 0
+    private var pageLayoutRevision = 0
     @ObservationIgnored private var activityObservation: AnyCancellable?
+
+    /// The legacy ObservableObject page owner commits selections before updating
+    /// this observation bridge, so native panel hit regions follow page resizing.
+    public var expandedContentSize: CGSize {
+        _ = pageLayoutRevision
+        return ExpandedNotchLayout.size(for: pageModel.selectedPage)
+    }
 
     /// The sole presentation decision; Stage 2 phase remains manual interaction state.
     public var presentationState: NotchPresentationState {
@@ -219,7 +228,9 @@ public final class DynamicIslandPresentationModel {
         pageModel = NotchPageModel()
         if phase.visualState != .collapsed { pageModel.beginExpansion(default: .home) }
         pageModel.onSelectionChanged = { [weak self] in
-            guard let camera = self?.cameraController, camera.isPreviewPresented else { return }
+            guard let self else { return }
+            self.pageLayoutRevision &+= 1
+            guard let camera = self.cameraController, camera.isPreviewPresented else { return }
             camera.closePreview()
         }
         activityObservation = self.activityCoordinator.presentationDidResolve
@@ -323,7 +334,16 @@ public final class DynamicIslandPresentationModel {
 
     /// Pinned and held sessions close on a click outside the shell; a hovered one follows the pointer.
     var collapsesOnOutsideClick: Bool {
-        visualState == .expanded || isHeldAfterSystemPresentation
+        // Reading also owns microphone consent/model preparation. Clicking Allow or
+        // returning to the meeting must not dismiss the reader and cancel capture.
+        if pageModel.selectedPage == .teleprompter, teleprompterRenderer?.isReading == true { return false }
+        return visualState == .expanded || isHeldAfterSystemPresentation
+    }
+
+    public func prepareForTeleprompterReading() {
+        guard pageModel.enabledPages.contains(.teleprompter) else { return }
+        present(.expanded)
+        pageModel.selectedPage = .teleprompter
     }
 
     public func collapse() {
@@ -388,10 +408,13 @@ public final class DynamicIslandPresentationModel {
         pageModel.endExpansion()
         phase = .collapsed
         cameraController?.setPreviewVisible(false, source: cameraPresentationSource)
+        teleprompterRenderer?.setReadingVisible(false, source: cameraPresentationSource)
     }
 
     /// Renderers reference the existing feature models; navigation and interaction stay local.
     func useRenderers(from model: DynamicIslandPresentationModel) {
+        pageModel.enabledPages = model.pageModel.enabledPages
+        pageModel.defaultPage = model.pageModel.defaultPage
         mediaRenderer = model.mediaRenderer
         calendarRenderer = model.calendarRenderer
         audioRenderer = model.audioRenderer
@@ -399,6 +422,7 @@ public final class DynamicIslandPresentationModel {
         quickActionsRenderer = model.quickActionsRenderer
         shelfRenderer = model.shelfRenderer
         pomodoroRenderer = model.pomodoroRenderer
+        teleprompterRenderer = model.teleprompterRenderer
         clipboardRenderer = model.clipboardRenderer
         cameraController = model.cameraController
     }
@@ -478,6 +502,7 @@ public final class DynamicIslandPresentationModel {
         case .audio: pageModel.selectedPage = .audio
         case .shelf: pageModel.selectedPage = .shelf
         case .pomodoro: pageModel.selectedPage = .pomodoro
+        case .teleprompter: pageModel.selectedPage = .teleprompter
         }
     }
 
