@@ -8,6 +8,7 @@ public enum FeatureFlag: String, CaseIterable, Hashable, Sendable {
     case clipboard
     case activities
     case focus
+    case teleprompter
 }
 
 public struct FeatureFlags: Equatable, Sendable {
@@ -29,6 +30,7 @@ public struct FeatureFlags: Equatable, Sendable {
         .caffeine: true,
         .activities: true,
         .shelf: true,
+        .teleprompter: true,
     ])
 
     /// Adds Clipboard history, the Camera mirror, macOS Focus awareness and the Focus Timer (Stages 16–19).
@@ -42,5 +44,6 @@ public struct FeatureFlags: Equatable, Sendable {
         .clipboard: true,
         .camera: true,
         .focus: true,
+        .teleprompter: true,
     ])
 }
