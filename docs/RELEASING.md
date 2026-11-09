@@ -16,8 +16,8 @@ without paid CI, certificates, provisioning, notarization, hosting, or an update
 | Hardened Runtime / Sandbox | Both NO in effective Release settings |
 | Entitlements | Keychain access group using a provisioned prefix, calendar, camera |
 | Capabilities | Focus communication entitlement absent; public Focus adapter reports unavailable |
-| Usage descriptions | Camera, Calendar full access, Reminders full access, system audio, Focus |
-| Embedded code | Team-authenticated closed-lid launch daemon; no app extensions or external package dependencies |
+| Usage descriptions | Camera, Calendar full access, Reminders full access, system audio, microphone (Teleprompter voice modes only, on explicit Start), Focus |
+| Embedded code | Ad-hoc closed-lid launch daemon (`NotchiumLidAwake` + its exact launchd job; identifier-and-bundle peer check, see LID_AWAKE.md); no app extensions or external package dependencies |
 | Resources | App icon assets and SwiftPM media asset bundle |
 | Release/debug information | Release config; DWARF; developer UI and launch fixtures guarded by DEBUG |
 
@@ -49,7 +49,7 @@ runtime out of Release. Developer fixtures and local paths must pass the byte sc
 | `com.apple.security.personal-information.calendars` | Sandbox entitlement unnecessary in this non-sandboxed, non-hardened build; Calendar TCC and usage string still required. |
 | `com.apple.security.device.camera` | Unnecessary with this runtime policy; Camera TCC and usage string still required. |
 | Communication Notifications / Focus | Provisioning-dependent, absent; preserve existing “Unavailable in this build” behavior. |
-| Apple-anchored closed-lid XPC identity | Release blocker if bundled: app/helper require a matching Apple-trusted team signature. Free build omits daemon and disables only its controls. Requirements are never weakened. Ordinary Caffeine is preserved. |
+| Closed-lid XPC identity | Developer ID builds keep the Apple-anchored team requirement. The free build (owner decision, November 8, 2026) bundles the daemon ad-hoc and verifies its peer by identifier plus containing bundle; the verb-only lease interface is unchanged. `verify-release.py` admits exactly this one helper and launchd job. |
 | App Store entitlement file | Not used. Sandbox, network, file/bookmark entitlements describe a separate future edition. |
 
 The free Swift condition must reach **all SwiftPM modules**, not just the app
@@ -180,7 +180,9 @@ Record candidate SHA-256, macOS version, CPU, account freshness, and outcomes:
 6. Check Home shortcuts, local Spotify controls and paused seeking, Shelf import/export/share/AirDrop,
    opt-in Clipboard save/relaunch, Pomodoro, ordinary Caffeine, volume HUD,
    a screenshot activity, and one real download including Done/Stopped.
-7. Confirm Focus and closed-lid mode are unavailable without administrator prompts.
+7. Confirm Focus is unavailable. Turn Caffeine on: approve the helper once in Login Items &
+   Extensions, wait a few seconds, confirm `pmset -g | grep SleepDisabled` reads 1, close the
+   lid, then confirm it reads 0 after Caffeine is turned off and after a timed session expires.
 8. Check saved settings after relaunch, fullscreen/display switching, accessibility,
    Reduce Motion, and the representative Stage 22/23 lifecycle regressions.
 9. Verify macOS 26 on available hardware. macOS 27-only testing is insufficient
