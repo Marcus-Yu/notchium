@@ -14,10 +14,15 @@ struct CalendarUpcomingEventRow: View {
         ZStack(alignment: .bottomTrailing) {
             Button(action: toggle) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(event.title)
-                        .font(.system(size: 12, weight: .medium))
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Circle().fill(event.calendarColor.swiftUIColor).frame(width: 6, height: 6)
+                            .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
+                            .accessibilityHidden(true)
+                        Text(event.title)
+                            .font(.system(size: 12, weight: .medium))
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     Text(CalendarEventText.timeRange(event, includesDay: true))
                         .font(.system(size: 10.5))
                         .foregroundStyle(.white.opacity(0.55))
