@@ -29,5 +29,7 @@ public enum FeatureCatalog {
         ActivitiesFeature.descriptor,
         PagesFeature.descriptor,
         FocusFeature.descriptor,
+        FeatureDescriptor(id: .teleprompter, name: "Teleprompter",
+                          summary: "Local scripts and on-device speech following near your camera."),
     ]
 }
