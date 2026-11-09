@@ -1,3 +1,4 @@
+import NotchiumDesignSystem
 import NotchiumCore
 import SwiftUI
 
@@ -92,7 +93,7 @@ struct CaffeineShortcutLabel: View {
 
     var body: some View {
         NotchUtilityLabel(symbol: "cup.and.saucer.fill", isHovered: isHovered,
-                          foreground: isActive ? activeColor : nil)
+                          isSelected: isActive, tint: activeColor)
             .symbolRenderingMode(.monochrome)
             .overlay(alignment: .bottomTrailing) {
                 if isActive && differentiateWithoutColor {
