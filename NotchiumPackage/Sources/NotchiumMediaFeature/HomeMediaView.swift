@@ -85,7 +85,7 @@ struct HomeMediaView: View {
         let isAvailable = enabled && !model.isPending(command)
         return Button { model.send(command) } label: {
             Image(systemName: symbol).font(.system(size: command == .playPause ? 15 : 12, weight: .semibold))
-                .contentTransition(.opacity)
+                .contentTransition(reduceMotion ? .opacity : .symbolEffect(.replace))
                 .frame(width: 34, height: 32).contentShape(Rectangle())
         }
         .buttonStyle(MediaControlButtonStyle())
