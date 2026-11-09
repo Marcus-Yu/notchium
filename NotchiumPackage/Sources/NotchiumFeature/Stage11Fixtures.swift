@@ -49,9 +49,23 @@ extension NotchiumApplicationController {
             services = .mock(media: RealMediaProvider(controller: .init(
                 executor: SettingsFixtureScriptExecutor(), application: SettingsFixtureSpotifyApplication())))
         } else { services = .mock() }
+        let voiceFixture = CommandLine.arguments.contains("--notchium-teleprompter-voice-fixture")
+        let declarationOpening = "In Congress, July 4, 1776. The unanimous Declaration of the thirteen united States of America. When in the Course of human events, it becomes necessary for one people to dissolve the political bands which have connected them with another. And to assume among the powers of the earth the separate and equal station to which the Laws of Nature entitle them."
+        let fixtureSpeech = MockTeleprompterSpeechService(events: voiceFixture ? [
+            .inputDevice(name: "Fixture built-in microphone"), .ready, .audioLevel(0.02),
+            .transcript(text: "In Congress, July 4th, 1776, the unanimous declaration of the 13 United States of America", audioStart: 0, audioEnd: 6, isFinal: false)
+        ] : [.ready], microphones: voiceFixture ? [
+            .init(id: "fixture-built-in", name: "Fixture built-in microphone", isDefault: true),
+            .init(id: "fixture-headset", name: "Fixture headset", isDefault: false)
+        ] : [])
+        let scriptStore = MockTeleprompterScriptStore(scripts: voiceFixture ? [
+            .init(id: UUID(uuidString: "00000000-0000-0000-0000-0000000000A1")!,
+                  title: "Declaration voice fixture", text: declarationOpening)
+        ] : [])
         let controller = NotchiumApplicationController(environment: .mock(clock: ContinuousAppClock(), services: services,
             featureFlags: qualityFixture ? .stageNineteenUtilities : .stageFifteenFiles),
-            reminderService: reminders, shortcutService: MockShortcutService(shortcuts: [shortcut]), actionStore: store)
+            reminderService: reminders, shortcutService: MockShortcutService(shortcuts: [shortcut]), actionStore: store,
+            teleprompterSpeech: fixtureSpeech, teleprompterStore: scriptStore)
         if nativeFiles { controller.filesModel.shelf.add([nativeFile]) }
         return controller
     }
