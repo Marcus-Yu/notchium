@@ -2,15 +2,22 @@ import SwiftUI
 import NotchiumDesignSystem
 
 enum NotchMotion {
-    // Symmetric, lightly damped motion requested for the black shell only.
-    static let shell = Animation.interactiveSpring(response: 0.40, dampingFraction: 0.80, blendDuration: 0)
+    /// Dynamic Island opening: the black shape flows out of the notch with a small (~4%)
+    /// overshoot, and the content blooms in on the same spring.
+    static let shellOpen = Animation.interactiveSpring(response: 0.42, dampingFraction: 0.72, blendDuration: 0)
+    /// Closing settles into the hardware without bouncing past it.
+    static let shellClose = Animation.interactiveSpring(response: 0.36, dampingFraction: 0.94, blendDuration: 0)
 
+    static func shell(opening: Bool) -> Animation { opening ? shellOpen : shellClose }
+
+    /// Interaction-state timing only; the visual spring is independent of it.
     static func duration(opening: Bool) -> Duration { .milliseconds(400) }
 
     static let notificationIn = Animation.interactiveSpring(response: 0.26, dampingFraction: 1.0, blendDuration: 0)
     static let notificationOut = Animation.interactiveSpring(response: 0.20, dampingFraction: 1.0, blendDuration: 0)
     static let notificationContent = Animation.easeOut(duration: 0.10)
     static let page = Animation.interactiveSpring(response: 0.20, dampingFraction: 1.0, blendDuration: 0)
+    static let pageResize = Animation.smooth(duration: 0.30)
 
     static let reduced = Animation.easeOut(duration: 0.12)
 }
@@ -208,23 +215,28 @@ private struct NotchShellOuterSurface: View {
                 }
                 .frame(width: compact ? compactGeometry.width : (surfaced ? notificationWidth : mediaGeometry.width),
                        alignment: .top)
+                // Before the offset: a mask applied afterwards stays at the un-offset layout frame
+                // and would crop the row beside an asymmetric (measured) hardware notch.
+                .modifier(NotchSurfaceGate())
                 .offset(x: layout.collapsedVisibleFrame.midX - layout.panelFrame.midX)
                 .zIndex(3)
 
                 NotchSecondaryActivityChip(model: model, layout: layout)
                     .modifier(CollapsedMediaPresentation(visible: phase == .collapsed))
+                    .modifier(NotchSurfaceGate())
                     .zIndex(4)
 
+                // Visibility follows the shell's bloom (applied per row inside the page view), so
+                // the page grows out of the notch with the spring instead of appearing at 75%.
                 shellContent
                 .frame(width: layout.expandedSize.width, height: layout.expandedSize.height, alignment: .top)
-                .modifier(NotchPresentationClip(visible: phase == .expanded))
                 .allowsHitTesting(model.surfaceState != .collapsed)
                 .accessibilityElement(children: model.surfaceState == .collapsed ? .ignore : .contain)
                 .accessibilityHidden(model.surfaceState == .collapsed)
                 .zIndex(10)
 
                 NotchExpandedMinorActivitySlot(model: model, layout: layout)
-                    .modifier(NotchPresentationClip(visible: phase == .expanded))
+                    .notchBloom(stage: 2)
                     .offset(y: layout.expandedSize.height)
                     .zIndex(11)
 
@@ -252,9 +264,11 @@ private struct NotchShellOuterSurface: View {
                            quickActions: model.quickActionsRenderer,
                            shelfRenderer: model.shelfRenderer,
                            pomodoroRenderer: model.pomodoroRenderer,
+                           teleprompterRenderer: model.teleprompterRenderer,
                            clipboardRenderer: model.clipboardRenderer,
                            camera: model.cameraController,
                            cameraPresentationSource: model.cameraPresentationSource,
+                           prepareForReading: model.prepareForTeleprompterReading,
                            close: model.collapse)
             .padding(.top, layout.collapsedVisibleFrame.height)
             .overlay(alignment: .bottom) {
@@ -265,6 +279,7 @@ private struct NotchShellOuterSurface: View {
                     UnifiedNotchNotificationContent(model: model, presentedExpanded: true)
                         .frame(height: NotchNotificationGeometry.contentHeight(for: .feedback))
                         .background(.black)
+                        .notchBloom(stage: 1)
                 }
             }
         }
@@ -286,7 +301,8 @@ private struct NotchFileDropAffordance: View {
                 .font(.system(size: 13, weight: .medium))
                 .contentTransition(.opacity)
         }
-        .foregroundStyle(.white.opacity(targeted ? 1 : 0.7))
+        // Armed, the drop target takes Shelf's color: the files have somewhere to go.
+        .foregroundStyle(targeted ? NotchPage.shelf.hue : .white.opacity(0.7))
         .scaleEffect(targeted && !reduceMotion ? 1.03 : 1)
         .animation(reduceMotion ? nil : .smooth(duration: 0.18), value: targeted)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
