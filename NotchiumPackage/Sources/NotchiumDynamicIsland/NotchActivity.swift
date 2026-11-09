@@ -72,6 +72,7 @@ public enum NotchActivityDestination: Equatable, Sendable {
     case audio
     case shelf
     case pomodoro
+    case teleprompter
 }
 
 public enum NotchActivityPayload: Equatable, Sendable {
