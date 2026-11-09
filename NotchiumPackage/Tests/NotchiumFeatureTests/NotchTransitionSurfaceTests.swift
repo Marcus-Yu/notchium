@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import XCTest
 @testable import NotchiumDynamicIsland
+import NotchiumDesignSystem
 
 @MainActor
 final class NotchTransitionSurfaceTests: XCTestCase {
@@ -57,7 +58,7 @@ final class NotchTransitionSurfaceTests: XCTestCase {
         }
     }
 
-    func testClosingStaysBlackBeforeLandingAcrossAllPageSizes() throws {
+    func testGatedContentStaysBlackBeforeLandingAcrossAllPageSizes() throws {
         // Sample at 60 Hz over a 0.4 s nominal morph. This is a raster invariant
         // test, not a live 60 fps recording or a frame-pacing measurement.
         for size in [CGSize(width: 524, height: 266), CGSize(width: 560, height: 302)] {
@@ -72,10 +73,11 @@ final class NotchTransitionSurfaceTests: XCTestCase {
                         centerX: 300, bottomRadius: 8 + 20 * progress,
                         passiveShape: NotchShape(width: 212, height: 38, centerX: 300,
                                                  topCornerRadius: 0, bottomCornerRadius: 8))
-                    let image = try render(NotchSurfaceFrame(shape: shape, phase: .closingBlack, expandedHeight: 38) { _ in
-                        // Bright content covering the entire host catches any leak,
-                        // regardless of which page, media or utility is mounted.
-                        Rectangle().fill(.red)
+                    let image = try render(NotchSurfaceFrame(shape: shape, phase: .closingBlack, expandedHeight: 38,
+                                                             openHeight: size.height) { _ in
+                        // Bright content covering the entire host catches any leak from the
+                        // collapsed row, compact activities or indicators (everything gated).
+                        Rectangle().fill(.red).modifier(NotchSurfaceGate())
                     }.frame(width: 600, height: 322))
                     let data = pixels(image)
                     XCTAssertEqual(data[(10 * image.width + 300) * 4 + 3], 255)
@@ -89,7 +91,7 @@ final class NotchTransitionSurfaceTests: XCTestCase {
         }
     }
 
-    func testOpeningRevealsAt75PercentWithFullSizeClippedContent() throws {
+    func testGatedContentOpensAt75PercentWithFullSizeClippedContent() throws {
         for height: CGFloat in [266, 302] {
             for progress: CGFloat in [0, 0.74, 0.75, 0.85, 1] {
                 let shape = NotchShellSurface(
@@ -105,6 +107,8 @@ final class NotchTransitionSurfaceTests: XCTestCase {
                         Rectangle().fill(.blue).frame(width: 100, height: 10).offset(y: height - 12)
                     }
                     .frame(width: 400, height: height)
+                    // Gated content keeps the binary 75% reveal; the page itself blooms instead.
+                    .modifier(NotchSurfaceGate())
                 }
                 XCTAssertEqual(surface.contentPhase, progress >= 0.75 ? .expanded : .openingBlack)
                 let image = try render(surface)
@@ -126,6 +130,63 @@ final class NotchTransitionSurfaceTests: XCTestCase {
                 XCTAssertEqual(reversing.contentPhase, .closingBlack)
             }
         }
+    }
+
+    func testBloomStagesAreMonotonicAndClosingDissolvesEarly() {
+        let samples = stride(from: 0.0, through: 1.0, by: 0.05).map { CGFloat($0) }
+        for closing in [false, true] {
+            for stage in 0...2 {
+                let amounts = samples.map { NotchBloomProgress(progress: $0, closing: closing).amount(stage: stage) }
+                XCTAssertEqual(amounts.first, 0)
+                XCTAssertEqual(amounts.last, 1)
+                XCTAssertEqual(amounts, amounts.sorted(), "Stage \(stage) must never flicker backwards")
+            }
+        }
+        // The header leads the page while opening; nothing lingers through the second half of a close.
+        let opening = NotchBloomProgress(progress: 0.5, closing: false)
+        XCTAssertGreaterThan(opening.amount(stage: 0), opening.amount(stage: 1))
+        XCTAssertEqual(NotchBloomProgress(progress: 0.49, closing: true).amount(stage: 0), 0)
+        XCTAssertEqual(NotchBloomProgress.settled.amount(stage: 2), 1)
+    }
+
+    func testExpandedContentBloomsWithTheShellAndDissolvesWhileClosing() throws {
+        let passive = NotchShape(width: 212, height: 38, centerX: 200, topCornerRadius: 0, bottomCornerRadius: 8)
+        func surface(_ progress: CGFloat, closing: Bool) -> NotchSurfaceFrame<some View> {
+            NotchSurfaceFrame(
+                shape: NotchShellSurface(width: 400, height: 38 + (266 - 38) * progress, centerX: 200,
+                                         bottomRadius: 20, passiveShape: passive),
+                phase: closing ? .closingBlack : .openingBlack,
+                expandedHeight: closing ? 38 : 266, openHeight: 266
+            ) { _ in
+                Rectangle().fill(.red).frame(width: 120, height: 60)
+                    .frame(width: 400, height: 266).notchBloom(stage: 1)
+            }
+        }
+        func red(_ progress: CGFloat, closing: Bool) throws -> UInt8 {
+            let frame = surface(progress, closing: closing)
+            XCTAssertEqual(frame.bloom.progress, progress, accuracy: 0.001)
+            XCTAssertEqual(frame.bloom.closing, closing)
+            let image = try render(frame)
+            return pixels(image)[(133 * image.width + 200) * 4]
+        }
+        // Opening: absent at the notch, partially bloomed mid-spring, fully present near the end.
+        XCTAssertEqual(try red(0.3, closing: false), 0)
+        let midway = try red(0.62, closing: false)
+        XCTAssertGreaterThan(midway, 0)
+        XCTAssertLessThan(midway, 255)
+        XCTAssertEqual(try red(0.95, closing: false), 255)
+        // Interaction still waits for the established 75% threshold.
+        XCTAssertEqual(surface(0.62, closing: false).contentPhase, .openingBlack)
+        // Closing: still present as the shell starts to contract, gone before it is half way down.
+        XCTAssertEqual(try red(1, closing: true), 255)
+        let dissolving = try red(0.7, closing: true)
+        XCTAssertGreaterThan(dissolving, 0)
+        XCTAssertLessThan(dissolving, 255)
+        XCTAssertEqual(try red(0.45, closing: true), 0)
+        // A notification reveal never shows the expanded page.
+        var notification = surface(0.8, closing: false)
+        notification.notificationVisible = true
+        XCTAssertEqual(notification.bloom, .hidden)
     }
 
     func testEndpointContentAppearsAtNormalSizeWithoutFade() throws {
