@@ -118,6 +118,8 @@ public struct MediaPageView: View {
         .padding(.top, ExpandedPageStyle.topInset)
         .padding(.bottom, ExpandedPageStyle.bottomInset)
         .foregroundStyle(.white)
+        .tint(model.musicAccent)
+        .animation(NotchMotionStyle.contentChange(reduceMotion: reduceMotion), value: model.accentColor)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("notchium.media.page")
         .task(id: isExpanded && isPageVisible) {
@@ -134,9 +136,12 @@ public struct MediaPageView: View {
             if showsProgress {
                 Image(systemName: "arrow.triangle.2.circlepath")
                     .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.tint)
+                    .symbolEffect(.rotate, options: .repeating, isActive: !reduceMotion)
             } else {
                 Image(systemName: "music.note")
                     .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.tint)
             }
             Text(title).font(.system(size: 15, weight: .semibold))
             Text(message)
@@ -235,21 +240,24 @@ public struct MediaPageView: View {
                          value: String? = nil) -> some View {
         let isAvailable = enabled && !(pending ?? model.isPending(command))
         let foregroundOpacity = isAvailable ? (active ? 1 : inactiveOpacity) : 0.45
+        let isPrimary = command == .playPause
         return Button {
             guard isAvailable else { return }
             model.send(command)
         } label: {
             Image(systemName: symbol)
-                .contentTransition(.opacity)
-                .font(.system(size: command == .playPause ? 16 : 13, weight: .semibold))
+                .contentTransition(reduceMotion ? .opacity : .symbolEffect(.replace))
+                .font(.system(size: isPrimary ? 16 : 13, weight: .semibold))
+                .foregroundStyle(MediaTransportStyle.glyph(active: active, available: isAvailable,
+                                                           opacity: foregroundOpacity))
                 .frame(width: ExpandedPageStyle.controlSize, height: ExpandedPageStyle.controlSize)
-                .background(.white.opacity(command == .playPause ? 0.18 : (active ? 0.10 : 0)), in: .circle)
+                .background { MediaTransportStyle.Disc(primary: isPrimary, active: active) }
                 .overlay(alignment: .bottom) {
-                    if active { Circle().fill(.white).frame(width: 3, height: 3) }
+                    // Shape as well as color: the dot marks an active mode without relying on hue.
+                    if active { Circle().fill(.tint).frame(width: 3, height: 3) }
                 }
                 .contentShape(.circle)
         }
-            .foregroundStyle(.white.opacity(foregroundOpacity))
             .disabled(!isAvailable)
             .animation(NotchMotionStyle.feedback(reduceMotion: reduceMotion), value: symbol)
             .animation(NotchMotionStyle.feedback(reduceMotion: reduceMotion), value: active)
@@ -317,6 +325,8 @@ private struct SpotifyVolumeControl: View {
                 .accessibilityHidden(true)
         }
         .frame(height: MusicPlayerSpacing.outputRowHeight)
+        // Volume is secondary to playback position, which carries the accent.
+        .tint(.white)
         .onAppear { syncVolume() }
         .onChange(of: model.state.volumePercent) { _, _ in
             if !isAdjustingVolume { syncVolume() }
