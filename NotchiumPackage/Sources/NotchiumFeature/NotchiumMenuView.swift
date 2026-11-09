@@ -19,6 +19,9 @@ public struct NotchiumMenuView: View {
                 Button("Resume Notchium Setup…") { controller.showOnboarding() }
             } else {
             Button("Open Notchium") { controller.displayCoordinator.openForKeyboard() }
+            if controller.environment.featureFlags[.teleprompter] {
+                Button("Teleprompter Scripts…") { controller.showTeleprompterEditor() }
+            }
 
             Button {
                 NSApp.activate(ignoringOtherApps: true)
