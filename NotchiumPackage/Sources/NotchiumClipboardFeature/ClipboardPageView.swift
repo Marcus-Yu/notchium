@@ -99,7 +99,7 @@ struct ClipboardPageView: View {
         VStack(spacing: 6) {
             Image(systemName: model.query.isEmpty ? "doc.on.clipboard" : "magnifyingglass")
                 .font(.system(size: 18, weight: .light))
-                .foregroundStyle(.white.opacity(0.4))
+                .foregroundStyle(.tint)
             Text(model.query.isEmpty
                  ? (model.captureEnabled ? "Copied text, links, images and files appear here."
                     : "Clipboard history is off. Enable it in Settings → Clipboard.")
@@ -152,8 +152,8 @@ private struct ClipboardRow: View {
                     Spacer(minLength: 6)
                     if !isHovered && !isSelected {
                         Text(copied ? "Copied" : item.capturedAt.formatted(.relative(presentation: .numeric, unitsStyle: .narrow)))
-                            .font(.system(size: 10).monospacedDigit())
-                            .foregroundStyle(.white.opacity(copied ? 0.85 : 0.4))
+                            .font(.system(size: 10, weight: copied ? .semibold : .regular).monospacedDigit())
+                            .foregroundStyle(copied ? AnyShapeStyle(NotchStatusColor.success) : AnyShapeStyle(.white.opacity(0.4)))
                             .lineLimit(1)
                     }
                 }
@@ -177,13 +177,14 @@ private struct ClipboardRow: View {
                 ClipboardIconButton(symbol: "xmark", compact: true, label: "Delete", action: delete)
             } else {
                 if item.isPinned {
-                    Image(systemName: "pin.fill").font(.system(size: 9)).foregroundStyle(.white.opacity(0.5))
+                    Image(systemName: "pin.fill").font(.system(size: 9)).foregroundStyle(.tint)
                 }
             }
         }
         .padding(.horizontal, 8)
         .frame(height: 26)
-        .background(.white.opacity(isSelected ? 0.12 : (isHovered ? 0.07 : 0)),
+        .background(isSelected ? AnyShapeStyle(.tint.opacity(NotchPalette.selectionFillOpacity))
+                    : AnyShapeStyle(.white.opacity(isHovered ? 0.07 : 0)),
                     in: .rect(cornerRadius: ExpandedPageStyle.selectionRadius, style: .continuous))
         .contentShape(.rect)
         .onHover { isHovered = $0 }
@@ -202,6 +203,7 @@ private struct ClipboardItemIcon: View {
             if copied {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(NotchStatusColor.success)
                     .transition(reduceMotion ? .opacity : .scale(scale: 0.6).combined(with: .opacity))
             } else {
                 content
