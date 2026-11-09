@@ -97,7 +97,8 @@ public final class TransferActivityModel {
             presentationStyle: .compact,
             content: .compact(.init(glyph: .symbol(primary.operation.symbol),
                                     title: "\(primary.operation.verb) \(primary.displayName)",
-                                    showsTitle: false, trailing: .progress(primary.fraction, label: label))),
+                                    showsTitle: false, trailing: .progress(primary.fraction, label: label),
+                                    tint: .transfer)),
             lifetime: .persistent, minimal: .progress(primary.fraction))
     }
 
@@ -107,7 +108,7 @@ public final class TransferActivityModel {
         let completed = results.allSatisfy { $0 == .completed }
         let (symbol, text, tint, title): (String, String, NotchCompactActivity.Tint, String) =
             failed ? ("exclamationmark.circle.fill", "Failed", .warning, "Transfer failed")
-            : completed ? ("checkmark.circle.fill", "Done", .primary, "Transfer complete")
+            : completed ? ("checkmark.circle.fill", "Done", .success, "Transfer complete")
             : ("xmark.circle.fill", "Stopped", .muted, "Transfer stopped")
         return NotchNotification(
             kind: failed ? .transferFailed : .transferFinished, coalescingKey: key, action: .shelf,
