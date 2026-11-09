@@ -48,7 +48,8 @@ final class NotchDisplaySession {
             hide()
             return
         }
-        let layout = NotchGeometryResolver.layout(for: placement, state: model.surfaceState)
+        let layout = NotchGeometryResolver.layout(for: placement, state: model.surfaceState,
+                                                 expandedSize: model.expandedContentSize)
         guard force || layout != lastLayout || placement != lastPlacement || configuration != lastConfiguration else { return }
         lastLayout = layout
         lastPlacement = placement
@@ -89,6 +90,7 @@ final class NotchDisplaySession {
             _ = model.phase
             _ = model.reduceMotion
             _ = model.isAuxiliaryInteractionPresented
+            _ = model.expandedContentSize
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self, self.observing, generation == self.observationGeneration else { return }
