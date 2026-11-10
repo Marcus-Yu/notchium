@@ -113,8 +113,9 @@ approval is requested in the free build. See [the permission contract](docs/PERM
 - **Closed-lid keep-awake:** Caffeine keeps the Mac awake with the lid closed after a one-time
   administrator approval of its bundled helper (Login Items & Extensions). Normal sleep returns when
   Caffeine turns off or its timer ends. The free build's helper verifies the app by identifier and
-  bundle location rather than a paid developer signature; see docs/LID_AWAKE.md. It disables all
-  system sleep while active, including manual Sleep, so keep the Mac ventilated.
+  bundle location. The built-in display turns off when the lid closes. The helper disables all
+  system sleep while active, including manual Sleep, so keep the Mac ventilated. If you are
+  switching from a Developer ID build, [remove its old helper first](docs/LID_AWAKE.md#switching-signing-profiles-on-the-same-mac).
 - **Keychain upgrades:** Ad-hoc releases may require Keychain approval again after
   an update. Older development histories may use a different Keychain backend.
   Recovery authenticates the existing history before copying the same original key

@@ -7,6 +7,23 @@ trust model* below). The Developer ID build keeps its Apple-anchored requirement
 
 Ordinary Caffeine uses public idle-sleep assertions; those do not override lid-close sleep. In the direct-download app, clicking Caffeine turns its shortcut orange and keeps the Mac and display awake indefinitely; the native right-click menu offers 15/30/60/120 minutes. Activation also requests the existing separate `SMAppService` launch daemon. First-time administrator approval in Login Items & Extensions is required: the app opens those settings, and the Caffeine menu offers an approval shortcut while pending. Approval is detected automatically (checked every 2 seconds for up to 10 minutes) and, if Caffeine is still on, the lease starts without toggling it again. A never-registered daemon can report `.notFound` instead of `.notRegistered`; both trigger registration, and the resulting status (not a thrown registration error) decides between ready, pending approval and failure. Settings → Closed-lid keep-awake also remains available. The helper defaults inactive at launch and is never registered by mocked services. Turning Caffeine off, timed expiry, or app shutdown releases the lease. The built-in panel still turns off when the lid closes.
 
+## Switching signing profiles on the same Mac
+
+The closed-lid daemon is registered system-wide. A fresh macOS user account
+still shares the registration from a previously installed copy of Notchium.
+A Developer ID registration pins the original signing team and can reject the
+free build even after the app in Applications has been replaced.
+
+Before switching between Developer ID and free builds, turn Caffeine off in
+the old copy. In that copy, use **Settings → Caffeine → Remove Closed-Lid
+Helper** and wait for confirmation. Then quit the old app, install the new
+build, and turn Caffeine on to register and approve its helper.
+
+To verify closed-lid keep-awake, wait for the app to report that it is active
+and confirm that `pmset -g` shows `SleepDisabled 1`. Close the lid and verify
+that the Mac continues a task. The built-in display turns off. Turn Caffeine
+off and confirm that `SleepDisabled` returns to `0`.
+
 ## Privilege boundary
 
 The bundled daemon is signed as `com.marcusyu.notchium.lid-awake`. In the Developer ID build, both XPC endpoints enforce Apple-anchored signing requirements with team `ZU27M973HX` and their exact peer identifier. Its interface accepts only renewal and release, with no caller-provided command, path, timeout, or executable. Signing-team changes must update `LidAwakeIdentity` and the Xcode signing configuration together.

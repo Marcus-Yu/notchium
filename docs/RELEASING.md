@@ -186,9 +186,13 @@ Record candidate SHA-256, macOS version, CPU, account freshness, and outcomes:
 6. Check Home shortcuts, local Spotify controls and paused seeking, Shelf import/export/share/AirDrop,
    opt-in Clipboard save/relaunch, Pomodoro, ordinary Caffeine, volume HUD,
    a screenshot activity, and one real download including Done/Stopped.
-7. Confirm Focus is unavailable. Turn Caffeine on: approve the helper once in Login Items &
-   Extensions, wait a few seconds, confirm `pmset -g | grep SleepDisabled` reads 1, close the
-   lid, then confirm it reads 0 after Caffeine is turned off and after a timed session expires.
+7. Confirm Focus is unavailable. On a Mac previously used for a signed build,
+   [remove its system-wide helper](LID_AWAKE.md#switching-signing-profiles-on-the-same-mac)
+   before testing the free build. Turn Caffeine on, approve its helper in Login Items &
+   Extensions, and wait for it to report that closed-lid keep-awake is active. Confirm
+   `pmset -g | grep SleepDisabled` reads 1 and a task keeps running with the lid closed.
+   The built-in display turns off. Confirm `SleepDisabled` returns to 0 after Caffeine
+   is turned off and after a timed session expires.
 8. Check saved settings after relaunch, fullscreen/display switching, accessibility,
    Reduce Motion, and the representative Stage 22/23 lifecycle regressions.
 9. Verify macOS 26 on available hardware. macOS 27-only testing is insufficient
