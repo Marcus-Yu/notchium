@@ -4,8 +4,9 @@ Notchium brings media, everyday tools, and live activities to your Mac's notch.
 
 ## Download
 
-Get packaged builds from the official [GitHub Releases](https://github.com/Marcus-Yu/notchium/releases).
-The first public release is being prepared; local preview artifacts are for validation only.
+**[Download Notchium 1.0.1 (DMG)](https://github.com/Marcus-Yu/notchium/releases/download/v1.0.1/Notchium-1.0.1.dmg)**
+
+Build 5 is a prerelease for Apple silicon Macs. See the [release notes and checksum](https://github.com/Marcus-Yu/notchium/releases/tag/v1.0.1).
 
 ## Features
 
@@ -26,7 +27,7 @@ The first public release is being prepared; local preview artifacts are for vali
 
 ## Installation
 
-1. Download `Notchium-1.0.0.dmg` from the official release.
+1. Download the [Notchium DMG](#download) above.
 2. Open the disk image and drag **Notchium** to **Applications**.
 3. Eject the disk image and open Notchium from Applications.
 
