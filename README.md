@@ -4,9 +4,9 @@ Notchium brings media, everyday tools, and live activities to your Mac's notch.
 
 ## Download
 
-**[Download Notchium 1.0.1 (DMG)](https://github.com/Marcus-Yu/notchium/releases/download/v1.0.1/Notchium-1.0.1.dmg)**
+**[Download Notchium 1.0.2 (DMG)](https://github.com/Marcus-Yu/notchium/releases/download/v1.0.2/Notchium-1.0.2.dmg)**
 
-Build 5 is a prerelease for Apple silicon Macs. See the [release notes and checksum](https://github.com/Marcus-Yu/notchium/releases/tag/v1.0.1).
+Build 6 is a prerelease for Apple silicon Macs. See the [release notes and checksum](https://github.com/Marcus-Yu/notchium/releases/tag/v1.0.2).
 
 ## Features
 
