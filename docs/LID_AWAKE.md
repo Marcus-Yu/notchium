@@ -11,10 +11,14 @@ Ordinary Caffeine uses public idle-sleep assertions; those do not override lid-c
 
 The closed-lid daemon is registered system-wide. A fresh macOS user account
 still shares the registration from a previously installed copy of Notchium.
-A Developer ID registration pins the original signing team and can reject the
-free build even after the app in Applications has been replaced.
+An Apple-signed development or Developer ID registration can pin the original
+signing team and reject the free build after the app in Applications has been
+replaced. On the macOS 27.0.1 release test Mac, removing the previous service
+did not resolve the failure. Registration recreated a job with the previous
+signing requirement, and macOS rejected the ad-hoc helper at launch. Treat
+the free helper as unqualified until a clean-Mac test passes.
 
-Before switching between Developer ID and free builds, turn Caffeine off in
+Before switching between Apple-signed and free builds, turn Caffeine off in
 the old copy. In that copy, use **Settings → Caffeine → Remove Closed-Lid
 Helper** and wait for confirmation. Then quit the old app, install the new
 build, and turn Caffeine on to register and approve its helper.
