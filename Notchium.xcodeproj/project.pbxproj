@@ -234,12 +234,13 @@
 				"$(SRCROOT)/Helpers/LidAwake/main.swift",
 				"$(SRCROOT)/Helpers/LidAwake/PowerOverride.swift",
 				"$(SRCROOT)/Helpers/LidAwake/com.marcusyu.notchium.lid-awake.plist",
+				"$(SRCROOT)/Helpers/LidAwake/com.marcusyu.notchium.lid-awake-free.plist",
 				"$(SRCROOT)/NotchiumPackage/Sources/NotchiumServices/LidAwakeProtocol.swift",
 			);
 			name = "Build Lid Awake Helper";
 			outputPaths = (
 				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/HelperTools/NotchiumLidAwake",
-				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LaunchDaemons/com.marcusyu.notchium.lid-awake.plist",
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LaunchDaemons/$(NOTCHIUM_LID_AWAKE_LABEL).plist",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;

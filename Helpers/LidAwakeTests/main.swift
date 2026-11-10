@@ -23,25 +23,30 @@ let command: ([String]) throws -> String = { arguments in
 func expectFailure(_ work: () throws -> Void) {
     do { try work(); fatalError("Expected rejection") } catch { }
 }
-let power = makePower()
-try power.acquire()
-precondition(disabled && power.ownsOverride)
-try power.acquire()
+var power = makePower() as PowerOverride?
+try power!.acquire()
+precondition(disabled && power!.ownsOverride)
+try power!.acquire()
 precondition(writes == ["1"], "Renewal must not rewrite global settings")
-try power.restore()
-precondition(!disabled && !power.ownsOverride)
+try power!.restore()
+precondition(!disabled && !power!.ownsOverride)
 precondition(!FileManager.default.fileExists(atPath: journal.path))
 disabled = true
-expectFailure { try power.acquire() }
-precondition(disabled && !power.ownsOverride, "Do not take ownership from another app")
+expectFailure { try power!.acquire() }
+precondition(disabled && !power!.ownsOverride, "Do not take ownership from another app")
 disabled = false
 safe = false
-expectFailure { try power.acquire() }
+expectFailure { try power!.acquire() }
 precondition(!disabled)
 safe = true
-try power.acquire()
-// Simulate a helper crash/restart while the override is active.
+try power!.acquire()
 let restarted = makePower()
+// A second daemon must neither recover nor renew a live daemon's override.
+expectFailure { try restarted.recover() }
+expectFailure { try restarted.acquire() }
+precondition(disabled && power!.ownsOverride && !restarted.ownsOverride)
+// Simulate a crash closing the old process's lock while leaving its journal.
+power = nil
 try restarted.recover()
 precondition(!disabled && !restarted.ownsOverride)
 try restarted.acquire()
@@ -51,4 +56,4 @@ precondition(restarted.ownsOverride && FileManager.default.fileExists(atPath: jo
 failRestore = false
 try restarted.restore()
 precondition(!disabled)
-print("PASS: acquire, renewal, release, foreign ownership, safety cutoff, crash recovery, and restoration retry")
+print("PASS: acquire, renewal, release, foreign ownership, safety cutoff, concurrent daemon exclusion, crash recovery, and restoration retry")

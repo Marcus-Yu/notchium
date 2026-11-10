@@ -9,19 +9,16 @@ Ordinary Caffeine uses public idle-sleep assertions; those do not override lid-c
 
 ## Switching signing profiles on the same Mac
 
-The closed-lid daemon is registered system-wide. A fresh macOS user account
-still shares the registration from a previously installed copy of Notchium.
-An Apple-signed development or Developer ID registration can pin the original
-signing team and reject the free build after the app in Applications has been
-replaced. On the macOS 27.0.1 release test Mac, removing the previous service
-did not resolve the failure. Registration recreated a job with the previous
-signing requirement, and macOS rejected the ad-hoc helper at launch. Treat
-the free helper as unqualified until a clean-Mac test passes.
+The free build uses its own system-wide helper registration. macOS can pin a
+previous helper registration to an Apple signing team, which blocked the
+first free candidate on a Mac that had run the Xcode build. A separate macOS
+account still shares these registrations. The new free helper gets its own
+approval in Login Items & Extensions.
 
-Before switching between Apple-signed and free builds, turn Caffeine off in
-the old copy. In that copy, use **Settings → Caffeine → Remove Closed-Lid
-Helper** and wait for confirmation. Then quit the old app, install the new
-build, and turn Caffeine on to register and approve its helper.
+Before replacing an old build, turn Caffeine off. To remove the old helper,
+use **Settings → Caffeine → Remove Closed-Lid Helper** in the old copy and
+wait for confirmation, then quit it. The current free and signed helpers use
+the same lock and recovery journal, so only one can own the sleep override.
 
 To verify closed-lid keep-awake, wait for the app to report that it is active
 and confirm that `pmset -g` shows `SleepDisabled 1`. Close the lid and verify
@@ -30,7 +27,9 @@ off and confirm that `SleepDisabled` returns to `0`.
 
 ## Privilege boundary
 
-The bundled daemon is signed as `com.marcusyu.notchium.lid-awake`. In the Developer ID build, both XPC endpoints enforce Apple-anchored signing requirements with team `ZU27M973HX` and their exact peer identifier. Its interface accepts only renewal and release, with no caller-provided command, path, timeout, or executable. Signing-team changes must update `LidAwakeIdentity` and the Xcode signing configuration together.
+The signed build uses `com.marcusyu.notchium.lid-awake`; the free build uses
+`com.marcusyu.notchium.lid-awake-free`. Each name matches its launchd label,
+Mach service and code-signing identifier. In the Developer ID build, both XPC endpoints enforce Apple-anchored signing requirements with team `ZU27M973HX` and their exact peer identifier. Its interface accepts only renewal and release, with no caller-provided command, path, timeout, or executable. Signing-team changes must update `LidAwakeIdentity` and the Xcode signing configuration together.
 
 The daemon runs `/usr/bin/pmset -a disablesleep 1` and verifies `SleepDisabled` before reporting success. This is a system-wide setting, **including manual Sleep**, not a public idle assertion or guaranteed cross-version clamshell API. Physical testing is required on each supported macOS/hardware combination. No privileged operation is performed by a SwiftUI view, shell interpolation, password capture, sudoers change, or private kernel API.
 
@@ -52,6 +51,7 @@ other setting.
 ## Recovery
 
 - One XPC connection owns the override. Other sessions cannot renew or release it.
+  A root-owned file lock also excludes the other distribution profile until restoration finishes.
 - The app renews every 5 seconds. The helper checks a 15-second monotonic deadline every second.
 - Client disconnect, lease expiration, battery at or below 15% while on battery power, or serious/critical thermal pressure releases the override.
 - Before mutation, a root-owned journal at `/var/db/com.marcusyu.notchium.lid-awake` records ownership. Existing `SleepDisabled=1` from another utility is rejected; Notchium does not take ownership of it.
@@ -67,6 +67,6 @@ The app shows active only after a successful helper reply. Losing helper connect
 
 The app's build phase compiles the daemon with Swift 6 and strict concurrency for each requested architecture, embeds it in `Contents/Library/HelperTools`, installs its plist in `Contents/Library/LaunchDaemons`, and signs it with the app's identity (ad-hoc, without Hardened Runtime, in the free build). The build phase omits the helper for `NOTCH_APP_STORE`. `release.sh` builds with signing disabled, then seals the helper ad-hoc with its fixed identifier before the app. `verify-release.py` requires exactly this helper and launchd job (exact plist equality, identifier, ad-hoc signature, system-only links) and fails on any other privileged component.
 
-`Helpers/LidAwakeTests/main.swift` tests the power adapter with an injected fake command runner and a temporary journal; it never changes system settings or requires root. Scenarios: acquire, idempotent renewal, release, foreign ownership rejection, unsafe-condition rejection, crash recovery, and failed restoration followed by retry.
+`Helpers/LidAwakeTests/main.swift` tests the power adapter with an injected fake command runner and a temporary journal; it never changes system settings or requires root. Scenarios: acquire, idempotent renewal, release, foreign ownership rejection, unsafe-condition rejection, concurrent helper exclusion, crash recovery, and failed restoration followed by retry.
 
 Live validation still requires administrator approval and physical lid closure: test indefinite and timed Caffeine on AC and battery, Caffeine off, app exit, killed app, killed helper, expiry, and helper removal. Check `pmset -g` before/after. Do not treat a successful command or unit test as proof of physical lid behavior.

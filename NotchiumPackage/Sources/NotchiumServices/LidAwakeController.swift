@@ -18,7 +18,7 @@ public final class LidAwakeController {
     /// Polls for the administrator's approval in System Settings; owned here, cancelled by
     /// approval, `disable()`, or after ten minutes.
     @ObservationIgnored private var approvalWatch: Task<Void, Never>?
-    @ObservationIgnored private let service = SMAppService.daemon(plistName: "com.marcusyu.notchium.lid-awake.plist")
+    @ObservationIgnored private let service = SMAppService.daemon(plistName: "\(LidAwakeIdentity.service).plist")
 
     /// Both direct builds ship the helper (Developer ID verifies it by team signature, the free
     /// ad-hoc build by identifier and containing bundle). The sandboxed App Store build cannot.

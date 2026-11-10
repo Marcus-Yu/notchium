@@ -115,7 +115,7 @@ approval is requested in the free build. See [the permission contract](docs/PERM
   Caffeine turns off or its timer ends. The free build's helper verifies the app by identifier and
   bundle location. The built-in display turns off when the lid closes. The helper disables all
   system sleep while active, including manual Sleep, so keep the Mac ventilated. If you are
-  switching from an Apple-signed build, [check its old helper registration](docs/LID_AWAKE.md#switching-signing-profiles-on-the-same-mac).
+  switching from an Apple-signed build, [see how the separate registration works](docs/LID_AWAKE.md#switching-signing-profiles-on-the-same-mac).
 - **Keychain upgrades:** Ad-hoc releases may require Keychain approval again after
   an update. Older development histories may use a different Keychain backend.
   Recovery authenticates the existing history before copying the same original key

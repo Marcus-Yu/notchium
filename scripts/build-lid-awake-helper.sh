@@ -4,9 +4,10 @@ set -eu
 # the free ad-hoc build). The sandboxed App Store profile never ships it.
 helper_dir="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Library/HelperTools"
 plist_dir="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Library/LaunchDaemons"
+label="$NOTCHIUM_LID_AWAKE_LABEL"
 case " ${SWIFT_ACTIVE_COMPILATION_CONDITIONS:-} " in
   *NOTCH_APP_STORE*)
-    rm -f "$helper_dir/NotchiumLidAwake" "$plist_dir/com.marcusyu.notchium.lid-awake.plist"
+    rm -f "$helper_dir/NotchiumLidAwake" "$plist_dir/com.marcusyu.notchium.lid-awake.plist" "$plist_dir/com.marcusyu.notchium.lid-awake-free.plist"
     exit 0 ;;
 esac
 # The free build's helper verifies its peer by identifier and containing bundle instead of a team
@@ -17,7 +18,12 @@ case " ${SWIFT_ACTIVE_COMPILATION_CONDITIONS:-} ${OTHER_SWIFT_FLAGS:-} " in
 esac
 set --
 if [ "$free_distribution" = YES ]; then set -- -D NOTCH_FREE_DISTRIBUTION; fi
+case "$free_distribution:$label" in
+  YES:com.marcusyu.notchium.lid-awake-free|NO:com.marcusyu.notchium.lid-awake) ;;
+  *) printf '%s\n' 'Closed-lid helper label does not match the signing profile.' >&2; exit 1 ;;
+esac
 mkdir -p "$helper_dir" "$plist_dir"
+rm -f "$plist_dir/com.marcusyu.notchium.lid-awake.plist" "$plist_dir/com.marcusyu.notchium.lid-awake-free.plist"
 for arch in $ARCHS; do
     "$DEVELOPER_DIR/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc" \
         -swift-version 6 -strict-concurrency=complete -O "$@" \
@@ -32,17 +38,17 @@ done
 set --
 for arch in $ARCHS; do set -- "$@" "$DERIVED_FILE_DIR/NotchiumLidAwake-$arch"; done
 "$DEVELOPER_DIR/Toolchains/XcodeDefault.xctoolchain/usr/bin/lipo" -create "$@" -output "$helper_dir/NotchiumLidAwake"
-/usr/bin/install -m 644 "$SRCROOT/Helpers/LidAwake/com.marcusyu.notchium.lid-awake.plist" "$plist_dir/"
+/usr/bin/install -m 644 "$SRCROOT/Helpers/LidAwake/$label.plist" "$plist_dir/"
 if [ "${CODE_SIGNING_ALLOWED:-YES}" != "NO" ]; then
     if [ "$free_distribution" = YES ] || [ "${EXPANDED_CODE_SIGN_IDENTITY:-}" = "-" ]; then
         # Ad-hoc, matching the free release policy: no certificate, timestamp or Hardened Runtime.
         /usr/bin/codesign --force --sign - --timestamp=none \
-            --identifier com.marcusyu.notchium.lid-awake "$helper_dir/NotchiumLidAwake"
+            --identifier "$label" "$helper_dir/NotchiumLidAwake"
     else
         timestamp_option="--timestamp=none"
         if [ "$CONFIGURATION" = "Release" ]; then timestamp_option="--timestamp"; fi
         /usr/bin/codesign --force --options runtime "$timestamp_option" \
-            --identifier com.marcusyu.notchium.lid-awake \
+            --identifier "$label" \
             --sign "$EXPANDED_CODE_SIGN_IDENTITY" "$helper_dir/NotchiumLidAwake"
     fi
 fi

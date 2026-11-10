@@ -5,6 +5,7 @@ import IOKit.ps
 /// before changing the persistent system setting, so restart can recover it.
 final class PowerOverride {
     private let journal: URL
+    private var lock: Int32?
     private let runCommand: ([String]) throws -> String
     private let conditions: () -> Bool
     private(set) var ownsOverride = false
@@ -19,11 +20,12 @@ final class PowerOverride {
         self.conditions = conditions
     }
 
+    deinit { unlock() }
+
     func recover() throws {
-        if FileManager.default.fileExists(atPath: journal.path) {
-            ownsOverride = true
-            try restore()
-        }
+        try lockJournal()
+        defer { if !ownsOverride { unlock() } }
+        try restoreJournaledOverride()
     }
 
     func acquire() throws {
@@ -32,9 +34,12 @@ final class PowerOverride {
             guard try sleepDisabled() else { throw Failure.settingChanged }
             return
         }
+        try lockJournal()
+        defer { if !ownsOverride { unlock() } }
+        try restoreJournaledOverride()
         // Refuse to take ownership of a setting enabled by another utility.
         guard try !sleepDisabled() else { throw Failure.alreadyDisabled }
-        let fd = open(journal.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
+        let fd = open(journal.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
         guard fd >= 0 else { throw Failure.journal }
         let synced = fsync(fd) == 0
         close(fd)
@@ -51,10 +56,41 @@ final class PowerOverride {
 
     func restore() throws {
         guard ownsOverride else { return }
+        try restoreSetting()
+        unlock()
+    }
+
+    private func restoreJournaledOverride() throws {
+        guard FileManager.default.fileExists(atPath: journal.path) else { return }
+        ownsOverride = true
+        try restoreSetting()
+    }
+
+    private func restoreSetting() throws {
         _ = try runCommand(["-a", "disablesleep", "0"])
         guard try !sleepDisabled() else { throw Failure.verification }
         try FileManager.default.removeItem(at: journal)
         ownsOverride = false
+    }
+
+    // The free and development jobs have different launchd labels but share the
+    // system-wide power setting and journal. Hold the lock through restoration.
+    private func lockJournal() throws {
+        guard lock == nil else { return }
+        let fd = open(journal.appendingPathExtension("lock").path,
+                      O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard fd >= 0 else { throw Failure.journal }
+        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+            close(fd)
+            throw Failure.busy
+        }
+        lock = fd
+    }
+
+    private func unlock() {
+        guard let lock else { return }
+        close(lock)
+        self.lock = nil
     }
 
     var safeToKeepAwake: Bool { conditions() }
@@ -109,6 +145,7 @@ final class PowerOverride {
         case unsafeConditions = "Closed-lid mode stopped: battery is at or below 15%, or thermal pressure is high."
         case alreadyDisabled = "Another utility already disabled system sleep. Turn that off before using Notchium closed-lid mode."
         case settingChanged = "System sleep settings changed outside Notchium."
+        case busy = "Another Notchium helper is using closed-lid mode."
         case journal = "Could not create the sleep-recovery journal."
         case verification = "Could not verify the system sleep setting."
         case command = "macOS rejected the power-setting change."

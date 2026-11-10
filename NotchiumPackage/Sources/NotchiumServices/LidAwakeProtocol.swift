@@ -8,7 +8,11 @@ public protocol LidAwakeProtocol {
 }
 
 public enum LidAwakeIdentity {
+#if NOTCH_FREE_DISTRIBUTION
+    public static let service = "com.marcusyu.notchium.lid-awake-free"
+#else
     public static let service = "com.marcusyu.notchium.lid-awake"
+#endif
     public static let app = "com.marcusyu.notchium"
     public static let team = "ZU27M973HX"
 

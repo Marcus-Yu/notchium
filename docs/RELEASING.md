@@ -187,8 +187,9 @@ Record candidate SHA-256, macOS version, CPU, account freshness, and outcomes:
    opt-in Clipboard save/relaunch, Pomodoro, ordinary Caffeine, volume HUD,
    a screenshot activity, and one real download including Done/Stopped.
 7. Confirm Focus is unavailable. On a Mac previously used for a signed build,
-   [remove its system-wide helper](LID_AWAKE.md#switching-signing-profiles-on-the-same-mac)
-   before testing the free build. Turn Caffeine on, approve its helper in Login Items &
+   turn Caffeine off in the old copy and quit it. See the
+   [helper handoff](LID_AWAKE.md#switching-signing-profiles-on-the-same-mac).
+   Turn Caffeine on in the free copy, approve its helper in Login Items &
    Extensions, and wait for it to report that closed-lid keep-awake is active. Confirm
    `pmset -g | grep SleepDisabled` reads 1 and a task keeps running with the lid closed.
    The built-in display turns off. Confirm `SleepDisabled` returns to 0 after Caffeine
