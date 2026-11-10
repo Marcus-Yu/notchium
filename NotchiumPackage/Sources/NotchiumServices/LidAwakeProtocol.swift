@@ -9,7 +9,7 @@ public protocol LidAwakeProtocol {
 
 public enum LidAwakeIdentity {
 #if NOTCH_FREE_DISTRIBUTION
-    public static let service = "com.marcusyu.notchium.lid-awake-free"
+    public static let service = "com.marcusyu.notchium.lid-awake-free-v2"
 #else
     public static let service = "com.marcusyu.notchium.lid-awake"
 #endif
@@ -19,10 +19,9 @@ public enum LidAwakeIdentity {
     /// The code-signing requirement each side places on its peer.
     ///
     /// A Developer ID build pins Apple's anchor and the signing team. The free build is ad-hoc
-    /// signed: it has no certificate chain, so only the identifier can be required. The helper then
-    /// also accepts only the app that contains it (see its listener), and its interface stays
-    /// verb-only, so a spoofing local process can at most hold the keep-awake lease, still bounded
-    /// by the 15-second lease, the battery floor and the thermal cutoff. It cannot run anything.
+    /// signed: it has no certificate chain, so the app checks the daemon's launchd identity.
+    /// The daemon adds the registered app's code hash before accepting an XPC client.
+    /// Both profiles expose only the bounded keep-awake lease.
     public static func requirement(identifier: String) -> String {
 #if NOTCH_FREE_DISTRIBUTION
         "identifier \"\(identifier)\""

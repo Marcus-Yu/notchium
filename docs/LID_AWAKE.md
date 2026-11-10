@@ -12,8 +12,9 @@ Ordinary Caffeine uses public idle-sleep assertions; those do not override lid-c
 The free build uses its own system-wide helper registration. macOS can pin a
 previous helper registration to an Apple signing team, which blocked the
 first free candidate on a Mac that had run the Xcode build. A separate macOS
-account still shares these registrations. The new free helper gets its own
-approval in Login Items & Extensions.
+account still shares these registrations. Approve the new helper in Login Items & Extensions if prompted.
+Build 5 uses a new job name so launchd can record the updated helper's code
+hash separately from build 4.
 
 Before replacing an old build, turn Caffeine off. To remove the old helper,
 use **Settings → Caffeine → Remove Closed-Lid Helper** in the old copy and
@@ -28,25 +29,27 @@ off and confirm that `SleepDisabled` returns to `0`.
 ## Privilege boundary
 
 The signed build uses `com.marcusyu.notchium.lid-awake`; the free build uses
-`com.marcusyu.notchium.lid-awake-free`. Each name matches its launchd label,
+`com.marcusyu.notchium.lid-awake-free-v2`. Each name matches its launchd label,
 Mach service and code-signing identifier. In the Developer ID build, both XPC endpoints enforce Apple-anchored signing requirements with team `ZU27M973HX` and their exact peer identifier. Its interface accepts only renewal and release, with no caller-provided command, path, timeout, or executable. Signing-team changes must update `LidAwakeIdentity` and the Xcode signing configuration together.
 
 The daemon runs `/usr/bin/pmset -a disablesleep 1` and verifies `SleepDisabled` before reporting success. This is a system-wide setting, **including manual Sleep**, not a public idle assertion or guaranteed cross-version clamshell API. Physical testing is required on each supported macOS/hardware combination. No privileged operation is performed by a SwiftUI view, shell interpolation, password capture, sudoers change, or private kernel API.
 
 ### Free-build trust model
 
-The free build is ad-hoc signed and has no certificate chain, so `LidAwakeIdentity.requirement` (compiled
-with `NOTCH_FREE_DISTRIBUTION` into both the app and, by `scripts/build-lid-awake-helper.sh`, the helper)
-requires only the peer's signing identifier. The helper also accepts a connection only when the
-kernel-reported executable of the client (`proc_pidpath`, symlinks resolved) is `Contents/MacOS/Notchium`
-inside the same app bundle that contains the helper. The mach service is registered by launchd from the
-app's own `SMAppService` job, so the app's check of the helper is not spoofable without root.
+The app checks the daemon's service identity, which launchd associates with the
+ad-hoc helper's code hash during approval. When the helper starts, it validates
+its containing app bundle and pins that app's code-directory hash. XPC checks
+the live client against both that hash and the Notchium signing identifier.
+Identical copies of the same build can connect across accounts and install
+locations. A different build, or a binary signed only with the same identifier,
+fails the check. If the registered app cannot be validated, the helper refuses
+connections.
 
-Residual risk, accepted by the owner: a local process running as the user that can place a binary at
-that exact bundle path, or reuse the client identity, could hold the keep-awake lease. The interface is
-unchanged and verb-only, so such a client can keep the Mac from sleeping, still bounded by the 15-second
-lease, the 15% battery floor and the thermal cutoff. It cannot run commands, choose paths or change any
-other setting.
+The admin-approved bundle is the local trust anchor. Keep it installed while
+using the helper. The interface accepts only renew and release calls for a
+short lease, with battery and thermal limits. macOS can retain an ad-hoc
+helper's old hash after replacing its files. Unregister the previous helper
+before replacing a build and verify approval for the new helper.
 
 ## Recovery
 

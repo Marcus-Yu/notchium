@@ -1,9 +1,15 @@
 import Foundation
+#if NOTCH_FREE_DISTRIBUTION
+import Security
+#endif
 
 /// The serial queue owns power state, connection ownership, and the lease deadline.
 final class Helper: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.marcusyu.notchium.lid-awake.power")
     private let power = PowerOverride()
+#if NOTCH_FREE_DISTRIBUTION
+    private let clientRequirement = FreeClientSigning.requirement()
+#endif
     private var owner: UUID?
     private var deadline: ContinuousClock.Instant?
     private var timer: DispatchSourceTimer?
@@ -29,11 +35,13 @@ final class Helper: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
 
     func listener(_ listener: NSXPCListener, shouldAcceptNewConnection connection: NSXPCConnection) -> Bool {
 #if NOTCH_FREE_DISTRIBUTION
-        // An ad-hoc build cannot pin a signing team, so also require that the client is the app
-        // this helper was installed from, not any binary that merely reuses the identifier.
-        guard ContainingApp.matches(pid: connection.processIdentifier) else { return false }
-#endif
+        // Match the registered bundle's exact build, including identical copies
+        // installed for other accounts. XPC checks the live peer's signing identity.
+        guard let clientRequirement else { return false }
+        connection.setCodeSigningRequirement(clientRequirement)
+#else
         connection.setCodeSigningRequirement(LidAwakeIdentity.requirement(identifier: LidAwakeIdentity.app))
+#endif
         let id = UUID()
         connection.exportedInterface = NSXPCInterface(with: LidAwakeProtocol.self)
         connection.exportedObject = Client(helper: self, id: id)
@@ -82,28 +90,35 @@ final class Helper: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     }
 }
 
-/// The helper lives at `<App>.app/Contents/Library/HelperTools/NotchiumLidAwake`; its only accepted
-/// client is `<App>.app/Contents/MacOS/Notchium`. Paths come from the kernel (`proc_pidpath`), never
-/// from the client, and are compared after resolving symlinks.
-enum ContainingApp {
-    static func matches(pid: pid_t) -> Bool {
-        guard let client = executablePath(of: pid), let helper = executablePath(of: getpid()) else { return false }
-        let expected = helper
-            .deletingLastPathComponent()  // HelperTools
-            .deletingLastPathComponent()  // Library
-            .deletingLastPathComponent()  // Contents
-            .appendingPathComponent("MacOS/Notchium")
-        return client.path == expected.standardizedFileURL.path
-    }
-
-    static func executablePath(of pid: pid_t) -> URL? {
-        var buffer = [UInt8](repeating: 0, count: Int(MAXPATHLEN) * 4)
-        let length = proc_pidpath(pid, &buffer, UInt32(buffer.count))
+#if NOTCH_FREE_DISTRIBUTION
+private enum FreeClientSigning {
+    static func requirement() -> String? {
+        var path = [UInt8](repeating: 0, count: Int(MAXPATHLEN) * 4)
+        let length = proc_pidpath(getpid(), &path, UInt32(path.count))
         guard length > 0 else { return nil }
-        let path = String(decoding: buffer.prefix(Int(length)), as: UTF8.self)
-        return URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL
+        let executable = URL(fileURLWithPath: String(decoding: path.prefix(Int(length)), as: UTF8.self))
+            .resolvingSymlinksInPath()
+        let bundle = executable.deletingLastPathComponent() // HelperTools
+            .deletingLastPathComponent() // Library
+            .deletingLastPathComponent() // Contents
+            .deletingLastPathComponent() // Notchium.app
+
+        var code: SecStaticCode?
+        var information: CFDictionary?
+        guard SecStaticCodeCreateWithPath(bundle as CFURL, [], &code) == errSecSuccess,
+              let code,
+              SecStaticCodeCheckValidity(code, [], nil) == errSecSuccess,
+              SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation),
+                                            &information) == errSecSuccess,
+              let signing = information as? [String: Any],
+              signing[kSecCodeInfoIdentifier as String] as? String == LidAwakeIdentity.app,
+              let hash = signing[kSecCodeInfoUnique as String] as? Data,
+              hash.count == 20 else { return nil }
+        let hex = hash.map { String(format: "%02x", $0) }.joined()
+        return LidAwakeIdentity.requirement(identifier: LidAwakeIdentity.app) + #" and cdhash H"\#(hex)""#
     }
 }
+#endif
 
 private final class Client: NSObject, LidAwakeProtocol {
     let helper: Helper

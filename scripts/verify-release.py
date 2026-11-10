@@ -57,7 +57,7 @@ def scan_source(root):
     print(f"Production source secret scan passed: {count} files (heuristic, not a guarantee).")
 
 
-LID_AWAKE_LABEL = "com.marcusyu.notchium.lid-awake-free"
+LID_AWAKE_LABEL = "com.marcusyu.notchium.lid-awake-free-v2"
 LID_AWAKE_HELPER = "Contents/Library/HelperTools/NotchiumLidAwake"
 LID_AWAKE_PLIST = {
     "Label": LID_AWAKE_LABEL,

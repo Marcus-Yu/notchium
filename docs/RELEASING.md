@@ -49,7 +49,7 @@ runtime out of Release. Developer fixtures and local paths must pass the byte sc
 | `com.apple.security.personal-information.calendars` | Sandbox entitlement unnecessary in this non-sandboxed, non-hardened build; Calendar TCC and usage string still required. |
 | `com.apple.security.device.camera` | Unnecessary with this runtime policy; Camera TCC and usage string still required. |
 | Communication Notifications / Focus | Provisioning-dependent, absent; preserve existing “Unavailable in this build” behavior. |
-| Closed-lid XPC identity | Developer ID builds keep the Apple-anchored team requirement. The free build (owner decision, November 8, 2026) bundles the daemon ad-hoc and verifies its peer by identifier plus containing bundle; the verb-only lease interface is unchanged. `verify-release.py` admits exactly this one helper and launchd job. |
+| Closed-lid XPC identity | Developer ID builds keep the Apple-anchored team requirement. The free build (owner decision, November 8, 2026) bundles the daemon ad-hoc and verifies its peer by identifier plus the registered app's signing hash; the verb-only lease interface is unchanged. `verify-release.py` admits exactly this one helper and launchd job. |
 | App Store entitlement file | Not used. Sandbox, network, file/bookmark entitlements describe a separate future edition. |
 
 The free Swift condition must reach **all SwiftPM modules**, not just the app

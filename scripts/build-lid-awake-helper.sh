@@ -7,7 +7,7 @@ plist_dir="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Library/LaunchDaemons"
 label="$NOTCHIUM_LID_AWAKE_LABEL"
 case " ${SWIFT_ACTIVE_COMPILATION_CONDITIONS:-} " in
   *NOTCH_APP_STORE*)
-    rm -f "$helper_dir/NotchiumLidAwake" "$plist_dir/com.marcusyu.notchium.lid-awake.plist" "$plist_dir/com.marcusyu.notchium.lid-awake-free.plist"
+    rm -f "$helper_dir/NotchiumLidAwake" "$plist_dir/com.marcusyu.notchium.lid-awake.plist" "$plist_dir/com.marcusyu.notchium.lid-awake-free.plist" "$plist_dir/com.marcusyu.notchium.lid-awake-free-v2.plist"
     exit 0 ;;
 esac
 # The free build's helper verifies its peer by identifier and containing bundle instead of a team
@@ -19,11 +19,11 @@ esac
 set --
 if [ "$free_distribution" = YES ]; then set -- -D NOTCH_FREE_DISTRIBUTION; fi
 case "$free_distribution:$label" in
-  YES:com.marcusyu.notchium.lid-awake-free|NO:com.marcusyu.notchium.lid-awake) ;;
+  YES:com.marcusyu.notchium.lid-awake-free-v2|NO:com.marcusyu.notchium.lid-awake) ;;
   *) printf '%s\n' 'Closed-lid helper label does not match the signing profile.' >&2; exit 1 ;;
 esac
 mkdir -p "$helper_dir" "$plist_dir"
-rm -f "$plist_dir/com.marcusyu.notchium.lid-awake.plist" "$plist_dir/com.marcusyu.notchium.lid-awake-free.plist"
+rm -f "$plist_dir/com.marcusyu.notchium.lid-awake.plist" "$plist_dir/com.marcusyu.notchium.lid-awake-free.plist" "$plist_dir/com.marcusyu.notchium.lid-awake-free-v2.plist"
 for arch in $ARCHS; do
     "$DEVELOPER_DIR/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc" \
         -swift-version 6 -strict-concurrency=complete -O "$@" \
