@@ -131,6 +131,12 @@ bundled app is re-audited. No tooling is downloaded.
 
 ## Outputs and integrity
 
+After this workflow is on `main`, a push to `main` also builds a candidate in
+GitHub Actions. The **Build Notchium** workflow runs the same strict release
+script and attaches the DMG and its checksum to the run for 14 days. Use the
+artifact from the run for the commit you want to test. GitHub Releases remains
+the public download channel after manual acceptance.
+
 `dist/1.0.0/` contains:
 
 - `Notchium-1.0.0.dmg` (or ZIP) and its exact-filename `.sha256`.
