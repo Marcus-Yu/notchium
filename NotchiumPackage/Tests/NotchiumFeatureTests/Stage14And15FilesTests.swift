@@ -309,9 +309,10 @@ final class Stage14And15FilesTests: XCTestCase {
                                          presentationStyle: .calendar, content: .calendar(title: "Sync", status: "5 min"))
         activities.notifications.present(reminder)
         XCTAssertEqual(activities.activeTransient?.kind, .calendar)
-        // A live transfer outranks Music as the visible secondary beside the Calendar banner.
-        XCTAssertEqual(activities.presentationMode, .downwardBanner)
-        XCTAssertEqual(presentation.presentedSecondary?.key, NotchActivityKey("transfer"))
+        // Calendar keeps the live transfer row and its Music companion above the banner.
+        XCTAssertEqual(activities.presentationMode, .combined)
+        XCTAssertEqual(presentation.collapsedRowNotification?.kind, .transferActive)
+        XCTAssertEqual(presentation.presentedSecondary?.id, musicID)
         activities.notifications.dismiss()
         XCTAssertEqual(activities.primary?.key, transferKey)
 

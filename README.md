@@ -4,8 +4,8 @@ Notchium brings media, everyday tools, and live activities to your Mac's notch.
 
 ## Download
 
-Get packaged builds from the official [GitHub Releases](https://github.com/Marcus-Yu/notchium/releases).
-The first public release is being prepared; local preview artifacts are for validation only.
+Get the Notchium disk image (`.dmg`) from [GitHub Releases](https://github.com/Marcus-Yu/notchium/releases).
+You need an Apple Silicon Mac running macOS 26 or later.
 
 ## Features
 
@@ -22,13 +22,14 @@ The first public release is being prepared; local preview artifacts are for vali
 
 - macOS 26.0 or later.
 - Apple Silicon (arm64). Intel Macs are not supported by the v1 release script.
-- Install Spotify on this Mac, open it, and choose Enable Local Control in Music or Settings → Media. Allow the macOS Automation prompt. No Spotify developer account, client ID, or login in Notchium is required. Queue access and remote Spotify Connect device selection are unavailable.
+- Spotify is optional. To enable playback controls, open the Spotify Mac app, then choose **Enable Local Control** in Notchium's Music page or **Settings → Media** and allow the macOS Automation prompt.
 
 ## Installation
 
-1. Download `Notchium-1.0.0.dmg` from the official release.
+1. Download the `Notchium-<version>.dmg` asset from the release.
 2. Open the disk image and drag **Notchium** to **Applications**.
-3. Eject the disk image and open Notchium from Applications.
+3. Eject the disk image and open Notchium from Applications. If macOS blocks the launch, follow the steps below.
+4. Choose **Finish Setup** and **Open Notchium**. Permissions are optional and can be enabled later in **Settings → Permissions**. Use the notch at the top of your screen or the Notchium menu bar icon to open the app's controls.
 
 If a release provides a ZIP instead, unzip it and move Notchium to Applications.
 Install only the app; there is no package installer or installation script.
@@ -119,8 +120,6 @@ approval is requested in the free build. See [the permission contract](docs/PERM
   Recovery authenticates the existing history before copying the same original key
   into an absent login-Keychain slot; it never overwrites an existing key.
   Inaccessible history remains preserved. Exact packaged upgrade acceptance is pending.
-- The current v1 artifact supports Apple Silicon only. First-run permission and
-  Gatekeeper acceptance on a fresh user/Mac must be completed before publication.
 
 ## Issues and feedback
 

@@ -65,9 +65,9 @@ final class Stage10GestureTests: XCTestCase {
         let pages = NotchPageModel()
         pages.moveSelection(forward: false)
         XCTAssertEqual(pages.selectedPage, .home)
-        pages.selectedPage = .shelf
+        pages.selectedPage = .teleprompter
         pages.moveSelection(forward: true)
-        XCTAssertEqual(pages.selectedPage, .shelf, "The last page is an edge, no wrap")
+        XCTAssertEqual(pages.selectedPage, .teleprompter, "The last page is an edge, no wrap")
         pages.enabledPages = [.home, .calendar, .audio]
         pages.selectedPage = .home
         pages.moveSelection(forward: true)
