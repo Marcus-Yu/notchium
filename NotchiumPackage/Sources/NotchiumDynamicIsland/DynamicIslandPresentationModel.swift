@@ -173,7 +173,11 @@ public final class DynamicIslandPresentationModel {
     /// this observation bridge, so native panel hit regions follow page resizing.
     public var expandedContentSize: CGSize {
         _ = pageLayoutRevision
-        return ExpandedNotchLayout.size(for: pageModel.selectedPage)
+        let page = pageModel.selectedPage
+        if page == .teleprompter, cameraController?.isPreviewPresented == true {
+            return ExpandedNotchLayout.size
+        }
+        return ExpandedNotchLayout.size(for: page)
     }
 
     /// The sole presentation decision; Stage 2 phase remains manual interaction state.
