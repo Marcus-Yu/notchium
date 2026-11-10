@@ -18,7 +18,6 @@ final class CameraExitRenderingTests: XCTestCase {
             try await fixture.openCamera()
 
             fixture.model.setHovered(false)
-            try await Task.sleep(for: .milliseconds(200))
             XCTAssertTrue(fixture.camera.isPreviewPresented, "The hover exit grace retains the preview")
             XCTAssertTrue(fixture.service.isRunning)
             try await Task.sleep(for: .milliseconds(400))
