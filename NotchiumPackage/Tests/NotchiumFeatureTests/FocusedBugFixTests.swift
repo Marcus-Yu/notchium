@@ -56,13 +56,13 @@ final class FocusedBugFixTests: XCTestCase {
             // Wait for the actual hover-exit sleep, not a cancelled hover-entry sleeper.
             // Releasing every currently registered sleeper can miss the new exit task.
             let registrationDeadline = ContinuousClock.now.advanced(by: .seconds(2))
-            while !(await clock.sleepHistory()).contains(.milliseconds(150)),
+            while !(await clock.sleepHistory()).contains(.milliseconds(180)),
                   ContinuousClock.now < registrationDeadline {
                 try await Task.sleep(for: .milliseconds(1))
             }
             let sleeps = await clock.sleepHistory()
-            XCTAssertTrue(sleeps.contains(.milliseconds(150)))
-            await clock.advance(by: .milliseconds(150))
+            XCTAssertTrue(sleeps.contains(.milliseconds(180)))
+            await clock.advance(by: .milliseconds(180))
             let completionDeadline = ContinuousClock.now.advanced(by: .seconds(2))
             while model.visualState != .collapsed, ContinuousClock.now < completionDeadline {
                 try await Task.sleep(for: .milliseconds(1))

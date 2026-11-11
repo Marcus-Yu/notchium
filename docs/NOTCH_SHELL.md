@@ -61,7 +61,7 @@ older exit. Immediate dismissal and reset use the same ordering. Capture still s
 as closing begins, and ordinary pointer, pinning and exit-grace rules are unchanged.
 
 - Hover entry: 120 ms.
-- Hover leave grace: 150 ms. Content stays open during the grace; pointer re-entry cancels collapse, and another exit starts a fresh grace period.
+- Hover leave grace: 180 ms. Content stays open during the grace; pointer re-entry cancels collapse, and another exit starts a fresh grace period.
 - Click: pin immediately; second click collapses.
 - Pinned ignores pointer exit; outside click and Esc collapse.
 - Hover and click share one opening spring, `interactiveSpring(response: 0.42, dampingFraction: 0.72, blendDuration: 0)` (about 4% overshoot, the Dynamic Island's settle), and one closing spring, `interactiveSpring(response: 0.36, dampingFraction: 0.94, blendDuration: 0)`, which lands without bouncing past the hardware notch. Both drive shell geometry only. Pinning an already hovered shell does not start another morph.

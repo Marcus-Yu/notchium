@@ -21,7 +21,7 @@ without paid CI, certificates, provisioning, notarization, hosting, or an update
 | Resources | App icon assets and SwiftPM media asset bundle |
 | Release/debug information | Release config; DWARF; developer UI and launch fixtures guarded by DEBUG |
 
-The current configuration is version **1.0.2**, build **6**, macOS **26.0+**.
+The current configuration is version **1.0.3**, build **7**, macOS **26.0+**.
 The release command explicitly builds **arm64** and verifies every executable.
 Intel/universal support requires a separate validated release change; do not infer
 it from Xcode's default architecture list. Validate on macOS 26 before claiming
