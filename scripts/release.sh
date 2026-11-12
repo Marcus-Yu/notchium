@@ -136,8 +136,8 @@ helper="$app/Contents/Library/HelperTools/NotchiumLidAwake"
 /usr/bin/strip -S "$helper"
 find "$app" -type d -exec chmod 755 {} +
 find "$app" -type f -exec chmod go-w {} +
-# Nested code is sealed first: the app signature below is not --deep, and the helper's fixed
-# identifier is what the app and helper verify each other by in the free build.
+# Nested code is sealed first: the app signature below is not --deep. The app verifies the helper
+# by this fixed identifier; the helper verifies the app by the hash of the signature made last.
 /usr/bin/codesign --force --sign - --timestamp=none --identifier com.marcusyu.notchium.lid-awake "$helper" \
     > "$output/logs/signing.txt" 2>&1
 /usr/bin/codesign --force --sign - --timestamp=none --identifier com.marcusyu.notchium "$app" \
