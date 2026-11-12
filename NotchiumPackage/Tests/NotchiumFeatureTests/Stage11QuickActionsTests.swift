@@ -324,12 +324,39 @@ import NotchiumServices
         XCTAssertEqual(service.saved.count, 3)
         XCTAssertEqual(Calendar.current.component(.weekday, from: service.saved[0].date), 6)
         XCTAssertTrue(Calendar.current.isDate(service.saved[1].date, inSameDayAs: Calendar.current.date(byAdding: .day, value: 1, to: date)!))
-        for text in ["friday 1pm", "tomorrow", "   ", ""] {
+        for text in ["   ", ""] {
             model.reminder.draft.title = text
             XCTAssertFalse(model.reminder.canSaveReminder)
             XCTAssertEqual(model.reminder.disableReason, "emptyTitle")
             let saved = await model.reminder.saveCurrent()
             XCTAssertFalse(saved)
+        }
+        XCTAssertEqual(service.saved.count, 3)
+    }
+
+    func testDateOnlyReminderKeepsItsTitleAndParsedSchedule() async throws {
+        let service = MockReminderService()
+        let (model, presentation) = fixture(reminders: service)
+        defer { presentation.reset(); model.reminder.endSession() }
+        for (text, month, day, hour) in [
+            ("November 12", 11, 12, -1),
+            ("tomorrow", 9, 28, -1),
+            ("friday 1pm", 10, 2, 13)
+        ] {
+            await model.reminder.prepare()
+            model.reminder.draft.title = "  \(text)  "
+            XCTAssertTrue(model.reminder.canSaveReminder, text)
+            XCTAssertEqual(model.reminder.effectiveTitle, text)
+            let saved = await model.reminder.saveCurrent()
+            XCTAssertTrue(saved, text)
+            let draft = try XCTUnwrap(service.saved.last)
+            XCTAssertEqual(draft.title, text)
+            XCTAssertEqual(Calendar.current.component(.month, from: draft.date), month)
+            XCTAssertEqual(Calendar.current.component(.day, from: draft.date), day)
+            XCTAssertEqual(draft.includesTime, hour >= 0)
+            if hour >= 0 {
+                XCTAssertEqual(Calendar.current.component(.hour, from: draft.date), hour)
+            }
         }
         XCTAssertEqual(service.saved.count, 3)
     }
