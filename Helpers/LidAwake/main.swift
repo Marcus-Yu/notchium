@@ -29,11 +29,15 @@ final class Helper: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
 
     func listener(_ listener: NSXPCListener, shouldAcceptNewConnection connection: NSXPCConnection) -> Bool {
 #if NOTCH_FREE_DISTRIBUTION
-        // An ad-hoc build cannot pin a signing team, so also require that the client is the app
-        // this helper was installed from, not any binary that merely reuses the identifier.
-        guard ContainingApp.matches(pid: connection.processIdentifier) else { return false }
-#endif
+        // An ad-hoc build cannot pin a signing team, so require the exact build of the app this
+        // helper was installed from, not any binary that merely reuses the identifier. Pin the
+        // build, not a path: launchd runs one helper for every macOS account, from whichever copy
+        // registered it, while each account may run its own copy of the same build.
+        guard let build = ContainingApp.cdhash() else { return false }
+        connection.setCodeSigningRequirement(LidAwakeIdentity.appBuildRequirement(cdhash: build))
+#else
         connection.setCodeSigningRequirement(LidAwakeIdentity.requirement(identifier: LidAwakeIdentity.app))
+#endif
         let id = UUID()
         connection.exportedInterface = NSXPCInterface(with: LidAwakeProtocol.self)
         connection.exportedObject = Client(helper: self, id: id)
@@ -82,18 +86,18 @@ final class Helper: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     }
 }
 
-/// The helper lives at `<App>.app/Contents/Library/HelperTools/NotchiumLidAwake`; its only accepted
-/// client is `<App>.app/Contents/MacOS/Notchium`. Paths come from the kernel (`proc_pidpath`), never
-/// from the client, and are compared after resolving symlinks.
+/// The helper lives at `<App>.app/Contents/Library/HelperTools/NotchiumLidAwake`. Its own path
+/// comes from the kernel (`proc_pidpath`), never from a client. The app's hash is read for each
+/// connection, so an in-place update of that copy is honored without restarting the helper.
 enum ContainingApp {
-    static func matches(pid: pid_t) -> Bool {
-        guard let client = executablePath(of: pid), let helper = executablePath(of: getpid()) else { return false }
-        let expected = helper
+    static func cdhash() -> Data? {
+        guard let helper = executablePath(of: getpid()) else { return nil }
+        let app = helper
             .deletingLastPathComponent()  // HelperTools
             .deletingLastPathComponent()  // Library
             .deletingLastPathComponent()  // Contents
-            .appendingPathComponent("MacOS/Notchium")
-        return client.path == expected.standardizedFileURL.path
+            .deletingLastPathComponent()  // <App>.app
+        return LidAwakeIdentity.cdhash(of: app)
     }
 
     static func executablePath(of pid: pid_t) -> URL? {
