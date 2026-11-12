@@ -86,6 +86,7 @@ public final class NotchiumDisplayCoordinator: NSObject {
         let activities = ActivityCoordinator(clock: clock)
         let presentationModel = DynamicIslandPresentationModel(
             clock: clock, activityCoordinator: ActivityCoordinator(projecting: activities))
+        presentationModel.pageModel.enabledPages = displaySettings.visiblePages
         self.presentationModel = presentationModel
         activitySource = activities
         self.clock = clock
@@ -209,6 +210,7 @@ public final class NotchiumDisplayCoordinator: NSObject {
 
     public func openForKeyboard(page: NotchPage? = nil) {
         guard isStarted, !isSleeping else { return }
+        if let page, !presentationModel.pageModel.enabledPages.contains(page) { return }
         let pointerDisplay = environmentSource.pointerLocation.flatMap { point in
             shellPlacements.first { $0.display.frame.contains(point) }?.display.id
         }
@@ -222,6 +224,14 @@ public final class NotchiumDisplayCoordinator: NSObject {
     }
 
     private var sessions: [NotchDisplaySession] { [primarySession] + Array(additionalSessions.values) }
+
+    public func setPageVisible(_ page: NotchPage, _ visible: Bool) {
+        guard settings.setPageVisible(page, visible) else { return }
+        let visiblePages = settings.visiblePages
+        for session in sessions {
+            session.model.pageModel.enabledPages = visiblePages
+        }
+    }
 
     private func session(for id: NotchiumDisplayID) -> NotchDisplaySession? {
         if shellPlacement?.display.id == id { return primarySession }
