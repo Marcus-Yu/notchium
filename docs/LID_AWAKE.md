@@ -17,16 +17,31 @@ The daemon runs `/usr/bin/pmset -a disablesleep 1` and verifies `SleepDisabled` 
 
 The free build is ad-hoc signed and has no certificate chain, so `LidAwakeIdentity.requirement` (compiled
 with `NOTCH_FREE_DISTRIBUTION` into both the app and, by `scripts/build-lid-awake-helper.sh`, the helper)
-requires only the peer's signing identifier. The helper also accepts a connection only when the
-kernel-reported executable of the client (`proc_pidpath`, symlinks resolved) is `Contents/MacOS/Notchium`
-inside the same app bundle that contains the helper. The mach service is registered by launchd from the
-app's own `SMAppService` job, so the app's check of the helper is not spoofable without root.
+requires only the peer's signing identifier. The helper requires more of its client:
+`LidAwakeIdentity.appBuildRequirement` pins the app identifier and the code-directory hash of the app
+bundle that contains the helper (read from disk for each connection, so an in-place update of that copy
+is honored). XPC checks the live client against it on every message. The mach service is registered by
+launchd from the app's own `SMAppService` job, so the app's check of the helper is not spoofable without
+root.
 
-Residual risk, accepted by the owner: a local process running as the user that can place a binary at
-that exact bundle path, or reuse the client identity, could hold the keep-awake lease. The interface is
-unchanged and verb-only, so such a client can keep the Mac from sleeping, still bounded by the 15-second
-lease, the 15% battery floor and the thermal cutoff. It cannot run commands, choose paths or change any
-other setting.
+The requirement pins the build, not a location. The daemon is one system-wide launchd job shared by
+every macOS account on the Mac, and launchd starts it from whichever copy of the app registered it
+(Background Task Management follows the copy that last asked). Each account may run its own copy, for
+example `~/Applications/Notchium.app` in one account and `/Applications/Notchium.app` in another. Every
+copy of one build has the same hash, so all of them are accepted. An earlier check that required the
+client to be the helper's own containing bundle rejected the other account's copy outright
+(November 10, 2026: the helper cancelled every connection from the second account, which then reported
+a failed helper connection with `SleepDisabled 0`). Copies of different builds are still rejected, so
+use the same Notchium build in every account. The release build is single-architecture (`ARCHS=arm64`).
+A universal build run under Rosetta would present a different slice's hash and be rejected.
+
+Residual risk, accepted by the owner: a local process that can replace the app bundle's executable, or
+inject code into a genuine copy (the free build has no Hardened Runtime), could hold the keep-awake
+lease. A different binary that only reuses the identifier is rejected. The interface is unchanged and
+verb-only, so such a client can keep the Mac from sleeping, still bounded by the 15-second lease, the
+15% battery floor and the thermal cutoff. It cannot run commands, choose paths or change any other
+setting. `LidAwakeIdentityTests` covers the requirement: two copies of one build in different folders,
+including a live process, are accepted; a different binary with the app's identifier is rejected.
 
 ## Recovery
 
