@@ -149,6 +149,55 @@ final class NotchiumUITests: XCTestCase {
         attachScreenshot(named: "simulated-external-notch")
     }
 
+    func testNotchPageSettingsHideAndRestoreTeleprompter() throws {
+        let app = XCUIApplication()
+        defer { app.terminate() }
+        app.launchArguments = fixtureArguments(display: "builtInMock", surface: "physical",
+            presentation: "expanded", appearance: "dark")
+        app.launch()
+        let page = app.buttons["notchium.page.teleprompter"]
+        XCTAssertTrue(page.waitForExistence(timeout: 5), app.debugDescription)
+        func reopenNotch() {
+            let status = app.descendants(matching: .statusItem).firstMatch
+            XCTAssertTrue(status.waitForExistence(timeout: 3))
+            clickVisibleFrame(status, in: app, anchor: app.dialogs["notchium.shell.panel"])
+            let open = app.menuItems["Open Notchium"]
+            XCTAssertTrue(open.waitForExistence(timeout: 3))
+            open.click()
+            XCTAssertTrue(waitForState("expanded", in: app, timeout: 5))
+        }
+
+        shellElement("notchium.shell.settings", in: app).click()
+        let settings = app.windows["com_apple_SwiftUI_Settings_window"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 5))
+        let category = settings.descendants(matching: .any)["notchium.settings.category.notchPages"].firstMatch
+        XCTAssertTrue(category.waitForExistence(timeout: 5))
+        category.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
+        let toggle = settings.descendants(matching: .any)
+            .matching(identifier: "notchium.settings.pages.teleprompter")
+            .matching(NSPredicate(format: "value != nil")).firstMatch
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5), settings.debugDescription)
+        XCTAssertEqual(toggle.value.map { String(describing: $0) }, "1")
+        toggle.click()
+        XCTAssertEqual(toggle.value.map { String(describing: $0) }, "0")
+        settings.buttons[XCUIIdentifierCloseWindow].click()
+        reopenNotch()
+        XCTAssertTrue(app.buttons["notchium.page.home"].exists)
+        XCTAssertFalse(page.exists)
+
+        shellElement("notchium.shell.settings", in: app).click()
+        XCTAssertTrue(settings.waitForExistence(timeout: 5))
+        if !toggle.exists {
+            category.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
+        }
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5), settings.debugDescription)
+        toggle.click()
+        XCTAssertEqual(toggle.value.map { String(describing: $0) }, "1")
+        settings.buttons[XCUIIdentifierCloseWindow].click()
+        reopenNotch()
+        XCTAssertTrue(page.waitForExistence(timeout: 5), app.debugDescription)
+    }
+
     func testMirrorValueDescribesPreviewBeforeCameraPermission() throws {
         let app = XCUIApplication()
         defer { app.terminate() }
@@ -178,6 +227,7 @@ final class NotchiumUITests: XCTestCase {
         app.launchArguments = fixtureArguments(display: "builtInMock", surface: "physical",
             presentation: "expanded", appearance: "dark")
         app.launch()
+        ensureExpanded(app)
         let caffeine = shellElement("notchium.shell.caffeine", in: app)
         XCTAssertTrue(caffeine.waitForExistence(timeout: 5))
         caffeine.click()
@@ -334,21 +384,28 @@ final class NotchiumUITests: XCTestCase {
         defer { app.terminate() }
         app.launchArguments = fixtureArguments(display: "builtInMock", surface: "physical", presentation: "expanded", appearance: "light")
         app.launch()
+        ensureExpanded(app)
         let reminder = shellElement("notchium.shell.quickReminder", in: app)
         XCTAssertTrue(reminder.waitForExistence(timeout: 5))
         reminder.click()
         let title = app.textFields["notchium.reminder.title"]
         let add = app.buttons["notchium.reminder.add"]
         XCTAssertTrue(title.waitForExistence(timeout: 5))
-        app.typeText("friday 1pm")
+        app.typeText("   ")
         XCTAssertFalse(add.isEnabled)
         app.typeKey(.return, modifierFlags: [])
         XCTAssertTrue(title.exists)
         app.typeKey("a", modifierFlags: .command)
+        app.typeText("November 12")
+        XCTAssertTrue(add.isEnabled)
+        clickVisibleFrame(add, in: app, anchor: app.dialogs["notchium.shell.panel"])
+        XCTAssertTrue(title.waitForNonExistence(timeout: 3), app.debugDescription)
+        reminder.click()
+        XCTAssertTrue(title.waitForExistence(timeout: 3))
         app.typeText("test friday 1:00pm")
         XCTAssertTrue(add.isEnabled)
-        add.click()
-        XCTAssertTrue(title.waitForNonExistence(timeout: 3))
+        clickVisibleFrame(add, in: app, anchor: app.dialogs["notchium.shell.panel"])
+        XCTAssertTrue(title.waitForNonExistence(timeout: 3), app.debugDescription)
         reminder.click()
         XCTAssertTrue(title.waitForExistence(timeout: 3))
         XCTAssertEqual(title.value as? String, "")
