@@ -9,7 +9,7 @@ case " ${SWIFT_ACTIVE_COMPILATION_CONDITIONS:-} " in
     rm -f "$helper_dir/NotchiumLidAwake" "$plist_dir/com.marcusyu.notchium.lid-awake.plist"
     exit 0 ;;
 esac
-# The free build's helper verifies its peer by identifier and containing bundle instead of a team
+# The free build's helper verifies its peer by identifier and app build hash instead of a team
 # signature (see LidAwakeIdentity), so it must be compiled with the same profile condition.
 free_distribution=NO
 case " ${SWIFT_ACTIVE_COMPILATION_CONDITIONS:-} ${OTHER_SWIFT_FLAGS:-} " in
