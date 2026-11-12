@@ -2,13 +2,14 @@ import Foundation
 
 /// Stable navigation identity; settings remain owned by their existing feature models.
 enum SettingsCategory: String, CaseIterable, Identifiable {
-    case general, permissions, home, media, audio, calendar, clipboard, focus, caffeine
+    case general, notchPages, permissions, home, media, audio, calendar, clipboard, focus, caffeine
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .general: "General"
+        case .notchPages: "Notch Pages"
         case .permissions: "Permissions"
         case .home: "Home Page"
         case .media: "Media"
@@ -23,6 +24,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .general: "gearshape"
+        case .notchPages: "rectangle.split.3x1"
         case .permissions: "hand.raised"
         case .home: "house"
         case .media: "music.note"
