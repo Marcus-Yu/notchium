@@ -72,13 +72,17 @@ public final class NotchiumApplicationController {
                 audioMeter: SystemAudioMeter = SystemAudioMeter(captureEnabled: false)) {
         self.environment = environment
         self.onboarding = onboarding
+        let displaySettings = NotchDisplaySettings(
+            storage: CommandLine.arguments.contains("--ui-testing") ? nil : .standard,
+            availablePages: NotchPage.allCases.filter { $0 != .teleprompter || environment.featureFlags[.teleprompter] }
+        )
 #if DEBUG
         let shellDebugModel = NotchShellDebugModel()
         self.shellDebugModel = shellDebugModel
         displayCoordinator = NotchiumDisplayCoordinator(
             clock: environment.clock,
             debugModel: shellDebugModel,
-            settings: NotchDisplaySettings(storage: CommandLine.arguments.contains("--ui-testing") ? nil : .standard)
+            settings: displaySettings
         )
         developerPanelModel = DeveloperPanelModel(
             services: environment.services,
@@ -87,7 +91,7 @@ public final class NotchiumApplicationController {
             logger: environment.logger
         )
 #else
-        displayCoordinator = NotchiumDisplayCoordinator(clock: environment.clock)
+        displayCoordinator = NotchiumDisplayCoordinator(clock: environment.clock, settings: displaySettings)
 #endif
         mediaModel = MediaSessionController(provider: environment.services.media,
                                        coordinator: displayCoordinator.presentationModel.activityCoordinator,
@@ -140,8 +144,6 @@ public final class NotchiumApplicationController {
             clock: environment.clock, uuids: environment.uuids)
         if environment.featureFlags[.teleprompter] {
             presentation.teleprompterRenderer = teleprompterModel
-        } else {
-            presentation.pageModel.enabledPages.removeAll { $0 == .teleprompter }
         }
         if environment.featureFlags[.clipboard] { presentation.clipboardRenderer = clipboardModel }
         if environment.featureFlags[.camera] { presentation.cameraController = cameraModel }
@@ -154,6 +156,9 @@ public final class NotchiumApplicationController {
         displayCoordinator.presentationModel.audioRenderer = audioModel
         displayCoordinator.presentationModel.caffeineController = caffeineModel
         teleprompterModel.openEditor = { [weak self] in self?.showTeleprompterEditor() }
+        teleprompterModel.readerIsAvailable = { [weak displayCoordinator] in
+            displayCoordinator?.settings.visiblePages.contains(.teleprompter) == true
+        }
         teleprompterModel.openReader = { [weak self] in
             self?.teleprompterEditor?.window?.orderOut(nil)
             self?.displayCoordinator.openForKeyboard(page: .teleprompter)
