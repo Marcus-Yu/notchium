@@ -57,6 +57,54 @@ private final class MockPanelController: NotchPanelControlling {
 
 @MainActor
 final class DisplayCoordinatorTests: XCTestCase {
+    func testPageVisibilityAppliesAcrossDisplaysAndSurvivesReload() throws {
+        let suite = "NotchPages.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = NotchDisplaySettings(storage: defaults)
+        settings.preferences.selection = .all
+        let external = externalDisplay()
+        let coordinator = NotchiumDisplayCoordinator(
+            clock: TestAppClock(now: Date()),
+            displaySource: MockDisplaySource(displays: [builtInDisplay(), external]),
+            panelControllerFactory: { _ in MockPanelController() },
+            settings: settings
+        )
+        coordinator.start()
+        defer { coordinator.stop() }
+
+        let primary = coordinator.presentationModel
+        let secondary = try XCTUnwrap(coordinator.presentationModel(for: external.id))
+        primary.pageModel.selectedPage = .teleprompter
+        secondary.pageModel.selectedPage = .teleprompter
+        coordinator.setPageVisible(.teleprompter, false)
+
+        for model in [primary, secondary] {
+            XCTAssertEqual(model.pageModel.selectedPage, .home)
+            XCTAssertFalse(model.pageModel.enabledPages.contains(.teleprompter))
+        }
+        XCTAssertEqual(NotchDisplaySettings(storage: defaults).visiblePages, settings.visiblePages)
+
+        coordinator.setPageVisible(.teleprompter, true)
+        XCTAssertEqual(primary.pageModel.enabledPages, NotchPage.allCases)
+        XCTAssertEqual(secondary.pageModel.enabledPages, NotchPage.allCases)
+        XCTAssertEqual(NotchDisplaySettings(storage: defaults).visiblePages, NotchPage.allCases)
+    }
+
+    func testPageVisibilityKeepsOnePageAndRespectsAvailability() {
+        let settings = NotchDisplaySettings(availablePages: [.home, .music])
+        let coordinator = NotchiumDisplayCoordinator(
+            clock: TestAppClock(now: Date()), displaySource: MockDisplaySource(displays: []),
+            panelControllerFactory: { _ in MockPanelController() }, settings: settings
+        )
+        coordinator.setPageVisible(.home, false)
+        coordinator.setPageVisible(.music, false)
+        coordinator.setPageVisible(.teleprompter, true)
+
+        XCTAssertEqual(settings.visiblePages, [.music])
+        XCTAssertEqual(coordinator.presentationModel.pageModel.selectedPage, .music)
+    }
+
     func testQueuedPresentationChangesCannotReshowASleepingPanelAndRestartRecovers() async {
         let panel = MockPanelController()
         let clock = TestAppClock(now: Date(), automaticallyAdvances: false)
