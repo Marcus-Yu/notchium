@@ -55,7 +55,7 @@ struct CaffeinePressButtonStyle: PrimitiveButtonStyle {
                         .accessibilityHidden(true)
                 }
                 .overlay {
-                    if isFocused {
+                    if isFocused, NSApplication.shared.isFullKeyboardAccessEnabled {
                         Circle().strokeBorder(.white, lineWidth: 2)
                             .padding(-3)
                             .allowsHitTesting(false)
