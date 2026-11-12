@@ -32,7 +32,8 @@ so feature views read `.tint` and never import page types.
 
 | Page | Tone | Where it shows |
 |---|---|---|
-| Home, Calendar | white (neutral) | Selected tab only. Calendar keeps its original white look; event dots use each calendar's own color |
+| Home | white (neutral) | Selected tab only |
+| Calendar | `red` on its tab only | Selected tab. The page keeps its original white look (`NotchPage.contentHue` is white); event dots use each calendar's own color |
 | Music | soft artwork accent, `rose` fallback | Tab, active shuffle/repeat, status glyphs. Play/Pause and progress stay white |
 | Focus Timer | `sky` | Tab only; the page keeps its original palette (soft blue, mint, lavender) |
 | Audio | `teal` | Current output glyph, selected device, sliders |
@@ -43,6 +44,8 @@ The selected tab shows its tone on a pill that slides between tabs. Selection is
 filled symbol variant and the VoiceOver selected trait, never by color alone. Unselected tabs and
 utility glyphs stay white. Active utilities use their own color: Mirror is soft green and Caffeine
 keeps its original orange.
+
+Caffeine shows its keyboard focus ring only when macOS Keyboard Navigation is enabled. Pointer use with Keyboard Navigation off leaves no white ring.
 
 ### Music accent
 
