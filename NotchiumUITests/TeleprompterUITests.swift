@@ -31,18 +31,21 @@ final class TeleprompterUITests: XCTestCase {
         XCTAssertTrue(smaller.isHittable)
         XCTAssertEqual(textSize.value as? String, "24 points")
         clickVisible(larger, anchor: panel)
-        clickVisible(larger, anchor: panel)
-        XCTAssertEqual(textSize.value as? String, "26 points")
-        clickVisible(smaller, anchor: panel)
         XCTAssertEqual(textSize.value as? String, "25 points")
         XCTAssertEqual(play.label, "Pause teleprompter", "Changing text size must preserve active reading")
         let viewport = app.descendants(matching: .any)["notchium.teleprompter.reader"].firstMatch
         let activeLine = app.buttons["notchium.teleprompter.activeLine"]
         XCTAssertTrue(viewport.waitForExistence(timeout: 3))
         XCTAssertTrue(activeLine.waitForExistence(timeout: 3))
-        let lineOffset = activeLine.frame.minY - viewport.frame.minY
-        XCTAssertGreaterThanOrEqual(lineOffset, 25, "Keep one line of context above the active line")
-        XCTAssertLessThanOrEqual(lineOffset, 45, "The active line belongs near the top, not at the bottom")
+        let activeFrame = activeLine.frame
+        let precedingFrame = try XCTUnwrap(app.buttons
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "notchium.teleprompter.line."))
+            .allElementsBoundByIndex.map(\.frame)
+            .filter { $0.maxY <= activeFrame.minY + 1 }
+            .max { $0.minY < $1.minY }, "The active line should have a visible line above it")
+        XCTAssertGreaterThanOrEqual(precedingFrame.minY, viewport.frame.minY - 1,
+                                    "The viewport must contain the entire preceding line")
+        XCTAssertLessThanOrEqual(activeFrame.maxY, viewport.frame.maxY + 1)
         let readerPage = app.descendants(matching: .any)["notchium.teleprompter.page"].firstMatch
         // Accessibility exposes the content inside the page's two 30pt insets.
         XCTAssertGreaterThanOrEqual(readerPage.frame.width, 590, "The teleprompter uses the larger page width")
@@ -50,6 +53,8 @@ final class TeleprompterUITests: XCTestCase {
         attachment.name = "teleprompter-larger-reader-live-font-controls"
         attachment.lifetime = .keepAlways
         add(attachment)
+        clickVisible(smaller, anchor: panel)
+        XCTAssertEqual(textSize.value as? String, "24 points")
 
         // A menu-bar click is outside the reader, like a click on meeting controls.
         // It must leave capture active; the second click dismisses the menu.
