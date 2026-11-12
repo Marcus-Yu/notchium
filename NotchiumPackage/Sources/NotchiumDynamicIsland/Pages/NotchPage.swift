@@ -31,12 +31,13 @@ public enum NotchPage: String, CaseIterable, Identifiable, Sendable {
 }
 
 public extension NotchPage {
-    /// The page's identity tone, applied to its content through `.tint`. Home and Calendar stay
-    /// neutral. Focus Timer uses its own palette's focus blue (`sky`). Music's live accent comes from
-    /// the artwork (`NotchMediaRendering.accentColor`), with this tone as the fallback.
+    /// The page's identity tone, shown on its tab when selected. Home stays neutral. Focus Timer
+    /// uses its own palette's focus blue (`sky`). Music's live accent comes from the artwork
+    /// (`NotchMediaRendering.accentColor`), with this tone as the fallback.
     var hue: Color {
         switch self {
-        case .home, .calendar: .white
+        case .home: .white
+        case .calendar: NotchPalette.red
         case .music: NotchPalette.rose
         case .pomodoro: NotchPalette.sky
         case .audio: NotchPalette.teal
@@ -44,4 +45,8 @@ public extension NotchPage {
         case .teleprompter: NotchPalette.sand
         }
     }
+
+    /// The tone applied to the page's own content through `.tint`. Calendar's red marks only its
+    /// tab; the page itself keeps its original neutral look.
+    var contentHue: Color { self == .calendar ? .white : hue }
 }
