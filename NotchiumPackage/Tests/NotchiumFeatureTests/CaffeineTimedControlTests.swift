@@ -223,6 +223,57 @@ final class CaffeineTimedControlTests: XCTestCase {
         XCTAssertEqual(try countdownInk(in: host, name: "off"), 0)
     }
 
+    func testPointerToggleOffDoesNotLeaveAKeyboardFocusRing() async throws {
+        guard !NSApplication.shared.isFullKeyboardAccessEnabled else {
+            throw XCTSkip("This regression exercises pointer use with keyboard navigation off")
+        }
+        let model = CaffeineControlModel(service: MockCaffeineService())
+        defer { model.stop() }
+        let host = NSHostingView(rootView: NotchCaffeineButton(controller: model)
+            .frame(width: 80, height: 80).background(.black))
+        let window = CaffeineFocusTestWindow(
+            contentRect: CGRect(x: -10000, y: -10000, width: 80, height: 80),
+            styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(host)
+        defer { window.close() }
+        host.layoutSubtreeIfNeeded()
+        try await Task.sleep(for: .milliseconds(100))
+        let input = try XCTUnwrap(pointerView(in: host))
+        let point = input.convert(NSPoint(x: 14, y: 14), to: nil)
+        for _ in 0..<2 {
+            let down = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: point,
+                modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                eventNumber: 0, clickCount: 1, pressure: 1))
+            let up = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseUp, location: point,
+                modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                eventNumber: 0, clickCount: 1, pressure: 0))
+            input.mouseDown(with: down)
+            input.mouseUp(with: up)
+            await settle(model)
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertEqual(model.mode, .off)
+        host.layoutSubtreeIfNeeded()
+        let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        let scale = Double(bitmap.pixelsWide) / 80
+        var focusRingPixels = 0
+        for y in 0..<bitmap.pixelsHigh {
+            for x in 0..<bitmap.pixelsWide {
+                let radius = hypot((Double(x) + 0.5) / scale - 40, (Double(y) + 0.5) / scale - 40)
+                guard (15...18).contains(radius),
+                      let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                if min(color.redComponent, color.greenComponent, color.blueComponent) > 0.7 {
+                    focusRingPixels += 1
+                }
+            }
+        }
+        XCTAssertEqual(focusRingPixels, 0, "Pointer toggles must not acquire an editing-style focus ring")
+    }
+
     private func pointerView(in view: NSView) -> CaffeinePointerInput.PressView? {
         if let input = view as? CaffeinePointerInput.PressView { return input }
         return view.subviews.lazy.compactMap { self.pointerView(in: $0) }.first
@@ -252,4 +303,8 @@ final class CaffeineTimedControlTests: XCTestCase {
         for _ in 0..<200 { await Task.yield() }
         XCTAssertFalse(model.isBusy)
     }
+}
+
+private final class CaffeineFocusTestWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
 }
