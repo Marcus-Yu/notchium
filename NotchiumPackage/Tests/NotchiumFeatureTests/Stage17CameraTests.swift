@@ -62,6 +62,27 @@ final class Stage17CameraTests: XCTestCase {
         XCTAssertEqual(denied.status, .denied)
     }
 
+    func testMirrorUsesRegularSizeAndClosingRestoresTeleprompter() {
+        let camera = CameraModel(service: MockCameraService(authorization: .denied), preferences: defaults())
+        let presentation = DynamicIslandPresentationModel()
+        presentation.cameraController = camera
+        presentation.present(.expanded, animated: false)
+        presentation.pageModel.selectedPage = .teleprompter
+        defer { presentation.reset() }
+
+        let readerSize = ExpandedNotchLayout.size(for: .teleprompter)
+        XCTAssertNotEqual(readerSize, ExpandedNotchLayout.size)
+        XCTAssertEqual(presentation.expandedContentSize, readerSize)
+
+        camera.togglePreview(source: presentation.cameraPresentationSource)
+        XCTAssertTrue(camera.isPreviewPresented)
+        XCTAssertEqual(presentation.expandedContentSize, ExpandedNotchLayout.size)
+        XCTAssertEqual(presentation.pageModel.selectedPage, .teleprompter)
+
+        camera.closePreview()
+        XCTAssertEqual(presentation.expandedContentSize, readerSize)
+    }
+
     func testCollapsingTheNotchStopsTheSession() async {
         let service = MockCameraService()
         let model = CameraModel(service: service, preferences: defaults())
