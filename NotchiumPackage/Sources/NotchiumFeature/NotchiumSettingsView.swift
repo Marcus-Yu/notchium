@@ -57,6 +57,7 @@ public struct NotchiumSettingsView: View {
             List(selection: $selection) {
                 Section("Notchium") {
                     categoryLink(.general)
+                    if displayCoordinator != nil { categoryLink(.notchPages) }
                     if onboarding != nil { categoryLink(.permissions) }
                 }
                 Section("Features") {
@@ -91,7 +92,7 @@ public struct NotchiumSettingsView: View {
     private var featureCategories: [SettingsCategory] {
         SettingsCategory.allCases.filter { category in
             switch category {
-            case .general, .permissions: false
+            case .general, .notchPages, .permissions: false
             case .home: quickActions != nil
             case .media: environment.services.media is RealMediaProvider || waveformAppearance != nil
             case .audio: audioMeter != nil || systemFeedback != nil
@@ -114,6 +115,8 @@ public struct NotchiumSettingsView: View {
         switch category {
         case .permissions:
             if let onboarding { PermissionsSettingsSection(model: onboarding) }
+        case .notchPages:
+            if let displayCoordinator { notchPageSettings(displayCoordinator) }
         case .general:
             if let displayCoordinator { NotchDisplaySettingsSection(coordinator: displayCoordinator) }
             if let menuBarInsertion {
@@ -152,6 +155,24 @@ public struct NotchiumSettingsView: View {
             if let caffeineModel {
                 LidAwakeSettingsSection(controller: caffeineModel.lidAwake)
             }
+        }
+    }
+
+    private func notchPageSettings(_ coordinator: NotchiumDisplayCoordinator) -> some View {
+        let settings = coordinator.settings
+        let visible = settings.visiblePages
+        return Section("Visible Pages") {
+            ForEach(settings.availablePages) { page in
+                Toggle(isOn: Binding(get: { settings.visiblePages.contains(page) },
+                                     set: { coordinator.setPageVisible(page, $0) })) {
+                    Label(page.title, systemImage: page.symbol)
+                }
+                .disabled(visible == [page])
+                .accessibilityIdentifier("notchium.settings.pages.\(page.rawValue)")
+            }
+            Text("These choices apply to every notch display. At least one page stays visible.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 }
