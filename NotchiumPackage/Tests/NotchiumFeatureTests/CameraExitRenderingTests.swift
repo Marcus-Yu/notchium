@@ -18,7 +18,6 @@ final class CameraExitRenderingTests: XCTestCase {
             try await fixture.openCamera()
 
             fixture.model.setHovered(false)
-            try await Task.sleep(for: .milliseconds(200))
             XCTAssertTrue(fixture.camera.isPreviewPresented, "The hover exit grace retains the preview")
             XCTAssertTrue(fixture.service.isRunning)
             try await Task.sleep(for: .milliseconds(400))
@@ -248,8 +247,11 @@ private final class CameraExitRenderingFixture {
             let channels = bytes.bindMemory(to: UInt8.self)
             var bottom = 0
             var red = 0
+            // The red mock page lives below the header; the selected tab shows its page tone
+            // (Calendar's soft red) and must not count as page content.
+            let pageTop = Int((layout.collapsedVisibleFrame.height + ExpandedNotchLayout.navigationHeight) * scale)
             for y in 0..<bitmap.pixelsHigh {
-                for x in 0..<bitmap.pixelsWide {
+                for x in 0..<bitmap.pixelsWide where y >= pageTop {
                     let offset = y * bytesPerRow + x * 4
                     if channels[offset] > 191, channels[offset + 1] < 102, channels[offset + 2] < 102 {
                         red += 1
