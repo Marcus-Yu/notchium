@@ -106,7 +106,7 @@ struct NotchPagesView: View {
     private var pages: some View {
         ZStack {
             VStack(spacing: 0) {
-                if teleprompterRenderer?.meetingSuggested == true {
+                if model.enabledPages.contains(.teleprompter), teleprompterRenderer?.meetingSuggested == true {
                     Button { model.selectedPage = .teleprompter } label: {
                         Label("In a meeting? Open Teleprompter", systemImage: "text.alignleft")
                             .font(.system(size: 11))
@@ -153,7 +153,7 @@ struct NotchPagesView: View {
                 }
             }
             .environment(\.notchCalendarPageVisible, pageVisible(.calendar))
-            .tint(hue(for: .calendar))
+            .tint(NotchPage.calendar.contentHue)
             .modifier(NotchPageVisibility(isVisible: model.selectedPage == .calendar))
             .disabled(model.selectedPage != .calendar)
             .allowsHitTesting(model.selectedPage == .calendar)
