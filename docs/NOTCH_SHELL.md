@@ -8,6 +8,8 @@ The shell uses public display APIs and native SwiftUI/AppKit presentation. The o
 
 ## Display and panel ownership
 
+Choose visible pages in **Settings → Notch Pages → Visible Pages**. Choices persist in the display settings and apply to every notch. Hiding the selected page moves to an available page, and at least one page must remain visible. Hidden pages are excluded from tab navigation and direct keyboard opening.
+
 `AppKitDisplaySource` reads every display into immutable snapshots. `NotchiumDisplayCoordinator` defaults to the built-in display, regardless of pointer position, active application or which monitor is primary. Settings → General → Displays offers the built-in display, all displays, or one connected monitor. A missing saved monitor temporarily falls back to the built-in display, then the primary/first available display; its public Core Graphics UUID remains saved for reconnection. With no screens, panels hide and the menu-bar fallback remains available.
 
 Each selected display owns a `NotchDisplaySession`, one `NotchiumPanelController`, and an independent `DynamicIslandPresentationModel`. Hover, expansion, page selection, auxiliary interaction and notification gestures stay local. One activity source owns identities and expiry timers; display projections apply fullscreen policy separately and forward dismissals to that source. Feature models and providers are reused. Music-page visibility is aggregated across presentations, so closing one display cannot mark another visible player as hidden.
@@ -61,7 +63,7 @@ older exit. Immediate dismissal and reset use the same ordering. Capture still s
 as closing begins, and ordinary pointer, pinning and exit-grace rules are unchanged.
 
 - Hover entry: 120 ms.
-- Hover leave grace: 500 ms. Content stays open during the grace; pointer re-entry cancels collapse, and another exit starts a fresh grace period.
+- Hover leave grace: 180 ms. Content stays open during the grace; pointer re-entry cancels collapse, and another exit starts a fresh grace period.
 - Click: pin immediately; second click collapses.
 - Pinned ignores pointer exit; outside click and Esc collapse.
 - Hover and click share one opening spring, `interactiveSpring(response: 0.42, dampingFraction: 0.72, blendDuration: 0)` (about 4% overshoot, the Dynamic Island's settle), and one closing spring, `interactiveSpring(response: 0.36, dampingFraction: 0.94, blendDuration: 0)`, which lands without bouncing past the hardware notch. Both drive shell geometry only. Pinning an already hovered shell does not start another morph.
