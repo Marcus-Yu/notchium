@@ -221,6 +221,7 @@ The feasibility basis and distribution consequences for each row are defined in 
 ### 5.13 Customizable pages
 
 - Users can enable, disable, and reorder available pages locally.
+- Settings → Notch Pages controls which pages appear on every notch display. Changes apply immediately and are saved across launches. Hiding the selected page switches to a visible page.
 - A page that loses a permission or capability remains configured but displays its denied/unavailable state.
 - At least one safe summary page is always available.
 - Page ordering is deterministic across launches and does not sync through cloud services.
