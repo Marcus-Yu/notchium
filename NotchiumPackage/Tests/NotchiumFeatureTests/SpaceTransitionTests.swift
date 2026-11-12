@@ -14,7 +14,7 @@ final class SpaceTransitionTests: XCTestCase {
         model.pageModel.selectedPage = .shelf
         model.setHovered(false)
         await clock.waitForPendingSleeps()
-        await clock.advance(by: .milliseconds(300))
+        await clock.advance(by: .milliseconds(100))
         await drainMainActorTasks()
         XCTAssertEqual(model.phase, .hovered, "The pointer has left, but the exit grace is still active")
 
@@ -43,7 +43,7 @@ final class SpaceTransitionTests: XCTestCase {
         XCTAssertEqual(model.pageModel.selectedPage, .calendar)
         model.setHovered(false)
         await clock.waitForPendingSleeps()
-        await clock.advance(by: .milliseconds(499))
+        await clock.advance(by: .milliseconds(179))
         await drainMainActorTasks()
         XCTAssertEqual(model.phase, .hovered, "A real exit after the swipe retains its normal grace")
         await clock.advance(by: .milliseconds(1))
