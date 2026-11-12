@@ -7,7 +7,6 @@ enum TeleprompterReaderStyle {
     /// The reading marker follows the Teleprompter page hue (`NotchPage.teleprompter.hue`).
     static let marker = NotchPalette.sand
 
-    // Speech updates retarget the current presentation; no timer predicts unread words.
-    static let wordFollow = Animation.smooth(duration: 0.24)
-    static let lineFollow = Animation.smooth(duration: 0.32)
+    // Reader motion is a pace-matched glide toward confirmed words (`TeleprompterGlide`);
+    // it eases to rest at the latest recognized word and never runs ahead of it.
 }
