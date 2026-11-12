@@ -21,6 +21,8 @@ public final class TeleprompterModel: NotchTeleprompterRendering {
     public var selectedScript: TeleprompterScript? { scripts.first { $0.id == selectedScriptID } }
     public var meetingSuggested: Bool { meetingSuggestion.isSuggested }
     public var isReading: Bool { session.isActive }
+    public var canOpenReader: Bool { readerIsAvailable() }
+    @ObservationIgnored public var readerIsAvailable: @MainActor () -> Bool = { true }
     @ObservationIgnored public var openEditor: @MainActor () -> Void = {}
     @ObservationIgnored public var openReader: @MainActor () -> Void = {}
     @ObservationIgnored private let store: any TeleprompterScriptStoring
@@ -167,7 +169,11 @@ public final class TeleprompterModel: NotchTeleprompterRendering {
     }
 
     public func editScripts() { session.pause(); openEditor() }
-    public func showReader() { guard selectedScript != nil else { return }; session.pause(); openReader() }
+    public func showReader() {
+        guard selectedScript != nil, canOpenReader else { return }
+        session.pause()
+        openReader()
+    }
     public func clearError() { errorMessage = nil }
     public func expandedTeleprompter(prepareToRead: @escaping @MainActor () -> Void) -> AnyView {
         AnyView(TeleprompterPage(model: self, prepareToRead: prepareToRead))
