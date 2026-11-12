@@ -47,8 +47,8 @@ struct TeleprompterPage: View {
                 .pickerStyle(.menu)
                 .buttonStyle(.borderless)
                 .font(.system(size: 13, weight: .semibold))
-                .fixedSize()
-                .frame(maxWidth: 260, alignment: .leading)
+                // A long script name truncates instead of running under the controls.
+                .frame(maxWidth: 300, alignment: .leading)
                 .disabled(model.session.isActive)
                 .help(model.session.isActive ? "Pause to change scripts" : "Choose a script")
                 .accessibilityIdentifier("notchium.teleprompter.script")
