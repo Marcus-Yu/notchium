@@ -20,6 +20,12 @@ public struct NotchDisplayPreferences: Codable, Equatable, Sendable {
 @MainActor
 @Observable
 public final class NotchDisplaySettings {
+    public let availablePages: [NotchPage]
+    public var visiblePages: [NotchPage] {
+        availablePages.filter { !hiddenPageIDs.contains($0.rawValue) }
+    }
+    private var hiddenPageIDs: Set<String>
+
     public var preferences: NotchDisplayPreferences {
         didSet {
             guard preferences != oldValue, let data = try? JSONEncoder().encode(preferences) else { return }
@@ -28,13 +34,33 @@ public final class NotchDisplaySettings {
     }
 
     private static let storageKey = "notchium.display.preferences.v1"
+    private static let hiddenPagesKey = "notchium.pages.hidden.v1"
     @ObservationIgnored private let storage: UserDefaults?
 
-    public init(storage: UserDefaults? = nil) {
+    public init(storage: UserDefaults? = nil, availablePages: [NotchPage] = NotchPage.allCases) {
         self.storage = storage
+        let ordered = NotchPage.allCases.filter(availablePages.contains)
+        self.availablePages = ordered.isEmpty ? [.home] : ordered
+        var hidden = Set(storage?.stringArray(forKey: Self.hiddenPagesKey) ?? [])
+        if let fallback = self.availablePages.first, self.availablePages.allSatisfy({ hidden.contains($0.rawValue) }) {
+            hidden.remove(fallback.rawValue)
+        }
+        hiddenPageIDs = hidden
         preferences = storage?.data(forKey: Self.storageKey)
             .flatMap { try? JSONDecoder().decode(NotchDisplayPreferences.self, from: $0) }
             ?? NotchDisplayPreferences()
+    }
+
+    func setPageVisible(_ page: NotchPage, _ visible: Bool) -> Bool {
+        guard availablePages.contains(page), visiblePages.contains(page) != visible else { return false }
+        if visible {
+            hiddenPageIDs.remove(page.rawValue)
+        } else {
+            guard visiblePages.count > 1 else { return false }
+            hiddenPageIDs.insert(page.rawValue)
+        }
+        storage?.set(hiddenPageIDs.sorted(), forKey: Self.hiddenPagesKey)
+        return true
     }
 }
 
