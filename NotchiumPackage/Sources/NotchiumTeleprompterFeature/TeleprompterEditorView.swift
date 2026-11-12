@@ -140,7 +140,8 @@ public struct TeleprompterEditorView: View {
                 .disabled(editingDisabled)
         }
         Button("Open Reader", action: model.showReader)
-            .disabled(editingDisabled || model.selectedScriptID == nil || hasUnsavedChanges)
+            .disabled(editingDisabled || model.selectedScriptID == nil || hasUnsavedChanges || !model.canOpenReader)
+            .help(model.canOpenReader ? "Open the script in the notch." : "Show Teleprompter in Settings → Notch Pages.")
             .accessibilityIdentifier("notchium.teleprompter.openReader")
         Button("Save Script", action: model.saveDraft)
             .buttonStyle(.borderedProminent)
