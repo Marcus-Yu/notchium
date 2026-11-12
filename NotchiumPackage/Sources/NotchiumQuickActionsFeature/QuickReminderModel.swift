@@ -177,8 +177,9 @@ import Observation
 
     var effectiveTitle: String {
         let raw = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        // A confidently parsed empty title is temporal-only, not a reminder title.
-        return parser.parse(raw, now: referenceDate, calendar: calendar)?.title ?? raw
+        guard let parsed = parser.parse(raw, now: referenceDate, calendar: calendar),
+              !parsed.title.isEmpty else { return raw }
+        return parsed.title
     }
 
     var selectedList: ReminderList? {
