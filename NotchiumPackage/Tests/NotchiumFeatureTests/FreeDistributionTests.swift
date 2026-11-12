@@ -14,7 +14,7 @@ struct FreeDistributionTests {
     }
 
     /// Closed-lid Caffeine ships in both direct builds. The free build is ad-hoc signed, so each
-    /// side verifies the other by identifier (the helper additionally by containing bundle); the
+    /// side verifies the other by identifier (the helper additionally by the app build's hash); the
     /// Developer ID build keeps the Apple-anchored team requirement.
     @Test @MainActor func closedLidHelperMatchesTheProfileTrustModel() {
         let requirement = LidAwakeIdentity.requirement(identifier: LidAwakeIdentity.app)
