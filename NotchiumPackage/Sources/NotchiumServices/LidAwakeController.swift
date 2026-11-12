@@ -21,7 +21,7 @@ public final class LidAwakeController {
     @ObservationIgnored private let service = SMAppService.daemon(plistName: "com.marcusyu.notchium.lid-awake.plist")
 
     /// Both direct builds ship the helper (Developer ID verifies it by team signature, the free
-    /// ad-hoc build by identifier and containing bundle). The sandboxed App Store build cannot.
+    /// ad-hoc build by identifier and app build hash). The sandboxed App Store build cannot.
     public var isAvailableInThisBuild: Bool { DistributionProfile.current != .appStoreSandboxed }
 
     public init() {
